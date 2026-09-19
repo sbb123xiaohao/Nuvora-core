@@ -222,8 +222,10 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = -NV_EINVAL;
             break;
         }
-        if (!user_range(current->pd, c, a == NV_USB_CONTROLLERS ?
-                         sizeof(struct nv_usb_controller) : sizeof(struct nv_usb_device), true)) {
+        if (!user_range(current->pd, c,
+                        a == NV_USB_CONTROLLERS ? sizeof(struct nv_usb_controller)
+                                                : sizeof(struct nv_usb_device),
+                        true)) {
             result = -NV_EFAULT;
             break;
         }
@@ -237,6 +239,52 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = usb_device_info(b, &item);
             if (result > 0)
                 memcpy((void *)(uptr)c, &item, sizeof(item));
+        }
+        break;
+    case NV_HARDWARE:
+        if ((a != NV_HW_CPU && a != NV_HW_GPU && a != NV_HW_PLATFORM) ||
+            ((a == NV_HW_CPU || a == NV_HW_PLATFORM) ? b != 0 : b >= NV_GPU_MAX)) {
+            result = -NV_EINVAL;
+            break;
+        }
+        u32 hardware_size = a == NV_HW_CPU       ? sizeof(struct nv_cpu_info)
+                            : a == NV_HW_GPU     ? sizeof(struct nv_gpu_info)
+                                                : sizeof(struct nv_platform_info);
+        if (!user_range(current->pd, c, hardware_size, true)) {
+            result = -NV_EFAULT;
+            break;
+        }
+        if (a == NV_HW_CPU) {
+            struct nv_cpu_info item;
+            cpu_get_info(&item);
+            memcpy((void *)(uptr)c, &item, sizeof(item));
+            result = 1;
+        } else if (a == NV_HW_GPU) {
+            struct nv_gpu_info item;
+            result = gpu_get_info(b, &item);
+            if (result > 0)
+                memcpy((void *)(uptr)c, &item, sizeof(item));
+        } else {
+            struct nv_platform_info item;
+            acpi_get_info(&item);
+            memcpy((void *)(uptr)c, &item, sizeof(item));
+            result = 1;
+        }
+        break;
+    case NV_DEVCTL:
+        switch (a) {
+        case NV_SUB_CPU:
+            result = cpu_ioctl(b, c);
+            break;
+        case NV_SUB_GPU:
+            result = gpu_ioctl(b, c);
+            break;
+        case NV_SUB_NET:
+            result = -NV_ENOSYS; /* Known reserved subsystem, not an unknown ID. */
+            break;
+        default:
+            result = -NV_EINVAL;
+            break;
         }
         break;
     case NV_CONTROL:

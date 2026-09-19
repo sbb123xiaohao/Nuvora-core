@@ -17,6 +17,7 @@ _start:
     cld
     mov $boot_stack_top, %esp
     xor %ebp, %ebp
+    call boot_cpu_check
     push %ebx
     push %eax
     call kernel_main
@@ -24,4 +25,5 @@ _start:
     hlt
     jmp 1b
 .size _start,.-_start
+#include "../cpu_boot.inc"
 .section .note.GNU-stack,"",@progbits

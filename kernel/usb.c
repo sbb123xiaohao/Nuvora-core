@@ -1,16 +1,21 @@
-#include "kernel.h"
+﻿#include "kernel.h"
 
 /* Original, bounded xHCI driver. All DMA memory is page-aligned and below 4 GiB.
  * Polling runs in kernel thread/syscall context, never in an interrupt handler.
  * Device DMA pages are released only after Disable Slot has completed. */
 #define MMIO_SIZE 65536u
+#define USB_DMA_LIMIT 0x100000000ull /* conservative DMA mask, like Linux dma_alloc_coherent */
 #define MAX_PORTS 32u
 #define MAX_SCRATCH 32u
 #define RING_TRBS 256u
 #define TYPE(n) ((u32)(n) << 10)
 #define PORT_CHANGES 0x00fe0000u
-struct trb { u32 low, high, status, control; };
-struct ring { u32 page, index, cycle; };
+struct trb {
+    u32 low, high, status, control;
+};
+struct ring {
+    u32 page, index, cycle;
+};
 struct host {
     struct nv_usb_controller info;
     volatile u8 *mmio;
@@ -39,7 +44,9 @@ static struct device devices[NV_USB_DEVICE_MAX];
 static u32 host_count, last_scan;
 static bool initialized, busy;
 
-static void barrier(void) { __asm__ volatile("" ::: "memory"); }
+static void barrier(void) {
+    __asm__ volatile("" ::: "memory");
+}
 static u32 read32(struct host *h, u32 offset) {
     return *(volatile u32 *)(h->mmio + offset);
 }
@@ -49,14 +56,6 @@ static void write32(struct host *h, u32 offset, u32 value) {
 static void write64(struct host *h, u32 offset, u64 value) {
     write32(h, offset, (u32)value);
     write32(h, offset + 4, (u32)(value >> 32));
-}
-static u32 pci_read(u32 address, u32 offset) {
-    outl(0xcf8, 0x80000000u | address | (offset & 0xfcu));
-    return inl(0xcfc);
-}
-static void pci_write16(u32 address, u32 offset, u16 value) {
-    outl(0xcf8, 0x80000000u | address | (offset & 0xfcu));
-    outw(0xcfc + (offset & 2), value);
 }
 static void delay_ms(u32 ms) {
     u32 start = ticks, duration = (ms + 9) / 10;
@@ -90,18 +89,18 @@ static void host_failed(struct host *h) {
 }
 static bool ring_init(struct ring *r) {
     if (!r->page)
-        r->page = page_alloc();
+        r->page = page_alloc_below(USB_DMA_LIMIT);
     if (!r->page)
         return false;
-    memset((void *)(uptr)r->page, 0, PAGE);
+    memset(phys_ptr(r->page), 0, PAGE);
     r->index = 0;
     r->cycle = 1;
-    struct trb *t = (void *)(uptr)r->page;
+    struct trb *t = phys_ptr(r->page);
     t[RING_TRBS - 1] = (struct trb){r->page, 0, 0, TYPE(6) | 2};
     return true;
 }
 static u32 ring_put(struct ring *r, u32 low, u32 high, u32 status, u32 control) {
-    volatile struct trb *t = (void *)(uptr)r->page;
+    volatile struct trb *t = phys_ptr(r->page);
     if (r->index == RING_TRBS - 1) {
         t[r->index].control = TYPE(6) | 2 | r->cycle;
         r->cycle ^= 1;
@@ -119,7 +118,7 @@ static u32 ring_put(struct ring *r, u32 low, u32 high, u32 status, u32 control) 
 static void keyboard_arm(struct device *d) {
     if (d->dead || !d->keyboard_ep || d->host->info.state != NV_USB_RUNNING)
         return;
-    memset((void *)(uptr)d->report_page, 0, 8);
+    memset(phys_ptr(d->report_page), 0, 8);
     d->interrupt_wait = ring_put(&d->interrupt, d->report_page, 0, 8, TYPE(1) | (1u << 5));
     barrier();
     write32(d->host, d->host->doorbell + d->slot * 4, d->keyboard_ep);
@@ -128,7 +127,7 @@ static void keyboard_report(struct device *d, u32 remaining) {
     if (remaining > 0)
         return; /* A boot-keyboard report is exactly eight bytes. */
     barrier();
-    const u8 *report = (void *)(uptr)d->report_page;
+    const u8 *report = phys_ptr(d->report_page);
     for (u32 i = 2; i < 8; ++i)
         if (report[i] >= 1 && report[i] <= 3)
             return; /* Rollover/POST error, not a list of real key presses. */
@@ -158,7 +157,7 @@ static void keyboard_report(struct device *d, u32 remaining) {
 static void events(struct host *h) {
     if (h->info.state != NV_USB_RUNNING)
         return;
-    volatile struct trb *ring = (void *)(uptr)h->event_page;
+    volatile struct trb *ring = phys_ptr(h->event_page);
     for (u32 count = 0; count < RING_TRBS; ++count) {
         volatile struct trb *e = &ring[h->event_index];
         if ((e->control & 1) != h->event_cycle)
@@ -239,19 +238,17 @@ static int control(struct device *d, u8 request_type, u8 request, u16 value, u16
     struct host *h = d->host;
     bool in = (request_type & 128) != 0;
     if (in)
-        memset((void *)(uptr)d->buffer, 0, length);
+        memset(phys_ptr(d->buffer), 0, length);
     u32 setup_low = request_type | ((u32)request << 8) | ((u32)value << 16);
     u32 setup_high = index | ((u32)length << 16);
     ring_put(&d->control, setup_low, setup_high, 8,
-             TYPE(2) | (1u << 6) | (length ? 1u << 4 : 0) |
-                 (length ? (in ? 3u : 2u) << 16 : 0));
+             TYPE(2) | (1u << 6) | (length ? 1u << 4 : 0) | (length ? (in ? 3u : 2u) << 16 : 0));
     if (length)
-        ring_put(&d->control, d->buffer, 0, length, TYPE(3) | (1u << 4) |
-                 (in ? 1u << 16 : 0));
+        ring_put(&d->control, d->buffer, 0, length, TYPE(3) | (1u << 4) | (in ? 1u << 16 : 0));
     h->transfer_code = h->short_left = 0;
     h->transfer_slot = d->slot;
-    h->transfer_wait = ring_put(&d->control, 0, 0, 0,
-                                TYPE(4) | (1u << 5) | ((!length || !in) ? 1u << 16 : 0));
+    h->transfer_wait =
+        ring_put(&d->control, 0, 0, 0, TYPE(4) | (1u << 5) | ((!length || !in) ? 1u << 16 : 0));
     barrier();
     write32(h, h->doorbell + d->slot * 4, 1);
     u32 start = ticks;
@@ -271,12 +268,12 @@ static int control(struct device *d, u8 request_type, u8 request, u16 value, u16
     return (int)(length - MIN((u32)length, h->short_left));
 }
 static u32 *input_context(struct device *d, u32 index) {
-    return (void *)(uptr)(d->input + index * d->host->context_size);
+    return phys_ptr(d->input + index * d->host->context_size);
 }
 static void slot_context(struct device *d, u32 entries) {
     u32 *slot = input_context(d, 1);
-    slot[0] = d->route | (d->info.speed << 20) | (entries << 27) |
-              (d->hub_ports ? 1u << 26 : 0) | (d->multi_tt ? 1u << 25 : 0);
+    slot[0] = d->route | (d->info.speed << 20) | (entries << 27) | (d->hub_ports ? 1u << 26 : 0) |
+              (d->multi_tt ? 1u << 25 : 0);
     slot[1] = (d->root_port << 16) | (d->hub_ports << 24);
     slot[2] = d->tt | (d->hub_ttt << 16);
 }
@@ -290,7 +287,7 @@ static void string_descriptor(struct device *d, u8 index, u16 language, char *ou
     int received = descriptor(d, 3, index, language, 255);
     if (received < 2)
         return;
-    const u8 *s = (void *)(uptr)d->buffer;
+    const u8 *s = phys_ptr(d->buffer);
     u32 length = s[0];
     if (s[1] != 3 || length < 2 || length > (u32)received || (length & 1))
         return;
@@ -304,9 +301,9 @@ static void string_descriptor(struct device *d, u8 index, u16 language, char *ou
 static int configure_keyboard(struct device *d) {
     if (!d->keyboard_ep)
         return 0;
-    if (!ring_init(&d->interrupt) || !(d->report_page = page_alloc()))
+    if (!ring_init(&d->interrupt) || !(d->report_page = page_alloc_below(USB_DMA_LIMIT)))
         return -NV_ENOMEM;
-    memset((void *)(uptr)d->input, 0, PAGE);
+    memset(phys_ptr(d->input), 0, PAGE);
     input_context(d, 0)[1] = 1 | (1u << d->keyboard_ep);
     slot_context(d, d->keyboard_ep);
     u32 *ep = input_context(d, d->keyboard_ep + 1);
@@ -340,14 +337,14 @@ static int configure_hub(struct device *d) {
     bool superspeed = d->info.speed >= 4;
     if (control(d, 0xa0, 6, superspeed ? 0x2a00 : 0x2900, 0, 12) < 7)
         return -NV_EIO;
-    const u8 *data = (void *)(uptr)d->buffer;
+    const u8 *data = phys_ptr(d->buffer);
     if (data[1] != (superspeed ? 0x2a : 0x29) || data[0] < 7 || !data[2] || data[2] > 15)
         return -NV_EINVAL;
     d->hub_ports = data[2];
     d->hub_ttt = d->info.speed == 3 ? (data[3] >> 5) & 3 : 0;
     d->multi_tt = d->info.speed == 3 && d->info.protocol == 2;
     u32 power_delay = data[5] * 2;
-    memset((void *)(uptr)d->input, 0, PAGE);
+    memset(phys_ptr(d->input), 0, PAGE);
     input_context(d, 0)[1] = 1;
     slot_context(d, 1);
     if (command(d->host, 12, d->input, d->slot << 24) < 0)
@@ -365,7 +362,7 @@ static int identify(struct device *d) {
     u8 desc[18];
     if (descriptor(d, 1, 0, 0, 8) < 8)
         return -NV_EIO;
-    memcpy(desc, (void *)(uptr)d->buffer, 8);
+    memcpy(desc, phys_ptr(d->buffer), 8);
     if (desc[0] != 18 || desc[1] != 1)
         return -NV_EINVAL;
     u32 packet = d->info.speed >= 4 ? (desc[7] == 9 ? 512u : 0) : desc[7];
@@ -373,7 +370,7 @@ static int identify(struct device *d) {
         (d->info.speed == 2 && packet != 8) || (d->info.speed == 3 && packet != 64))
         return -NV_EINVAL;
     if (packet != d->max_packet) {
-        memset((void *)(uptr)d->input, 0, PAGE);
+        memset(phys_ptr(d->input), 0, PAGE);
         input_context(d, 0)[1] = 2;
         input_context(d, 2)[1] = packet << 16;
         if (command(d->host, 13, d->input, d->slot << 24) < 0)
@@ -382,7 +379,7 @@ static int identify(struct device *d) {
     }
     if (descriptor(d, 1, 0, 0, sizeof(desc)) < (int)sizeof(desc))
         return -NV_EIO;
-    memcpy(desc, (void *)(uptr)d->buffer, sizeof(desc));
+    memcpy(desc, phys_ptr(d->buffer), sizeof(desc));
     d->info.vendor = desc[8] | ((u32)desc[9] << 8);
     d->info.product = desc[10] | ((u32)desc[11] << 8);
     d->info.usb_version = desc[2] | ((u32)desc[3] << 8);
@@ -392,7 +389,7 @@ static int identify(struct device *d) {
     d->info.state = NV_USB_IDENTIFIED;
     if (!desc[17] || descriptor(d, 2, 0, 0, 9) < 9)
         return -NV_EIO;
-    const u8 *cfg = (void *)(uptr)d->buffer;
+    const u8 *cfg = phys_ptr(d->buffer);
     u32 length = cfg[2] | ((u32)cfg[3] << 8);
     if (cfg[0] != 9 || cfg[1] != 2 || length < 9 || length > PAGE || !cfg[5])
         return -NV_EINVAL;
@@ -411,8 +408,8 @@ static int identify(struct device *d) {
         if (cfg[off + 1] == 4) {
             if (len < 9)
                 return -NV_EINVAL;
-            keyboard_interface = cfg[off + 3] == 0 && cfg[off + 5] == 3 &&
-                                 cfg[off + 6] == 1 && cfg[off + 7] == 1;
+            keyboard_interface =
+                cfg[off + 3] == 0 && cfg[off + 5] == 3 && cfg[off + 6] == 1 && cfg[off + 7] == 1;
             interface_number = cfg[off + 2];
             if (first_interface && !d->info.class_code) {
                 d->info.class_code = cfg[off + 5];
@@ -424,8 +421,8 @@ static int identify(struct device *d) {
             if (len < 7)
                 return -NV_EINVAL;
             u32 ep = cfg[off + 2], size = cfg[off + 4] | ((u32)cfg[off + 5] << 8);
-            if (keyboard_interface && !d->keyboard_ep && (ep & 0x80) && (ep & 15) &&
-                !(ep & 0x70) && (cfg[off + 3] & 3) == 3 && size >= 8 && size <= 64) {
+            if (keyboard_interface && !d->keyboard_ep && (ep & 0x80) && (ep & 15) && !(ep & 0x70) &&
+                (cfg[off + 3] & 3) == 3 && size >= 8 && size <= 64) {
                 d->keyboard_ep = (ep & 15) * 2 + 1;
                 d->keyboard_interface = interface_number;
                 d->keyboard_packet = size;
@@ -436,7 +433,7 @@ static int identify(struct device *d) {
     }
     u16 language = 0x0409;
     if ((desc[14] || desc[15] || desc[16]) && descriptor(d, 3, 0, 0, 255) >= 4) {
-        const u8 *s = (void *)(uptr)d->buffer;
+        const u8 *s = phys_ptr(d->buffer);
         if (s[1] == 3 && s[0] >= 4)
             language = s[2] | ((u16)s[3] << 8);
     }
@@ -463,9 +460,9 @@ static bool remove_device(struct device *d) {
         host_failed(d->host);
         return false;
     }
-    ((u64 *)(uptr)d->host->dcbaa)[d->slot] = 0;
-    u32 pages[] = {d->input, d->output, d->buffer, d->control.page,
-                   d->interrupt.page, d->report_page};
+    ((u64 *)phys_ptr(d->host->dcbaa))[d->slot] = 0;
+    u32 pages[] = {d->input,        d->output,         d->buffer,
+                   d->control.page, d->interrupt.page, d->report_page};
     for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
         if (pages[i])
             page_free(pages[i]);
@@ -482,7 +479,10 @@ static struct device *at_port(struct host *h, u32 parent, u32 port) {
 static int attach(struct host *h, struct device *parent, u32 port, u32 speed) {
     struct device *d = NULL;
     for (u32 i = 0; i < ARRAY_LEN(devices); ++i)
-        if (!devices[i].slot) { d = &devices[i]; break; }
+        if (!devices[i].slot) {
+            d = &devices[i];
+            break;
+        }
     if (!d)
         return -NV_ENOSPC;
     int slot = command(h, 9, 0, h->slot_type[parent ? parent->root_port - 1 : port - 1] << 16);
@@ -498,12 +498,13 @@ static int attach(struct host *h, struct device *parent, u32 port, u32 speed) {
     d->root_port = parent ? parent->root_port : port;
     d->depth = parent ? parent->depth + 1 : 0;
     d->route = parent ? parent->route | (port << (4 * parent->depth)) : 0;
-    d->tt = parent ? ((speed <= 2 && parent->info.speed == 3) ?
-                      parent->slot | (port << 8) : parent->tt) : 0;
+    d->tt =
+        parent ? ((speed <= 2 && parent->info.speed == 3) ? parent->slot | (port << 8) : parent->tt)
+               : 0;
     d->max_packet = speed >= 4 ? 512 : speed == 3 ? 64 : 8;
-    d->input = page_alloc();
-    d->output = page_alloc();
-    d->buffer = page_alloc();
+    d->input = page_alloc_below(USB_DMA_LIMIT);
+    d->output = page_alloc_below(USB_DMA_LIMIT);
+    d->buffer = page_alloc_below(USB_DMA_LIMIT);
     int result = -NV_ENOMEM;
     if (!d->input || !d->output || !d->buffer || !ring_init(&d->control))
         goto fail;
@@ -513,25 +514,29 @@ static int attach(struct host *h, struct device *parent, u32 port, u32 speed) {
     ep[1] = (3u << 1) | (4u << 3) | (d->max_packet << 16);
     ep[2] = d->control.page | 1;
     ep[4] = 8;
-    ((u64 *)(uptr)h->dcbaa)[d->slot] = d->output;
+    ((u64 *)phys_ptr(h->dcbaa))[d->slot] = d->output;
     barrier();
     result = command(h, 11, d->input, d->slot << 24);
     if (result < 0)
         goto fail;
-    d->info.address = ((volatile u32 *)(uptr)d->output)[3] & 255;
+    d->info.address = ((volatile u32 *)phys_ptr(d->output))[3] & 255;
     result = identify(d);
     if (result < 0)
         goto fail;
-    kprintf("[usb] %u:%u address=%u id=%x:%x %s\n", (u32)(h - hosts), port,
-            d->info.address, d->info.vendor, d->info.product, d->info.product_name);
+    kprintf("[usb] %u:%u address=%u id=%x:%x %s\n", (u32)(h - hosts), port, d->info.address,
+            d->info.vendor, d->info.product, d->info.product_name);
     return 0;
 fail:
     kprintf("[usb] %u:%u enumeration failed (%d)\n", (u32)(h - hosts), port, result);
     remove_device(d);
     return result;
 }
-static u32 port_offset(struct host *h, u32 port) { return h->op + 0x400 + (port - 1) * 16; }
-static u32 port_preserve(u32 value) { return value & ((1u << 9) | (3u << 14) | (7u << 25)); }
+static u32 port_offset(struct host *h, u32 port) {
+    return h->op + 0x400 + (port - 1) * 16;
+}
+static u32 port_preserve(u32 value) {
+    return value & ((1u << 9) | (3u << 14) | (7u << 25));
+}
 static int reset_root_port(struct host *h, u32 port) {
     u32 off = port_offset(h, port);
     delay_ms(100); /* Attach debounce. */
@@ -552,7 +557,7 @@ static int reset_root_port(struct host *h, u32 port) {
 static int hub_status(struct device *d, u32 port, u32 *status) {
     if (control(d, 0xa3, 0, 0, (u16)port, 4) < 4)
         return -NV_EIO;
-    memcpy(status, (void *)(uptr)d->buffer, 4);
+    memcpy(status, phys_ptr(d->buffer), 4);
     return 0;
 }
 static void hub_clear_changes(struct device *d, u32 port, u32 status) {
@@ -592,8 +597,10 @@ static void scan_hub(struct device *hub) {
         if ((state & 3) != 3 || (state & (1u << 4)))
             continue;
         delay_ms(10);
-        u32 speed = hub->info.speed >= 4 ? hub->info.speed :
-                    (state & (1u << 9)) ? 2 : (state & (1u << 10)) ? 3 : 1;
+        u32 speed = hub->info.speed >= 4   ? hub->info.speed
+                    : (state & (1u << 9))  ? 2
+                    : (state & (1u << 10)) ? 3
+                                           : 1;
         attach(hub->host, hub, port, speed);
     }
     /* Walk children explicitly: recycled device slots need not be in tree order. */
@@ -696,24 +703,24 @@ static bool init_host(struct host *h) {
     h->scratch_count = ((hcs2 >> 27) & 31) | (((hcs2 >> 21) & 31) << 5);
     if (h->scratch_count > MAX_SCRATCH)
         return false;
-    h->dcbaa = page_alloc();
-    h->event_page = page_alloc();
-    h->erst = page_alloc();
+    h->dcbaa = page_alloc_below(USB_DMA_LIMIT);
+    h->event_page = page_alloc_below(USB_DMA_LIMIT);
+    h->erst = page_alloc_below(USB_DMA_LIMIT);
     if (!h->dcbaa || !h->event_page || !h->erst || !ring_init(&h->command))
         return false;
     if (h->scratch_count) {
-        h->scratch_array = page_alloc();
+        h->scratch_array = page_alloc_below(USB_DMA_LIMIT);
         if (!h->scratch_array)
             return false;
-        ((u64 *)(uptr)h->dcbaa)[0] = h->scratch_array;
+        ((u64 *)phys_ptr(h->dcbaa))[0] = h->scratch_array;
         for (u32 i = 0; i < h->scratch_count; ++i) {
-            h->scratch[i] = page_alloc();
+            h->scratch[i] = page_alloc_below(USB_DMA_LIMIT);
             if (!h->scratch[i])
                 return false;
-            ((u64 *)(uptr)h->scratch_array)[i] = h->scratch[i];
+            ((u64 *)phys_ptr(h->scratch_array))[i] = h->scratch[i];
         }
     }
-    u32 *erst = (void *)(uptr)h->erst;
+    u32 *erst = phys_ptr(h->erst);
     erst[0] = h->event_page;
     erst[2] = RING_TRBS;
     h->event_cycle = 1;
@@ -738,41 +745,38 @@ static bool init_host(struct host *h) {
         return false;
     return command(h, 23, 0, 0) >= 0;
 }
+static void discover_host(u32 address, u32 id, u32 cls) {
+    if ((cls >> 16) != 0x0c03 || host_count == NV_USB_CONTROLLER_MAX)
+        return;
+    struct host *h = &hosts[host_count++];
+    h->pci = address;
+    h->info = (struct nv_usb_controller){(address >> 16) & 255,
+                                         (address >> 11) & 31,
+                                         (address >> 8) & 7,
+                                         id & 0xffff,
+                                         id >> 16,
+                                         (cls >> 8) & 255,
+                                         0,
+                                         NV_USB_UNSUPPORTED};
+    if (h->info.interface == 0x30 && !init_host(h)) {
+        if (h->info.state == NV_USB_RUNNING)
+            host_failed(h);
+        else if (h->info.state != NV_USB_FAILED) {
+            /* Initialization failed before any DMA pointers were published. */
+            u32 pages[] = {h->dcbaa, h->event_page, h->erst, h->scratch_array, h->command.page};
+            for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
+                if (pages[i])
+                    page_free(pages[i]);
+            for (u32 i = 0; i < MIN(h->scratch_count, MAX_SCRATCH); ++i)
+                if (h->scratch[i])
+                    page_free(h->scratch[i]);
+        }
+        h->info.state = NV_USB_FAILED;
+    }
+}
 void usb_init(void) {
     busy = true;
-    for (u32 bus = 0; bus < 256; ++bus)
-        for (u32 dev = 0; dev < 32; ++dev) {
-            u32 base = (bus << 16) | (dev << 11);
-            if ((pci_read(base, 0) & 0xffff) == 0xffff)
-                continue;
-            u32 functions = pci_read(base, 0x0c) & (1u << 23) ? 8 : 1;
-            for (u32 fn = 0; fn < functions; ++fn) {
-                u32 address = base | (fn << 8), id = pci_read(address, 0), cls = pci_read(address, 8);
-                if ((id & 0xffff) == 0xffff || (cls >> 16) != 0x0c03 ||
-                    host_count == NV_USB_CONTROLLER_MAX)
-                    continue;
-                struct host *h = &hosts[host_count++];
-                h->pci = address;
-                h->info = (struct nv_usb_controller){bus, dev, fn, id & 0xffff, id >> 16,
-                                                      (cls >> 8) & 255, 0, NV_USB_UNSUPPORTED};
-                if (h->info.interface == 0x30 && !init_host(h)) {
-                    if (h->info.state == NV_USB_RUNNING)
-                        host_failed(h);
-                    else if (h->info.state != NV_USB_FAILED) {
-                        /* Initialization failed before any DMA pointers were published. */
-                        u32 pages[] = {h->dcbaa, h->event_page, h->erst,
-                                       h->scratch_array, h->command.page};
-                        for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
-                            if (pages[i])
-                                page_free(pages[i]);
-                        for (u32 i = 0; i < MIN(h->scratch_count, MAX_SCRATCH); ++i)
-                            if (h->scratch[i])
-                                page_free(h->scratch[i]);
-                    }
-                    h->info.state = NV_USB_FAILED;
-                }
-            }
-        }
+    pci_visit(discover_host);
     initialized = true;
     scan();
     busy = false;

@@ -7,6 +7,9 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `help [COMMAND]` | 列出命令或说明一个命令 | `help ports` |
 | `atlas [COMMAND]` | `help` 的兼容别名 | `atlas folio` |
 | `origin` | 显示内核版本、架构和 ABI | `origin` |
+| `silicon` | 查看 CPU 身份、启用的指令状态和兼容限制 | `silicon --help` |
+| `firmament` | 查看 ACPI 根表、MCFG、PCIe ECAM 范围和 CF8 回退 | `firmament --help` |
+| `prism` | 查看 PCI/PCIe 显卡、NVIDIA 标识、BAR 和扩展能力 | `prism --help` |
 | `horizon` | 显示内存、进程和数据盘状态 | `horizon` |
 | `ports [--scan]` | 查看 PCI USB 控制器、设备描述符、Hub 和键盘状态 | `ports --scan` |
 | `where` | 查看当前目录 | `where` |
@@ -61,3 +64,11 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | Ctrl-Q | 关闭；有未保存内容时必须选择保存或放弃 |
 
 保存采用临时文件完整写入后再替换目标文件；F2 / `Ctrl-S` 保存后自动提交 `/home` 快照。导出的 `.rtf` 使用 Word 可读取的 RTF 控制字，包含标题字号、字体样式、段落对齐、行距、项目符号、分页和页码字段。Folio 当前读取纯文本和本地 `.nvd`，暂不解析外部 `.docx` 或 `.rtf`。
+
+## CPU / 平台 / 显卡诊断
+
+`forge vector` 运行 x87/MMX/SSE 进程隔离与 EXEC 测试；成功显示 `VECTOR RESULT: PASS`。`silicon` 区分 CPU 原始功能与内核已启用状态。`firmament` 显示经过校验的 ACPI 根表、MCFG 项和当前 PCI 配置方式；在 q35 上可看到 4096 字节 ECAM，在传统 pc 机型上保留 256 字节 CF8/CFC。启动参数 `nv.no-ecam=1` 或 `python3 start.py --machine q35 --no-ecam` 强制使用回退路径。
+
+`prism` 只读输出显卡启动快照，并在 ECAM 可用时解析 AER、ACS、ATS、SR-IOV、Resizable BAR、PASID 与 DPC 标记；这些标记不表示对应功能已经启用，也不会加载 NVIDIA 驱动。所有 31 个命令支持 `--help`，8 个内置程序支持 `forge APP --help`。硬件边界见 [CPU-GPU.md](CPU-GPU.md)。
+
+`forge probe devctl` 定向验证设备控制接口，`forge probe --help` 查看说明；`trial` 继续执行包含它在内的完整用户态回归。DEVCTL 本身是程序接口；0.6.0 新增的 Loom 命令只有 `firmament`，命令总数为 31。

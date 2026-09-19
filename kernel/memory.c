@@ -1,9 +1,10 @@
 #include "kernel.h"
 #define NPAGE (PHYS_LIMIT / PAGE)
-#define HEAP_SIZE (8u * 1024u * 1024u)
+#define HEAP_SIZE KHEAP_SIZE
 #define BLOCK_MAGIC 0x4e56424cu
 static u32 bitmap[NPAGE / 32], allocated[NPAGE / 32], free_count, total_count, search_word;
 #ifndef __x86_64__
+bool fb_window_mapped;
 static u32 initial_pd[1024] ALIGNED(PAGE),
     initial_pt[PHYS_LIMIT / (4u * 1024u * 1024u)][1024] ALIGNED(PAGE);
 u32 *kernel_pd = initial_pd;
@@ -14,7 +15,13 @@ extern pte_t stack_pt[];
 extern pte_t mmio_pt[];
 static u32 mmio_pages;
 _Static_assert(NV_TASK_MAX *KSTACK_STRIDE <= 512, "kernel stacks fit one page table");
+#ifdef __x86_64__
+/* Keep the fixed kernel load image below firmware reservations (OVMF uses
+ * ACPI NVS at 8 MiB). Map and pin ordinary pages from actual usable RAM. */
+static u8 *heap;
+#else
 static u8 heap[HEAP_SIZE] ALIGNED(16);
+#endif
 struct block {
     u32 magic, size, free, pad;
     struct block *prev, *next;
@@ -29,15 +36,22 @@ extern u8 kernel_begin[], kernel_ro_end[], kernel_end[];
 static bool marked(u32 i) {
     return (bitmap[i / 32] & (1u << (i % 32))) != 0;
 }
-static void reserve(u32 start, u32 end) {
+static void reserve(u64 start, u64 end) {
     if (start >= PHYS_LIMIT)
         return;
-    end = MIN(end, PHYS_LIMIT);
-    for (u32 i = start / PAGE; i < ALIGN_UP(end, PAGE) / PAGE; ++i)
-        if (!marked(i)) {
-            bitmap[i / 32] |= 1u << (i % 32);
+    end = MIN(end, (u64)PHYS_LIMIT);
+    for (u64 i = start / PAGE; i < ALIGN_UP(end, PAGE) / PAGE; ++i) {
+        u32 w = (u32)(i / 32);
+        u32 bit = (u32)(i % 32);
+        if (!(bitmap[w] & (1u << bit))) {
+            bitmap[w] |= 1u << bit;
             --free_count;
         }
+    }
+}
+void memory_reserve(u64 base, u64 length) {
+    if (length && base <= ~0ull - length)
+        reserve(base, base + length);
 }
 static void available(u64 base, u64 length) {
     if (base >= PHYS_LIMIT || !length)
@@ -47,64 +61,83 @@ static void available(u64 base, u64 length) {
         return;
     if (end > PHYS_LIMIT)
         end = PHYS_LIMIT;
-    for (u32 i = ALIGN_UP((u32)base, PAGE) / PAGE; i < (u32)end / PAGE; ++i)
-        if (marked(i)) {
-            bitmap[i / 32] &= ~(1u << (i % 32));
+    for (u64 i = ALIGN_UP(base, PAGE) / PAGE; i < end / PAGE; ++i) {
+        u32 w = (u32)(i / 32);
+        u32 bit = (u32)(i % 32);
+        if (bitmap[w] & (1u << bit)) {
+            bitmap[w] &= ~(1u << bit);
             ++free_count;
         }
+    }
 }
-void memory_init(const struct multiboot *mb) {
+void memory_init(const struct boot_info *bi) {
     memset(bitmap, 0xff, sizeof(bitmap));
-    if (mb->flags & (1u << 6)) {
-        if (mb->mmap_length > 1024u * 1024u || mb->mmap_addr > PHYS_LIMIT - mb->mmap_length)
-            panic("invalid memory map");
-        u32 pos = mb->mmap_addr, end = pos + mb->mmap_length;
-        while (pos < end) {
-            if (end - pos < sizeof(struct mmap_entry))
-                panic("truncated memory map");
-            const struct mmap_entry *m = (void *)(uptr)pos;
-            if (m->size < 20 || m->size > end - pos - 4)
-                panic("bad memory map entry");
-            if (m->type == 1)
-                available(m->base, m->len);
-            pos += m->size + 4;
-        }
-        /* Reserved entries win over overlapping available entries. */
-        pos = mb->mmap_addr;
-        while (pos < end) {
-            const struct mmap_entry *m = (void *)(uptr)pos;
-            if (m->type != 1 && m->base < PHYS_LIMIT) {
-                u64 e = m->base + m->len;
-                if (e < m->base)
-                    e = PHYS_LIMIT;
-                reserve((u32)m->base, (u32)MIN(e, (u64)PHYS_LIMIT));
-            }
-            pos += m->size + 4;
-        }
-    } else if (mb->flags & 1) {
-        available(0x100000, (u64)mb->mem_upper * 1024u);
-    } else
+    if (!bi->mem_count || bi->mem_count > NV_BOOT_MEM_MAX || bi->res_count > NV_BOOT_RES_MAX)
         panic("bootloader provided no RAM map");
+    /* Usable RAM first; reserved entries then win over overlapping regions. */
+    for (u32 i = 0; i < bi->mem_count; ++i)
+        if (bi->mem[i].type == 1)
+            available(bi->mem[i].base, bi->mem[i].length);
+    for (u32 i = 0; i < bi->mem_count; ++i) {
+        const struct boot_mem_entry *m = &bi->mem[i];
+        if (m->type != 1 && m->base < PHYS_LIMIT) {
+            u64 e = m->base + m->length;
+            if (e < m->base || e > PHYS_LIMIT)
+                e = PHYS_LIMIT;
+            reserve(m->base, e);
+        }
+    }
+    for (u32 i = 0; i < bi->res_count; ++i) {
+        u64 e = bi->res[i].base + bi->res[i].length;
+        if (e < bi->res[i].base)
+            continue;
+        reserve(bi->res[i].base, e);
+    }
     total_count = free_count;
     reserve(0, (uptr)kernel_end);
-    reserve((uptr)mb, (uptr)mb + sizeof(*mb));
-    if (mb->flags & (1u << 6))
-        reserve(mb->mmap_addr, mb->mmap_addr + mb->mmap_length);
-    if (mb->flags & (1u << 3)) {
-        if (mb->mods_count > 128 || mb->mods_addr > PHYS_LIMIT - mb->mods_count * 16)
-            panic("invalid boot modules");
-        reserve(mb->mods_addr, mb->mods_addr + mb->mods_count * 16);
-        const u32 *m = (void *)(uptr)mb->mods_addr;
-        for (u32 i = 0; i < mb->mods_count; ++i)
-            reserve(m[i * 4], m[i * 4 + 1]);
+    /* A framebuffer living inside managed RAM must never be handed out. */
+    if (bi->fb.format != NV_FB_NONE && bi->fb.address < PHYS_LIMIT) {
+        u64 e = bi->fb.address + (u64)bi->fb.pitch * bi->fb.height;
+        if (e > bi->fb.address)
+            reserve(bi->fb.address, e);
     }
     if (free_count < 1024)
         panic("at least 32 MiB RAM is recommended");
     vm_kernel_init();
+#ifdef __x86_64__
+    heap = vm_heap_create();
+    if (!heap)
+        panic("cannot reserve kernel heap; at least 32 MiB RAM is recommended");
+#endif
     head = (struct block *)heap;
     *head = (struct block){.magic = BLOCK_MAGIC, .size = HEAP_SIZE - sizeof(*head), .free = 1};
 }
-u32 page_alloc(void) {
+uptr page_alloc_below(u64 limit) {
+    if (!free_count)
+        return 0;
+    /* Low-first scan: keeps DMA-capable allocations near the bottom of RAM. */
+    u64 top_page = MIN(limit, (u64)PHYS_LIMIT) / PAGE;
+    u64 top_word = MIN(top_page / 32 + 1, (u64)ARRAY_LEN(bitmap));
+    for (u32 w = 0; w < top_word; ++w) {
+        if (bitmap[w] == 0xffffffffu)
+            continue;
+        for (u32 bit = 0; bit < 32; ++bit) {
+            u64 p = (u64)w * 32 + bit;
+            if (p >= top_page)
+                return 0;
+            if (bitmap[w] & (1u << bit))
+                continue;
+            bitmap[w] |= 1u << bit;
+            allocated[w] |= 1u << bit;
+            --free_count;
+            uptr page = (uptr)(p * PAGE);
+            memset(phys_ptr(page), 0, PAGE);
+            return page;
+        }
+    }
+    return 0;
+}
+uptr page_alloc(void) {
     if (!free_count)
         return 0;
     for (u32 step = 0; step < ARRAY_LEN(bitmap); ++step) {
@@ -115,15 +148,49 @@ u32 page_alloc(void) {
             allocated[w] |= 1u << bit;
             search_word = w;
             --free_count;
-            u32 p = (w * 32 + bit) * PAGE;
-            memset((void *)(uptr)p, 0, PAGE);
+            uptr p = (uptr)((u64)w * 32 * PAGE + (u64)bit * PAGE);
+            memset(phys_ptr(p), 0, PAGE);
             return p;
         }
     }
     return 0;
 }
-void page_free(u32 p) {
-    if (p >= PHYS_LIMIT || p % PAGE || !(allocated[p / PAGE / 32] & (1u << (p / PAGE % 32))))
+uptr page_alloc_run(u32 count) {
+    if (!count || free_count < count)
+        return 0;
+    u64 total = (u64)ARRAY_LEN(bitmap) * 32;
+    u64 run = 0, start = 0;
+    for (u64 i = 0; i < total; ++i) {
+        if (marked((u32)i)) {
+            run = 0;
+            continue;
+        }
+        if (!run)
+            start = i;
+        if (++run == count) {
+            for (u64 j = start; j < start + count; ++j) {
+                u32 w = (u32)(j / 32);
+                u32 bit = (u32)(j % 32);
+                bitmap[w] |= 1u << bit;
+                allocated[w] |= 1u << bit;
+            }
+            free_count -= count;
+            uptr p = (uptr)(start * PAGE);
+            memset(phys_ptr(p), 0, (usize)count * PAGE);
+            return p;
+        }
+    }
+    return 0;
+}
+void page_pin(uptr p) {
+    if (p >= PHYS_LIMIT || p % PAGE ||
+        !(allocated[p / PAGE / 32] & (1u << (p / PAGE % 32))))
+        panic("invalid page pin");
+    allocated[p / PAGE / 32] &= ~(1u << (p / PAGE % 32));
+}
+void page_free(uptr p) {
+    if (p >= PHYS_LIMIT || p % PAGE ||
+        !(allocated[p / PAGE / 32] & (1u << (p / PAGE % 32))))
         panic("invalid page free");
     allocated[p / PAGE / 32] &= ~(1u << (p / PAGE % 32));
     bitmap[p / PAGE / 32] &= ~(1u << (p / PAGE % 32));
@@ -182,7 +249,7 @@ static void merge(struct block *b) {
 void kfree(void *ptr) {
     if (!ptr)
         return;
-    if ((uptr)ptr < (uptr)heap + sizeof(struct block) || (uptr)ptr >= (uptr)heap + sizeof(heap) ||
+    if ((uptr)ptr < (uptr)heap + sizeof(struct block) || (uptr)ptr >= (uptr)heap + HEAP_SIZE ||
         (uptr)ptr % 16)
         panic("heap pointer out of range");
     struct block *b = (struct block *)ptr - 1;
@@ -211,7 +278,7 @@ void vm_kernel_init(void) {
     load_cr3((uptr)kernel_pd);
     u32 cr0;
     __asm__ volatile("mov %%cr0,%0" : "=r"(cr0));
-    /* FPU/SIMD context switching is not implemented: trap those instructions. */
+    /* Keep FP disabled until cpu_init configures eager per-task state. */
     cr0 |= 0x8001000cu;
     __asm__ volatile("mov %0,%%cr0" ::"r"(cr0) : "memory");
 }
@@ -245,7 +312,7 @@ int vm_map(u32 *pd, u32 va, u32 flags) {
     pt[ti] = p | P_PRESENT | P_USER | (flags & P_WRITE);
     return 0;
 }
-u32 vm_translate(u32 *pd, u32 va) {
+uptr vm_translate(u32 *pd, u32 va) {
     if (!(pd[va >> 22] & P_PRESENT))
         return 0;
     u32 *pt = (void *)(uptr)(pd[va >> 22] & ~4095u);
@@ -307,7 +374,8 @@ bool user_range(u32 *pd, u32 va, u32 len, bool write) {
 }
 #endif
 void *vm_mmio_map(u64 physical, u32 length) {
-    if (!length || physical % PAGE || physical >> 52 || length > 512 * PAGE ||
+    /* The final PTE is a shared single-page firmware/ECAM aperture. */
+    if (!length || physical % PAGE || physical >> 52 || length > 511 * PAGE ||
         physical > (1ull << 52) - length)
         return NULL;
 #ifndef __x86_64__
@@ -315,7 +383,7 @@ void *vm_mmio_map(u64 physical, u32 length) {
         return NULL;
 #endif
     u32 count = ALIGN_UP(length, PAGE) / PAGE;
-    if (count > 512 - mmio_pages)
+    if (count > 511 - mmio_pages)
         return NULL;
     uptr base = MMIO_BASE + mmio_pages * PAGE;
     for (u32 i = 0; i < count; ++i) {
@@ -328,6 +396,22 @@ void *vm_mmio_map(u64 physical, u32 length) {
     }
     return (void *)base;
 }
+void *vm_mmio_remap(u64 physical) {
+    if (physical % PAGE || physical >> 52)
+        return NULL;
+#ifndef __x86_64__
+    if (physical >> 32)
+        return NULL;
+#endif
+    uptr address = MMIO_BASE + 511u * PAGE;
+    pte_t flags = P_PRESENT | P_WRITE | 0x18; /* uncached supervisor-only aperture */
+#ifdef __x86_64__
+    flags |= 1ull << 63;
+#endif
+    mmio_pt[511] = (pte_t)physical | flags;
+    __asm__ volatile("invlpg (%0)" : : "r"(address) : "memory");
+    return (void *)address;
+}
 /* Shared supervisor mappings: unmapped guard, four stack pages, unmapped guard.
  * A task's stack remains mapped until execution has left that stack. */
 void *vm_stack_alloc(u32 slot) {
@@ -338,7 +422,7 @@ void *vm_stack_alloc(u32 slot) {
         if (stack_pt[first + i] & P_PRESENT)
             panic("kernel stack slot already occupied");
     for (u32 i = 0; i < KSTACK_PAGES; ++i) {
-        u32 p = page_alloc();
+        uptr p = page_alloc();
         if (!p) {
             vm_stack_free((void *)(uptr)(KSTACK_BASE + first * PAGE));
             return NULL;
@@ -364,7 +448,7 @@ void vm_stack_free(void *base) {
     for (u32 i = 0; i < KSTACK_PAGES; ++i) {
         if (!(stack_pt[first + i] & P_PRESENT))
             continue;
-        u32 p = (u32)stack_pt[first + i] & ~4095u;
+        uptr p = (uptr)(stack_pt[first + i] & P_ADDRESS);
         stack_pt[first + i] = 0;
         __asm__ volatile("invlpg (%0)" ::"r"(address + i * PAGE) : "memory");
         page_free(p);
@@ -383,11 +467,11 @@ int user_string(u32 ptr, char *out, u32 cap) {
 int copy_to_space(pte_t *pd, u32 va, const void *src, u32 len) {
     const u8 *s = src;
     while (len) {
-        u32 p = vm_translate(pd, va);
+        uptr p = vm_translate(pd, va);
         if (!p)
             return -NV_EFAULT;
         u32 n = MIN(len, PAGE - (va & 4095));
-        memcpy((void *)(uptr)p, s, n);
+        memcpy(phys_ptr(p), s, n);
         s += n;
         va += n;
         len -= n;
@@ -409,16 +493,22 @@ u32 vm_page_count(u32 *pd) {
 #endif
 static void exhaustion_selftest(void) {
     u32 before = free_count, old = heap_used();
-    u32 *held = kmalloc(before * sizeof(u32));
+    /* Drain every page without recording the (potentially huge) list: the
+     * allocator's own ownership bitmap lets us hand everything back at the
+     * end, so the test cost is independent of managed RAM size. */
+    uptr donor[KSTACK_PAGES];
+    for (u32 i = 0; i < ARRAY_LEN(donor); ++i)
+        if (!(donor[i] = page_alloc()))
+            panic("OOM selftest setup");
     pte_t *pd = vm_create();
-    if (!held || !pd)
+    if (!pd)
         panic("OOM selftest setup");
-    u32 count = 0, page;
-    while ((page = page_alloc()))
-        held[count++] = page;
+    while (page_alloc()) {
+    }
+    u32 freed = 0;
     for (u32 budget = 0; budget <= 4; ++budget) {
-        if (budget)
-            page_free(held[--count]);
+        while (freed < budget)
+            page_free(donor[freed++]);
         u32 free_before = free_count;
         int r = vm_map(pd, USER_BASE, P_WRITE);
         if (r == 0)
@@ -434,19 +524,23 @@ static void exhaustion_selftest(void) {
         if (free_before != free_count)
             panic("kernel stack allocation rollback leak");
     }
-    while (count)
-        page_free(held[--count]);
     vm_destroy(pd);
-    kfree(held);
+    /* donor[0..3] are already free; return every remaining owned page. */
+    for (u32 w = 0; w < ARRAY_LEN(allocated); ++w)
+        while (allocated[w]) {
+            u32 bit = (u32)__builtin_ctz(allocated[w]);
+            page_free((uptr)((u64)w * 32 * PAGE + (u64)bit * PAGE));
+        }
     if (free_count != before || heap_used() != old)
         panic("exhaustion selftest cleanup");
     kprintf("[ok] OOM rollback: zero through four available pages, no leaks\n");
 }
 void memory_selftest(void) {
-    u32 before = free_count, p = page_alloc(), q = page_alloc();
+    u32 before = free_count;
+    uptr p = page_alloc(), q = page_alloc();
     if (!p || !q || p == q)
         panic("physical allocator selftest");
-    memset((void *)(uptr)p, 0xa5, PAGE);
+    memset(phys_ptr(p), 0xa5, PAGE);
     page_free(q);
     page_free(p);
     if (free_count != before)

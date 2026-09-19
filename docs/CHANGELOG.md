@@ -1,4 +1,89 @@
-# Nuvora Core 0.4.0
+# Nuvora Core 0.7.2
+
+本轮专注内存管理，修复两项有失败复现的问题；Linux 材料未修改，ABI 和磁盘格式保持不变。
+
+- `phys_ptr` 对全部非零物理页统一使用 supervisor 别名，修复连续缓冲跨过 1 GiB 后指向用户页的错误；保留 NULL 分配失败语义。
+- x64 的 8 MiB 内核堆使用独立的 1 TiB 虚拟窗口，逐页建立映射，支持碎片化物理 RAM。分配成功后才发布映射并固定物理页，失败时回滚；进程共享该 supervisor/NX 映射，销毁进程不会回收堆页。
+- 新增真实分配器与堆页表夹具、12000 轮堆操作、5 个 OOM 注入点、32 MiB 内存空洞启动、用户堆跨页表边界反复扩缩，以及用户态读取内核映射隔离检查。
+- x64 每轮用户 probe 130 项、i686 123 项；完整矩阵为 52/41 组，UBSan 源码夹具为 6 组。SSE #XM 递交仍单独标记 SKIP。
+
+详细失败复现、实现和验证范围见 [MEMORY-0.7.2.md](MEMORY-0.7.2.md)。
+
+## 0.7.1
+
+本轮仅修复 Nuvora；保留原附 Linux 材料的字节内容。ABI 1、NVSTORE1/NVSTORE2 与 `.nvd` 格式保持兼容。
+
+- 修复 64 位对齐掩码截断、物理地址与内核虚拟指针混用、NX 位误当页地址，以及内核栈/MMIO 窗口覆盖区被重复分配。新增 supervisor 物理映射别名，并用于页表、用户缓冲复制和 xHCI DMA 页的 CPU 访问。
+- 修复 i686 帧缓冲状态缺失导致的链接失败。x64 的 8 MiB 内核堆改从可用 RAM 分配并保留，缩小固定加载映像，避开 OVMF 的 ACPI NVS 区。
+- 修复 EFI Boot Services 表缺失 `SignalEvent` 导致的函数偏移错误、ELF 头布局/读文件位置、PE32+ 可选头和重定位提取。EFI 使用 large code model 和 DIR64 重定位。
+- UEFI 在写入前校验全部 ELF 段与入口；检查目标 RAM 的所有权，重试退出服务时刷新内存图；使用 stub 和内核自有栈完成移交，避免覆盖固件保留数据。
+- 修复 NVSTORE 签名/版本不一致和几何溢出检查、ATA 寻址能力边界与 flush 命令选择。低内存无法恢复有效快照时禁止覆盖，限制小槽缓冲，写入前清零扇区尾部。
+- 修复 ESP 构建的参数顺序、错误被忽略与非原子覆盖；支持 OVMF CODE/VARS pflash，修复 q35 无数据盘时的 ESP 接口；启动器新增 `--memory`。
+- 增加 4 组直接包含真实 C 源码的 UBSan 边界夹具。修正 4 TiB 测试目录和测试范围说明；UEFI ISO 检查只从光驱启动。打包要求完整回归完成记录和源码/二进制 SHA-256 一致。
+
+本轮实际结果见 [TESTING.md](TESTING.md) 和构建目录中的执行日志。下列 0.7.0 及更早段落是原包的历史说明，不能作为本轮验证证据；其中旧的重定位描述已由上面的 DIR64 实现取代。
+
+## 0.7.0（原包记录）
+
+本版加入 UEFI 启动、GiB 级物理内存管理和更大的数据盘，保持 ABI 1、`.nvd` 文档与旧 `NVSTORE1` 数据盘兼容。
+
+- x64 新增独立 UEFI 启动路径：`arch/x86_64/uefi.c` 是自包含 EFI 应用，负责从 ESP 读取 ELF64 内核并加载到 1 MiB，把 EFI 内存图、GOP 帧缓冲和配置表中的 ACPI RSDP 经中性 `boot_info` 结构移交内核，再调用 `ExitBootServices` 进入长模式。PE32+ 镜像由 `scripts/mkuefi.py` 从 `--emit-relocs` 链接的 stub ELF 生成，携带基址重定位表（首选基址被占用时固件可自行搬移）；读取内核 ELF 失败时枚举全部 SimpleFileSystem 卷回退（覆盖 El Torito 光驱启动等固件差异）。`make` 产出 `build/x86_64/BOOTX64.EFI`，`make esp` 用 mtools 打包 ESP 镜像，`make iso-uefi` 产出纯 UEFI El Torito ISO；`start.py --uefi` / `run.py --uefi` 通过 OVMF/edk2 固件启动，可用 `NV_OVMF` 指定固件文件。
+- 帧缓冲控制台：UEFI 启动时使用 GOP 线性帧缓冲渲染 80×25 文本（内核内置 5×7 点阵字体，专用 8 MiB supervisor 映射窗口），Folio 全屏界面同样可用；BIOS VGA 与串口路径行为不变。
+- 大内存：x64 物理管理上限从 128 MiB 提升到 **64 GiB**——前 32 MiB 用 4 KiB 页实施内核镜像的只读/NX 保护，其余用 2 MiB 大页恒等映射，物理页地址全部 64 位化（`page_alloc` 返回 `uptr`）。设备 DMA 走独立的 `page_alloc_below(4 GiB)` 显式掩码，xHCI 环与上下文仍按"低于 4 GiB"的保守边界分配。内存耗尽自检改为 donor 页加所有权位图回收，不再随 RAM 容量线性占用内核堆。i686 上限提升到 192 MiB（受非 PAE 页表与内核栈窗口约束）。新增 1 GiB 与 5 GiB（跨 4 GiB 边界）配置下的完整用户态断言回归。
+- 大存储：ATA PIO 驱动在驱动器报告支持时使用 LBA48 命令，`disk_read`/`disk_write` 接受 64 位 LBA；`NVSTORE2` 头的总扇区数扩展为 u64，镜像可超过 2 TiB。快照槽 1 MiB → 16 MiB，快照缓冲由 `page_alloc_run` 连续物理页动态分配（上限 16 MiB、受空闲内存四分之一约束，失败时降级到小缓冲）。旧 `NVSTORE1` 8 MiB 镜像仍可直接使用（保留 1 MiB 快照上限）。
+- 启动移交统一为 `include/nv/bootinfo.h` 的 `boot_info`：Multiboot 路径在 C 入口前完成同样的转换与校验；`common/acpi.c` 新增已知 RSDP 地址的直通解析入口（签名/长度/校验和仍然全部验证）。
+
+实现与测试边界：UEFI 路径在 QEMU OVMF/edk2 固件上验证，重定位表覆盖绝对寻址（DIR64/HIGHLOW），未在实体主板固件上认证；x64 超过 64 GiB 的物理内存仍不管理；帧缓冲控制台不提供 VGA 硬件光标之外的加速。本轮实现参考了用户提供的 Linux 7.2.6 源码中 EFI stub 的 ExitBootServices 重试与内存类型归类、`locate_handle_buffer` 枚举回退以及 x86_64 直接映射的大页策略，代码按 Nuvora 的分配器、错误模型和测试接口独立编写，未复制或链接 Linux 源码。
+
+升级前关闭旧虚拟机并备份 `build/ARCH/nuvora-store.img`，将旧镜像复制到新包同名位置。发布包不附带用户数据镜像。
+
+## 0.6.0
+
+本版补齐现代 x86 平台发现的第一层，并保持 ABI 1、`NVSTORE1` 数据盘和 `.nvd` 文档兼容。
+
+- 新增 RSDP 的 EBDA/高 BIOS 搜索、RSDT/XSDT 回退和 MCFG 解析；所有表检查签名、长度、整表校验和、记录边界、地址溢出、对齐、总线范围与重叠。
+- 新增 segment 0 PCIe ECAM。每个 function 可读取 4096 字节配置空间，未覆盖总线继续使用 CF8/CFC；启用前交叉检查两条路径。`nv.no-ecam=1` 与 `start.py --no-ecam` 提供恢复回退。
+- MMIO 区最后一页改为 supervisor-only 临时固件/ECAM 映射窗口，其余 511 页供 xHCI 与设备 BAR 使用；i686 明确拒绝 4 GiB 以上映射。
+- GPU 只读快照新增 AER、ACS、ATS、SR-IOV、Resizable BAR、PASID、DPC 扩展能力；坏偏移、环和过长链有界停止。能力标记不代表对应硬件功能已启用。
+- ABI 1 的 `NV_HARDWARE` 新增 PLATFORM 子操作和固定 64 字节结构；新命令 `firmament` 显示 ACPI、MCFG、ECAM 与回退状态，31 个命令全部保留统一 `--help`。
+- 两架构增加 ACPI 11 项和 PCI 25 项合成解析测试、QEMU q35 ECAM/禁用回退及完整 guest probe。x64 / i686 每轮分别为 126 / 121 项用户态断言，完整宿主矩阵为 46 / 40 组。
+
+实现时参考了用户提供的 Linux 7.2.6 源码中的表查找、MCFG 区域表示和 x86 MMCONFIG 映射策略，但代码按 Nuvora 的小型分页、错误模型和测试接口独立编写；发布包不包含 Linux 源码或目标文件。当前仍没有 AML、电源管理、PCI 资源重新分配、多 segment、MSI/MSI-X 启用、IOMMU、UEFI 或原生 NVIDIA 驱动。
+
+升级前关闭旧虚拟机并备份 `build/ARCH/nuvora-store.img`，将旧镜像复制到新包同名位置。发布包不附带用户数据镜像。
+
+## 0.5.1
+
+整合 `files.zip` 的 `abi.h`、`kernel.h`、`cpu.c`、`gpu.c`、`syscall.c`，保留用户新增的设备控制框架。
+
+- 新增 `NV_DEVCTL=28`，通过子系统与操作编号分发到 CPU/GPU，预留网络接口。旧系统调用、文件格式和 ABI 版本保持兼容。
+- 保留 GPU MAP_BAR 的一页内核映射准备，增加完整输出校验与按 BAR 缓存，修复失败请求及重复调用耗尽 MMIO 空间的问题。映射失败时长度为 0，不暴露内核指针。
+- 增加 16 字节输入/输出 union 及用户态 `devctl` / `gpu_prepare_bar` 封装。通用错误文本可用于设备控制；anchor 缺少数据盘仍提供具体说明。
+- CPU 控制、网络和 GPU SET_MODE/PRESENT/SUBMIT 明确返回 ENOSYS；未知子系统/操作返回 EINVAL。没有新增动态模块加载、显示加速或网络能力。
+- 新增设备控制指针、重复请求和权限回归；`forge probe devctl` 可定向执行。x64 / i686 分别每轮 125 / 120 项用户态断言，完整宿主矩阵仍为 44 / 38 组。
+
+GPU 映射窗口仍不是已知的 BAR 容量；不会访问 GPU 寄存器或让用户态访问 MMIO。详细契约、整合修正和限制见 [DEVCTL.md](DEVCTL.md)。SSE #XM 与实体 NVIDIA 的验证限制保持不变。
+
+升级前关闭旧虚拟机并备份 `build/ARCH/nuvora-store.img`，将旧镜像复制到新包同名位置。发布包不附带用户数据镜像。
+
+## 0.5.0
+
+
+本版完善 CPU 启动兼容性与进程浮点状态隔离，并为 NVIDIA 显卡建立只读 PCI 发现和资源查询基础。x64 / i686 同时交付源码、预编译内核与 BIOS ISO。
+
+- 在 C 入口前检查 CPU 必要特性，不满足条件时向 VGA/串口输出明确错误并停止。
+- 支持 x87、MMX、SSE 状态的立即保存/恢复；x64 保存全部 16 个 XMM，i686 按 CPU 能力使用 FXSAVE 或传统 FNSAVE。新进程清零状态，成功 EXEC 重置，失败 EXEC 保留。
+- 共享 PCI 访问与多功能设备枚举供 USB/显卡使用，加入 NVIDIA 标识、32/64 位 BAR、MSI/MSI-X/PCIe 能力查询；显卡路径没有寄存器写入或驱动加载。
+- 新命令 `silicon`、`prism`，新测试程序 `vector`；30 个命令和 8 个程序均有帮助。运行脚本支持 `--cpu MODEL`。
+- ABI 1 追加 `NV_HARDWARE=27`，旧调用号、`.nvd`、`NVSTORE1` 和既有用户数据格式保持兼容。
+- 验证不同 Intel/AMD QEMU CPU 模型、缺失特性时的拒绝路径、浮点隔离、无显卡与多功能显卡、合成 NVIDIA 配置解析，并回归存储、USB、Folio 与帮助。SSE #XM 在 QEMU TCG 中明确标为跳过，未作实机验证。
+
+用法：`silicon`、`prism`、`forge vector`；详细功能边界见 [CPU-GPU.md](CPU-GPU.md)，执行记录见 [TESTING.md](TESTING.md)。NVIDIA 尚无原生显示、3D 或 CUDA 驱动；CPU 仍为单核调度。
+
+升级时关闭旧虚拟机、备份 `build/ARCH/nuvora-store.img`，将旧数据镜像复制到新包相同架构的同名位置。发布包不含用户数据镜像。新内置程序会使用追加的系统调用，应与新内核配套运行。
+
+## 0.4.0
+
 
 本版在保留 0.3.0 ABI 和数据盘兼容性的基础上加入 xHCI USB 设备识别、USB Boot Protocol 键盘输入和统一命令帮助系统。
 

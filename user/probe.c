@@ -13,6 +13,7 @@ static void settle(void) {
     nap(20);
     yield();
 }
+#include "devctl_tests.h"
 static void abi_tests(void) {
     struct nv_info s;
     check(info(&s) == 0 && s.abi == NV_ABI_VERSION, "private syscall ABI");
@@ -39,8 +40,7 @@ static void abi_tests(void) {
     check(nap(0xffffffff) == -NV_EINVAL, "sleep overflow rejected");
     struct nv_usb_controller uc;
     struct nv_usb_device ud;
-    check(call(NV_USB, 0, 0, 0) == -NV_EINVAL &&
-              call(NV_USB, NV_USB_RESCAN, 1, 0) == -NV_EINVAL &&
+    check(call(NV_USB, 0, 0, 0) == -NV_EINVAL && call(NV_USB, NV_USB_RESCAN, 1, 0) == -NV_EINVAL &&
               call(NV_USB, NV_USB_RESCAN, 0, 1) == -NV_EINVAL,
           "USB operation and reserved arguments checked");
     check(usb_controller(NV_USB_CONTROLLER_MAX, &uc) == -NV_EINVAL &&
@@ -58,8 +58,8 @@ static void abi_tests(void) {
     bool usb_cross = (iptr)usb_page >= 0;
     if (usb_cross) {
         memset(usb_page, 0xa5, NV_PAGE);
-        usb_cross = call(NV_USB, NV_USB_DEVICES, 0,
-                         (uptr)usb_page + NV_PAGE - sizeof(ud) + 1) == -NV_EFAULT;
+        usb_cross = call(NV_USB, NV_USB_DEVICES, 0, (uptr)usb_page + NV_PAGE - sizeof(ud) + 1) ==
+                    -NV_EFAULT;
         for (u32 i = 0; i < NV_PAGE; ++i)
             usb_cross = usb_cross && usb_page[i] == 0xa5;
         usb_cross = (iptr)grow(-1) >= 0 && usb_cross;
@@ -188,6 +188,27 @@ static void memory_tests(void) {
     grow(-1);
     info(&after);
     check(after.free_pages == before.free_pages, "user pages and page tables reclaimed");
+    static const u32 lengths[] = {1, 511, 512, 513, 1023, 1024};
+    bool contents = true, reclaimed = true;
+    for (u32 round = 0; round < 2 * ARRAY_LEN(lengths); ++round) {
+        u32 count = lengths[round % ARRAY_LEN(lengths)];
+        u8 *span = grow((i32)count);
+        if ((iptr)span < 0) {
+            contents = false;
+            break;
+        }
+        for (u32 page = 0; page < count; ++page) {
+            u8 *item = span + page * NV_PAGE;
+            contents = contents && item[0] == 0 && item[NV_PAGE - 1] == 0;
+            item[0] = 0xa5; item[NV_PAGE - 1] = 0x5a;
+        }
+        reclaimed = (iptr)grow(-(i32)count) > 0 && reclaimed;
+        reclaimed = call(NV_EMIT, 1, (uptr)span, 1) == -NV_EFAULT && reclaimed;
+        info(&after);
+        reclaimed = after.free_pages == before.free_pages && reclaimed;
+    }
+    check(contents, "repeated heap growth across page-table boundaries starts zeroed");
+    check(reclaimed, "full heap shrink removes mappings and recovers every page table");
 }
 static void process_tests(void) {
     int pid = spawn("/apps/pulse", "quiet");
@@ -196,7 +217,7 @@ static void process_tests(void) {
     check(wait_task(1) == -NV_ECHILD, "cannot wait for unrelated process");
     static const char *const faults[] = {"null",   "kernel", "text",  "io",
                                          "divide", "opcode", "guard", "fpu"};
-    static const u32 codes[] = {142, 142, 142, 141, 128, 134, 142, 135};
+    static const u32 codes[] = {142, 142, 142, 141, 128, 134, 142, 144};
     for (u32 i = 0; i < ARRAY_LEN(faults); ++i) {
         pid = spawn("/apps/fault", faults[i]);
         int r = pid > 0 ? wait_task(pid) : pid;
@@ -209,6 +230,10 @@ static void process_tests(void) {
     check(pid > 0 && wait_task(pid) == 142, "NX prevents execution from user heap");
     pid = spawn("/apps/fault", "stack-exec");
     check(pid > 0 && wait_task(pid) == 142, "NX prevents execution from user stack");
+    pid = spawn("/apps/fault", "physical-alias");
+    check(pid > 0 && wait_task(pid) == 142, "physical RAM alias is supervisor-only");
+    pid = spawn("/apps/fault", "kernel-heap");
+    check(pid > 0 && wait_task(pid) == 142, "kernel heap mapping is supervisor-only");
 #endif
     int a = spawn("/apps/spin", ""), b = spawn("/apps/spin", "");
     u32 start = clock_ticks();
@@ -442,19 +467,68 @@ static void exec_tests(void) {
               before.tasks == after.tasks,
           "orphan exits release memory and process table slots");
 }
+static void hardware_tests(void) {
+    struct nv_cpu_info cpu;
+    struct nv_gpu_info gpu;
+    struct nv_platform_info platform;
+    check(cpu_info(&cpu) == 1 && cpu.version == 1 && cpu.bits == 8 * sizeof(uptr) &&
+              cpu.online_cpus == 1 && (cpu.usable & NV_CPU_X87),
+          "CPU identity and enabled state ABI");
+    check(call(NV_HARDWARE, 0, 0, 0) == -NV_EINVAL &&
+              call(NV_HARDWARE, NV_HW_CPU, 1, (uptr)&cpu) == -NV_EINVAL &&
+              call(NV_HARDWARE, NV_HW_PLATFORM, 1, (uptr)&platform) == -NV_EINVAL &&
+              gpu_info(NV_GPU_MAX, &gpu) == -NV_EINVAL,
+          "hardware operations and indices bounded");
+    check(call(NV_HARDWARE, NV_HW_CPU, 0, 0x100000) == -NV_EFAULT &&
+              call(NV_HARDWARE, NV_HW_GPU, 0, 0x20000000) == -NV_EFAULT &&
+              call(NV_HARDWARE, NV_HW_PLATFORM, 0, (uptr)hardware_tests) == -NV_EFAULT &&
+              call(NV_HARDWARE, NV_HW_CPU, 0, (uptr)hardware_tests) == -NV_EFAULT &&
+              call(NV_HARDWARE, NV_HW_GPU, 0, 0x7ffffff0) == -NV_EFAULT,
+          "hardware output rejects kernel, MMIO, text and crossing buffers");
+    check(platform_info(&platform) == 1 && (platform.flags & NV_PLATFORM_CF8) &&
+              platform.config_bytes ==
+                  ((platform.flags & NV_PLATFORM_ECAM) ? 4096u : 256u) &&
+              (!(platform.flags & NV_PLATFORM_ECAM) ||
+               ((platform.flags & (NV_PLATFORM_ACPI | NV_PLATFORM_MCFG)) ==
+                    (NV_PLATFORM_ACPI | NV_PLATFORM_MCFG) &&
+                platform.ecam_regions > 0)) &&
+              !platform.reserved,
+          "ACPI and PCI configuration method ABI is internally consistent");
+    int n = gpu_info(0, &gpu);
+    check(n == 0 || (n == 1 && gpu.class_code == 3 && gpu.state == NV_GPU_DISCOVERED &&
+                     (!gpu.ext_capabilities || (platform.flags & NV_PLATFORM_ECAM))),
+          "display discovery reports absence or a read-only PCI snapshot");
+    int pid = spawn("/apps/vector", "");
+    check(pid > 0 && wait_task(pid) == 0, "FP/SIMD isolation, preemption and exec reset");
+    pid = spawn("/apps/fault", "sse");
+    int status = pid > 0 ? wait_task(pid) : pid;
+    if (status == 78)
+        println("SKIP SSE #XM delivery: QEMU TCG records MXCSR flags without trapping");
+    if (!(cpu.usable & NV_CPU_SSE))
+        println("SKIP SSE #XM delivery: CPU has no enabled SSE");
+    check(pid > 0 && ((cpu.usable & NV_CPU_SSE) ? (status == 147 || status == 78) : status == 77),
+          "SSE exception outcome classified (see explicit SKIP if not exercised)");
+    pid = spawn("/apps/fault", "avx");
+    check(pid > 0 && wait_task(pid) == 134, "AVX is rejected until extended state saving exists");
+}
 int user_main(const char *args) {
     if (app_help("probe", args))
         return 0;
-    (void)args;
     println("Nuvora Core integration probe (running in Ring 3)");
-    abi_tests();
-    filesystem_tests();
-    memory_tests();
-    executable_tests();
-    process_tests();
-    core_regressions();
-    exec_tests();
-    tokenizer_tests();
+    if (!strcmp(args, "devctl")) {
+        devctl_tests();
+    } else {
+        abi_tests();
+        hardware_tests();
+        devctl_tests();
+        filesystem_tests();
+        memory_tests();
+        executable_tests();
+        process_tests();
+        core_regressions();
+        exec_tests();
+        tokenizer_tests();
+    }
     print("PROBE RESULT: ");
     print_u32(passed);
     print(" passed, ");

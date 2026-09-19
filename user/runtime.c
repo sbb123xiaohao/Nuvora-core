@@ -2,22 +2,50 @@
 bool app_help(const char *name, const char *args) {
     if (strcmp(args, "--help"))
         return false;
-    static const struct { const char *name, *syntax, *purpose, *example; } apps[] = {
-        {"loom", "forge loom", "Interactive command shell. Type help for every command.", "help ports"},
-        {"folio", "folio [FILE]", "Full-screen text and formatted-document editor.\nCtrl-S saves; Ctrl-Q closes; F1 shows editor shortcuts.", "folio /home/report.nvd"},
-        {"pulse", "forge pulse [quiet]", "Print five timed messages. quiet exits immediately with status 7.", "forge pulse"},
-        {"spin", "scatter spin", "CPU-bound scheduler test; runs until terminated with quench PID.", "scatter spin"},
-        {"fault", "forge fault [MODE]", "Trigger an intentional user-process fault to test isolation.\nModes: kernel, text, io, divide, opcode, fpu, guard, peer.\nNo mode triggers a null access; x64 also supports heap-exec and stack-exec.", "forge fault divide"},
-        {"probe", "forge probe", "Run integration assertions; creates temporary files and test processes.", "forge probe"},
-        {"relay", "forge relay [MODE]", "Kernel test fixtures. Modes: begin, orphan, pressure-test, fill.\nfill consumes memory until stopped; target is an internal exec fixture.", "forge relay begin"}
-    };
+    static const struct {
+        const char *name, *syntax, *purpose, *example;
+    } apps[] = {
+        {"loom", "forge loom", "Interactive command shell. Type help for every command.",
+         "help ports"},
+        {"folio", "folio [FILE]",
+         "Full-screen text and formatted-document editor.\nCtrl-S saves; Ctrl-Q closes; F1 shows "
+         "editor shortcuts.",
+         "folio /home/report.nvd"},
+        {"pulse", "forge pulse [quiet]",
+         "Print five timed messages. quiet exits immediately with status 7.", "forge pulse"},
+        {"spin", "scatter spin", "CPU-bound scheduler test; runs until terminated with quench PID.",
+         "scatter spin"},
+        {"fault", "forge fault [MODE]",
+         "Trigger an intentional user-process fault to test isolation.\nModes: kernel, mmio, text, "
+         "io, "
+         "divide, opcode, fpu, sse, avx, guard, peer.\nNo mode triggers a null access; x64 also "
+         "supports heap-exec and stack-exec.",
+         "forge fault divide"},
+        {"probe", "forge probe [devctl]",
+         "Run integration assertions; creates temporary files and test processes.\nUse devctl to "
+         "run only device-control regressions.",
+         "forge probe"},
+        {"relay", "forge relay [MODE]",
+         "Kernel test fixtures. Modes: begin, orphan, pressure-test, fill.\nfill consumes memory "
+         "until stopped; target is an internal exec fixture.",
+         "forge relay begin"},
+        {"vector", "forge vector",
+         "Verify x87/MMX/SSE isolation across timer preemption, sleep, yield and exec.\nInternal "
+         "worker modes: a, b, exec, clean.",
+         "forge vector"}};
     for (u32 i = 0; i < ARRAY_LEN(apps); ++i) {
         if (strcmp(name, apps[i].name))
             continue;
-        print(name); print(": "); println(apps[i].purpose);
-        print("Usage: "); println(apps[i].syntax);
-        print("Example: "); println(apps[i].example);
-        print("Help: forge "); print(name); println(" --help");
+        print(name);
+        print(": ");
+        println(apps[i].purpose);
+        print("Usage: ");
+        println(apps[i].syntax);
+        print("Example: ");
+        println(apps[i].example);
+        print("Help: forge ");
+        print(name);
+        println(" --help");
         return true;
     }
     return false;
@@ -64,9 +92,9 @@ const char *error_name(int r) {
                                         "directory is not empty",
                                         "unsupported executable",
                                         "not an unwaited child",
-                                        "unknown system call",
-                                        "storage or format error",
-                                        "no Nuvora data disk",
+                                        "operation not implemented",
+                                        "device I/O or format error",
+                                        "device not available",
                                         "argument too long",
                                         "input not ready"};
     u32 n = r < 0 ? 0u - (u32)r : (u32)r;
@@ -75,7 +103,8 @@ const char *error_name(int r) {
 void report_error(const char *action, int code) {
     print(action);
     print(": ");
-    println(error_name(code));
+    println(code == -NV_ENODEV && !strcmp(action, "anchor") ? "no Nuvora data disk"
+                                                            : error_name(code));
 }
 int read_line(char *out, u32 cap) {
     if (cap < 2)

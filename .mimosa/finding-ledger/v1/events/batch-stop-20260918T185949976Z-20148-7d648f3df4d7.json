@@ -1,0 +1,356 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260918T185949976Z-20148-7d648f3df4d7",
+  "runId": "20260918T185949976Z-20148-7d648f3df4d7",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "include/nv/abi.h",
+        "detail": "3 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "include/nv/abi.h",
+        "detail": "candidate_limit_exceeded: 3 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "a1719724480d742db1a15818ce0834d95aff041d9574a1000473a1aa4203bc7c",
+  "rulesVersion": "unavailable",
+  "sessionHash": "4625d83b88797a2afa72adecda1ebf1e61097c2c30677d88c28507af03de952f",
+  "reportRef": ".mimosa/reports/task-review-sess_cb306c87-2be0-4792-9566-241f965e0217-20260918T185949976Z-20148-7d648f3df4d7.json",
+  "events": [
+    {
+      "eventId": "hook-9ffe27b94c0a22a3d39bdfd894a06c9a",
+      "findingId": "mimosa-08dc29899352c57736d6b11e",
+      "type": "finding_blocked",
+      "at": "2026-09-18T18:37:42.460Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "338abea789690e82cefbc01f26d411aeab5b5486f5ba25735af6a485d6bdbe8c",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 48,
+      "endLine": 48,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "338abea789690e82cefbc01f26d411aeab5b5486f5ba25735af6a485d6bdbe8c"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-5975dddb202f9c5fc7989a5d97fde35c",
+      "findingId": "mimosa-1b62348b3632adfc7f871eaa",
+      "type": "finding_blocked",
+      "at": "2026-09-18T18:37:58.908Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "b18ad99822a9c6194926dbe72c632fa11febe930ef541712a422a49121db4cb9",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 40,
+      "endLine": 40,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "b18ad99822a9c6194926dbe72c632fa11febe930ef541712a422a49121db4cb9"
+      },
+      "sequence": 1
+    },
+    {
+      "eventId": "hook-06ca94448c19e7b56758eeaa7dd5f0d8",
+      "findingId": "mimosa-1b62348b3632adfc7f871eaa",
+      "type": "static_fix_verified",
+      "at": "2026-09-18T18:38:22.226Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "b18ad99822a9c6194926dbe72c632fa11febe930ef541712a422a49121db4cb9",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 40,
+      "endLine": 40,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "b18ad99822a9c6194926dbe72c632fa11febe930ef541712a422a49121db4cb9"
+      },
+      "sequence": 2
+    },
+    {
+      "eventId": "hook-042b3790267e1cf83391518a6d74cddb",
+      "findingId": "mimosa-f8a14becce1544aa31740e45",
+      "type": "finding_blocked",
+      "at": "2026-09-18T18:39:24.075Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 118,
+      "endLine": 118,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749"
+      },
+      "sequence": 3
+    },
+    {
+      "eventId": "hook-d561a06cde941b3c3d4bdcb03247aaf8",
+      "findingId": "mimosa-2c9552b8e498bc4a67e80efe",
+      "type": "finding_blocked",
+      "at": "2026-09-18T18:39:34.158Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "25f9cc763250ebe4fbdb6ad2ea21e6a2c83a587ec5e5c0862dc662db605a1528",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 118,
+      "endLine": 118,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "25f9cc763250ebe4fbdb6ad2ea21e6a2c83a587ec5e5c0862dc662db605a1528"
+      },
+      "sequence": 4
+    },
+    {
+      "eventId": "hook-6e28974a5215634b49579e6266afb8fc",
+      "findingId": "mimosa-f8a14becce1544aa31740e45",
+      "type": "static_fix_verified",
+      "at": "2026-09-18T18:39:55.604Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 118,
+      "endLine": 118,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749"
+      },
+      "sequence": 5
+    },
+    {
+      "eventId": "hook-9eee08c8216ed9ad1b2f26ed09df4e7b",
+      "findingId": "mimosa-2c9552b8e498bc4a67e80efe",
+      "type": "static_fix_verified",
+      "at": "2026-09-18T18:39:55.604Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "25f9cc763250ebe4fbdb6ad2ea21e6a2c83a587ec5e5c0862dc662db605a1528",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 118,
+      "endLine": 118,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "25f9cc763250ebe4fbdb6ad2ea21e6a2c83a587ec5e5c0862dc662db605a1528"
+      },
+      "sequence": 6
+    },
+    {
+      "eventId": "hook-f1ee4fe37e5bb4f2adb39b6809c9c65e",
+      "findingId": "mimosa-f8a14becce1544aa31740e45",
+      "type": "finding_blocked",
+      "at": "2026-09-18T18:40:33.872Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 118,
+      "endLine": 118,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749"
+      },
+      "sequence": 7
+    },
+    {
+      "eventId": "hook-9ae121b013b7faea78989dde7bd5e62a",
+      "findingId": "mimosa-f8a14becce1544aa31740e45",
+      "type": "static_fix_verified",
+      "at": "2026-09-18T18:41:05.870Z",
+      "identity": {
+        "projectRelativeFile": "scripts/test.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 118,
+      "endLine": 118,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "65e85395e8bc10066eb084e6da3d7471773cdf8a9ad6d3bca4aa7629b4fba749"
+      },
+      "sequence": 8
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "include/nv/bootinfo.h",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/kernel.h",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/main.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/memory.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/memory64.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/console.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/disk.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/store.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "common/acpi.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "include/nv/acpi.h",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/acpi.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "arch/x86_64/uefi.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/mkuefi.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/mkdisk.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/mkesp.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/qemu.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/run.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "start.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/mkiso.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "user/hardware.h",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-18T18:59:50.361Z"
+}

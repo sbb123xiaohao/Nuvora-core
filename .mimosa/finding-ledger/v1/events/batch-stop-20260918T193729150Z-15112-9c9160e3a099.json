@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260918T193729150Z-15112-9c9160e3a099",
+  "runId": "20260918T193729150Z-15112-9c9160e3a099",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "aea93a64c98856fb6da7f2e7f31a5452740c72e158d870e890c8eae275771df6",
+  "rulesVersion": "unavailable",
+  "sessionHash": "4625d83b88797a2afa72adecda1ebf1e61097c2c30677d88c28507af03de952f",
+  "reportRef": ".mimosa/reports/task-review-sess_cb306c87-2be0-4792-9566-241f965e0217-20260918T193729150Z-15112-9c9160e3a099.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-08dc29899352c57736d6b11e",
+    "mimosa-8b597f17fc07c51303de8384",
+    "mimosa-442fddbc0c0eebe42ff874b7",
+    "mimosa-de52ca69ec00a60a29521074",
+    "mimosa-e47c17a6d6bcdadfb91f0119",
+    "mimosa-b0d6987167dcbe0c427a71b7"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "kernel/kernel.h",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/memory.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/memory64.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/disk.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/mkdisk.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "kernel/store.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "arch/x86_64/uefi.c",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/mkuefi.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/test.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/package.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "user/hardware.h",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-18T19:37:30.303Z"
+}

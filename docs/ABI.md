@@ -35,6 +35,8 @@ ABI 与 Linux 不兼容。共同常量和结构以 `include/nv/abi.h` 为准，�
 | 24 | REPLACE | 源路径 | 目标路径 | 0 | 0 |
 | 25 | EXEC | 程序路径 | 参数字符串 | 0 | 进入新程序，不返回 |
 | 26 | USB | 子操作（1 控制器、2 设备、3 重扫） | 索引 | 输出结构指针 | USB 信息或 0/1 |
+| 27 | HARDWARE | 子操作（1 CPU、2 GPU、3 PLATFORM） | 索引 | 输出结构指针 | 有条目 1，无条目 0 |
+| 28 | DEVCTL | 子系统编号 | 子系统操作 | 固定大小输入/输出缓冲区 | 按操作返回结果 |
 
 打开标志：READ=1、WRITE=2、CREATE=4、TRUNC=8、APPEND=16、EXCL=32。CREATE/TRUNC/APPEND 要求 WRITE，EXCL 要求 CREATE。追加总是使用当时文件结尾，即使此前调用 SEEK。
 
@@ -46,7 +48,7 @@ STOP 允许 PID 1 管理其他进程；普通进程只能终止自己的子进�
 
 `GROW` 以 4096 字节页为单位，正数增加、负数归还、零查询。分配上限为每进程 4 MiB；失败不推进 break。返回值与 `sbrk` 的形状相似，但不是 POSIX 接口。运行库将错误符号扩展到宿主指针宽度，可用 `(iptr)result < 0` 判断。
 
-程序入口由 `user/start.S` 或 `user/start64.S` 转入 `int user_main(const char *args)`。x64 内部 C 调用遵循 SysV AMD64 整数调用约定；系统调用使用上述独立约定。所有程序必须禁止 red zone（x64）、浮点和 SIMD。
+程序入口由 `user/start.S` 或 `user/start64.S` 转入 `int user_main(const char *args)`。x64 内部 C 调用遵循 SysV AMD64 整数调用约定；系统调用使用上述独立约定。x64 程序必须禁止 red zone。内核 C 和随包通用应用继续以整数指令编译；专用用户程序可在查询能力后使用 x87/MMX/SSE，不能启用 AVX/XSAVE 等尚未支持的状态。浮点 C 调用约定和完整 libc 不在当前 ABI 范围。
 
 ## Folio 屏幕与提交调用
 
@@ -56,6 +58,18 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 
 ## EXEC 的提交语义
 
-`exec_program(path, args)` 接受与 SPAWN 相同的静态 ELF 和参数字符串。路径按调用进程当前目录解析，成功后从新程序入口继续，保留 PID、父进程、已有子进程、当前目录、累计 CPU tick 及 fd 3–15 的打开标志和偏移。用户堆重置，旧用户页和页表释放；新程序从独立零初始化的 BSS、堆和栈开始，原屏幕租约释放。
+`exec_program(path, args)` 接受与 SPAWN 相同的静态 ELF 和参数字符串。路径按调用进程当前目录解析，成功后从新程序入口继续，保留 PID、父进程、已有子进程、当前目录、累计 CPU tick 及 fd 3–15 的打开标志和偏移。用户堆和浮点/SIMD 状态重置，旧用户页和页表释放；新程序从独立零初始化的 BSS、堆和栈开始，原屏幕租约释放。
 
 加载新映像期间旧映像仍然存在，因此需要足够的临时物理内存。任何检查或分配失败都返回错误，原程序、堆、文件句柄和屏幕租约保持有效。此版本没有 close-on-exec 标志、动态链接器或环境变量接口。已有调用号保持不变，ABI 版本仍为 1。
+
+## HARDWARE 查询
+
+调用号 27 不改变已有 0–26 号调用。CPU 子操作要求 ECX=0，EDX 指向 140 字节的 `nv_cpu_info`；GPU 子操作要求 ECX 为 0–15，EDX 指向 176 字节的 `nv_gpu_info`；PLATFORM 子操作要求 ECX=0，EDX 指向 64 字节的 `nv_platform_info`。完整缓冲区必须处处可写，否则在任何写入前返回 `-NV_EFAULT`。错误操作/索引返回 `-NV_EINVAL`。CPU 与 PLATFORM 返回 1；GPU 返回 1 表示存在，0 表示该索引没有设备且不修改输出。
+
+字段与位标记以 `include/nv/abi.h` 为准。所有数字为固定 32 位字段；64 位 BAR 与 ECAM 基址由 `high` / `low` 拼接，避免两种架构的自然对齐差异。保留字段为零。CPU `usable` 表示内核启用的状态，原始 CPUID 特性不自动等于可用功能。GPU `state=NV_GPU_DISCOVERED` 仅表示发现设备；`capabilities` 和 `ext_capabilities` 不代表中断、隔离或加速已经启用。
+
+`nv_platform_info.flags` 报告 ACPI、XSDT、MCFG、ECAM、CF8 回退及命令行禁用 ECAM 的状态。`config_bytes` 为当前覆盖设备可读取的配置空间大小：ECAM 为 4096，纯 CF8 为 256。`mcfg_entries` 是固件记录数，`ecam_regions` 是实际启用数，`rejected_entries` 包含坏校验/长度/范围/重叠、非 segment 0、超出架构物理地址和 ECAM/CF8 交叉检查不一致的项目。当前只使用 segment 0；第一个活动范围的总线与基址写入结构。详细范围见 [CPU-GPU.md](CPU-GPU.md)。
+
+## DEVCTL 扩展分发
+
+`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络子系统分别为 1/2/3；当前 CPU/网络控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)。

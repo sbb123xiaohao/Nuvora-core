@@ -27,20 +27,44 @@ endif
 BASEFLAGS := $(ARCHFLAGS) -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -mno-sse -mno-sse2 -mno-mmx -msoft-float
 CFLAGS := $(BASEFLAGS) -std=c11 -O2 -g1 -Wall -Wextra -Werror -Iinclude -MMD -MP -ffunction-sections -fdata-sections
 ASFLAGS := $(BASEFLAGS) -g
-KCS := $(wildcard kernel/*.c) common/string.c
+KCS := $(wildcard kernel/*.c) common/string.c common/acpi.c common/pci_decode.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := loom pulse spin fault probe folio relay
+APPS := loom pulse spin fault probe folio relay vector
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
-.PHONY: all clean run window test iso disk check
+.DELETE_ON_ERROR:
+.PHONY: all clean run window test test-host iso iso-uefi esp disk check FORCE
+ifeq ($(ARCH),x86_64)
+all: $(BUILD)/boot.elf $(BUILD)/BOOTX64.EFI
+else
 all: $(BUILD)/boot.elf
+endif
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
+$(BUILD)/arch/$(ARCHDIR)/boot.o: arch/cpu_boot.inc
+$(BUILD)/arch/x86_64/uefi.o: arch/x86_64/uefi.c $(wildcard include/nv/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -mcmodel=large -fshort-wchar -c $< -o $@
+$(BUILD)/arch/x86_64/uefi-string.o: common/string.c include/nv/string.h include/nv/types.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -mcmodel=large -c $< -o $@
+$(BUILD)/uefi.elf: $(BUILD)/arch/x86_64/uefi.o $(BUILD)/arch/x86_64/uefi-string.o arch/x86_64/uefi.ld
+	$(LD) -m $(MACHINE) --emit-relocs -z max-page-size=4096 -T arch/x86_64/uefi.ld -Map $(BUILD)/uefi.map -o $@ $(filter %.o,$^)
+$(BUILD)/BOOTX64.EFI: $(BUILD)/uefi.elf
+	$(PYTHON) scripts/mkuefi.py $< $@
+$(BUILD)/esp.img: $(BUILD)/BOOTX64.EFI $(BUILD)/nuvora.elf scripts/mkesp.py FORCE
+	$(PYTHON) scripts/mkesp.py $@
+ifeq ($(ARCH),x86_64)
+esp: $(BUILD)/esp.img
+else
+esp:
+	@echo 'UEFI ESP is only supported for ARCH=x86_64' >&2; exit 1
+endif
 $(BUILD)/apps/folio.elf: $(BUILD)/user/folio.o $(BUILD)/user/document.o $(UCOMMON) $(ULINK)
 $(BUILD)/apps/%.elf: $(BUILD)/user/%.o $(UCOMMON) $(ULINK)
 	@mkdir -p $(dir $@)
@@ -69,11 +93,15 @@ window: all disk
 	$(PYTHON) scripts/run.py --window
 test: all
 	$(PYTHON) scripts/test.py
+test-host: all
+	$(PYTHON) scripts/test_regressions.py
 iso: all
 	$(PYTHON) scripts/mkiso.py
+iso-uefi: all $(BUILD)/esp.img
+	$(PYTHON) scripts/mkiso.py --uefi
 check: all
 	$(PYTHON) scripts/check_image.py $(BUILD)/nuvora.elf
 clean:
 	rm -rf $(BUILD)
--include $(KOBJS:.o=.d) $(wildcard $(BUILD)/user/*.d)
+-include $(KOBJS:.o=.d) $(wildcard $(BUILD)/user/*.d) $(BUILD)/arch/x86_64/uefi.d
 .SECONDARY: $(UCOMMON) $(patsubst %,$(BUILD)/user/%.o,$(APPS))

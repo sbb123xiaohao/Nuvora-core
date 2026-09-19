@@ -37,6 +37,27 @@ static inline int usb_device(u32 index, struct nv_usb_device *out) {
 static inline int usb_scan(void) {
     return call(NV_USB, NV_USB_RESCAN, 0, 0);
 }
+static inline int cpu_info(struct nv_cpu_info *out) {
+    return call(NV_HARDWARE, NV_HW_CPU, 0, (uptr)out);
+}
+static inline int gpu_info(u32 index, struct nv_gpu_info *out) {
+    return call(NV_HARDWARE, NV_HW_GPU, index, (uptr)out);
+}
+static inline int platform_info(struct nv_platform_info *out) {
+    return call(NV_HARDWARE, NV_HW_PLATFORM, 0, (uptr)out);
+}
+static inline int devctl(u32 subsystem, u32 op, void *request) {
+    return call(NV_DEVCTL, subsystem, op, (uptr)request);
+}
+/* Prepare a supervisor-only first-page mapping, not a user GPU mapping. */
+static inline int gpu_prepare_bar(u32 index, u32 bar, struct nv_gpu_map_bar_res *out) {
+    if (!out)
+        return -NV_EINVAL;
+    union nv_gpu_map_bar_io io = {.request = {index, bar}};
+    int result = devctl(NV_SUB_GPU, NV_GPU_OP_MAP_BAR, &io);
+    *out = result > 0 ? io.response : (struct nv_gpu_map_bar_res){0};
+    return result;
+}
 static inline int replace_file(const char *from, const char *to) {
     return call(NV_REPLACE, (uptr)from, (uptr)to, 0);
 }

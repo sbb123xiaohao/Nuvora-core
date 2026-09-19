@@ -18,6 +18,7 @@ typedef _Bool bool;
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define ALIGN_UP(a, n) (((a) + (n) - 1) & ~((n) - 1))
+/* Widen the mask before complementing it: PAGE is u32 even for u64 addresses. */
+#define ALIGN_UP(a, n) (((a) + (n) - 1) & ~((__typeof__((a) + (n)))((n) - 1)))
 _Static_assert(sizeof(u32) == 4, "32-bit ABI");
 #endif

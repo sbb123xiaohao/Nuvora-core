@@ -186,6 +186,7 @@ int task_spawn(const char *path, const char *args, struct task *parent) {
     t->cwd = parent ? parent->cwd : fs_lookup(0, "/home");
     t->heap_end = USER_HEAP;
     name_task(t, path);
+    cpu_fp_reset(&t->fp);
     t->state = NV_READY;
     return (int)t->pid;
 }
@@ -207,6 +208,8 @@ int task_exec(const char *path, const char *args) {
     name_task(current, path);
     load_cr3((uptr)current->pd);
     vm_destroy(old);
+    cpu_fp_reset(&current->fp);
+    cpu_fp_restore(&current->fp);
     return 0;
 }
 NORETURN void task_start(int pid) {
@@ -215,6 +218,7 @@ NORETURN void task_start(int pid) {
         panic("initial task missing");
     load_cr3((uptr)current->pd);
     arch_set_stack((uptr)current->kstack + KSTACK_SIZE);
+    cpu_fp_restore(&current->fp);
     arch_resume(current->frame);
 }
 void task_tick(void) {
@@ -225,8 +229,10 @@ void task_tick(void) {
             tasks[i].state = NV_READY;
 }
 struct frame *schedule(struct frame *f) {
-    if (current)
+    if (current) {
         current->frame = f;
+        cpu_fp_save(&current->fp);
+    }
     task_reap();
     u32 index = current ? (u32)(current - tasks) : NV_TASK_MAX - 1;
     for (;;) {
@@ -237,6 +243,7 @@ struct frame *schedule(struct frame *f) {
             current = t;
             load_cr3((uptr)t->pd);
             arch_set_stack((uptr)t->kstack + KSTACK_SIZE);
+            cpu_fp_restore(&t->fp);
             return t->frame;
         }
         idle_once();

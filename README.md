@@ -1,12 +1,26 @@
-# Nuvora Core 0.4.0
+# Nuvora Core 0.7.2
 
-用 C 和汇编从零编写的实验操作系统内核，**默认运行于真正的 x86-64 长模式**，同时保留 i686 版本。包含可启动内核、独立用户态程序、自定义 Loom 命令行、文件系统和磁盘快照。
+用 C 和汇编从零编写的实验操作系统内核，**默认运行于真正的 x86-64 长模式**，同时保留 i686 版本。支持 BIOS/GRUB 与 UEFI 两种启动方式、最高 64 GiB 物理内存管理（x64）、GB 级数据镜像，包含可启动内核、独立用户态程序、自定义 Loom 命令行、文件系统和磁盘快照。
 
-这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前交付目标是 QEMU 的单核 PC 虚拟机；驱动、联网、多核、UEFI 等缺口在本文末尾明确列出。
+这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前交付目标是 QEMU 的单核 PC 虚拟机；联网、多核、ACPI 电源管理等缺口在本文末尾明确列出。
 
-## 0.4.0 核心完善
+## 0.7.2 内存管理修复
 
-本轮加入 xHCI USB 控制器和外设识别、Hub 递归枚举、USB 键盘输入、事务式 `EXEC`、内核栈保护和 i686 双重故障应急栈，并修复未领取退出状态的进程占用内存、完整路径超限仍可创建、失败映射残留空页表等问题。版本变更和升级方式见 [CHANGELOG.md](docs/CHANGELOG.md)。
+修复连续缓冲跨 1 GiB 时内核指针不连续的问题；x64 内核堆改由分散物理页组成，避免 RAM 总量充足但缺少连续 8 MiB 时启动失败。堆映射共享给各进程且只允许内核访问，分配中途失败会全部回滚。修复前的失败复现和本轮结果见 [MEMORY-0.7.2.md](docs/MEMORY-0.7.2.md)。
+
+## 0.7.1 修复
+
+修复跨 4 GiB 地址对齐、用户地址空间与物理映射冲突、NX 页回收、UEFI 服务表与 PE32+ 格式、固件内存所有权和启动栈，以及低内存恢复失败后可能覆盖已有快照的问题。x64 内核堆改从可用 RAM 分配，避免固定内核映像覆盖 OVMF 的 ACPI 保留区。完整修复清单、测试结果和保留的容量边界见 [REVIEW-0.7.1.md](docs/REVIEW-0.7.1.md)。
+
+本次只修复 Nuvora；外层原附的 Linux 压缩包保留原内容，不参与 Nuvora 的构建或链接。
+
+## 0.7.0 UEFI、大内存与大存储
+
+- **UEFI 启动（x64）**：自包含 EFI stub（`arch/x86_64/uefi.c`）从 ESP 读取 ELF64 内核，把 EFI 内存图、GOP 帧缓冲和配置表中的 ACPI RSDP 经中性 `boot_info` 移交内核，`ExitBootServices` 后进入长模式。stub 携带 PE32+ 基址重定位表（`.reloc`），首选基址被占用时固件可自行搬移；启动介质定位失败时会枚举全部 SimpleFileSystem 卷。帧缓冲控制台用内核内置点阵字体渲染 80×25 文本，Folio 同样可用；串口输出保持不变。`make` 产出 `BOOTX64.EFI`，`make esp` 打包 ESP 镜像，`make iso-uefi` 产出纯 UEFI ISO；`start.py --uefi` 直接以 OVMF/edk2 固件启动。
+- **大内存**：x64 物理管理上限 128 MiB → **64 GiB**（前 32 MiB 4 KiB 页保护内核镜像，其余 2 MiB 大页恒等映射，物理页地址 64 位化）；i686 上限提升到 192 MiB。USB 等设备 DMA 仍由显式掩码约束在 4 GiB 以下。1 GiB 与 5 GiB（跨 4 GiB 边界）配置纳入完整用户态回归。
+- **大存储**：ATA PIO 驱动支持 **LBA48** 与 64 位 LBA/扇区计数；新 `NVSTORE2` 镜像头自带槽位几何与 u64 总扇区数，快照槽 **1 MiB → 16 MiB** 且快照缓冲按可用内存动态伸缩，数据镜像默认 64 MiB、可到 TiB 级。旧 8 MiB `NVSTORE1` 镜像继续可用。
+
+本轮启动移交统一为 `include/nv/bootinfo.h` 的 `boot_info`；已知 RSDP 地址的 ACPI 直通解析仍全量校验签名、长度与校验和。详见 [CHANGELOG.md](docs/CHANGELOG.md)。
 
 ## 直接运行预编译版本
 
@@ -16,25 +30,31 @@
 python3 start.py
 ```
 
-默认启动 x64。程序会在 `build/x86_64/` 新建专用的 8 MiB 数据镜像；已有镜像会保留。退出模拟器：**Ctrl+A，然后按 X**。
+默认启动 x64（BIOS/GRUB 路径）。程序会在 `build/x86_64/` 新建专用的 64 MiB 数据镜像；已有镜像会保留。退出模拟器：**Ctrl+A，然后按 X**。
 
 ```sh
 python3 start.py --arch i686
-python3 start.py --window
+python3 start.py --uefi                 # x64 UEFI 启动（需要 OVMF/edk2 固件）
+python3 start.py --window               # VGA/GOP 窗口
+python3 start.py --memory 5120          # 5 GiB 虚拟机内存
+python3 start.py --disk-size 1024       # 新建 1 GiB 数据镜像
+python3 start.py --cpu core2duo
+python3 start.py --machine q35
+python3 start.py --machine q35 --no-ecam
 ```
 
-`--window` 使用 VGA 窗口和 QEMU 键盘设备，需要宿主机的 QEMU 图形后端。默认串口模式可直接在终端使用。当前命令行支持 ASCII 和美式键盘布局，中文说明在本文件和 `docs/` 中。
+`--uefi` 需要 UEFI 固件：QEMU 自带的 `edk2-x86_64-code.fd` 或发行版 OVMF 包会被自动查找，也可用 `NV_OVMF=/path/to/OVMF_CODE.fd` 指定。UEFI 运行还需要 `build/x86_64/esp.img`（构建产出，需 mtools）。`--window` 使用图形窗口和 QEMU 键盘设备，需要宿主机的 QEMU 图形后端。默认串口模式可直接在终端使用。当前命令行支持 ASCII 和美式键盘布局，中文说明在本文件和 `docs/` 中。
 
 Arch Linux 安装运行与构建依赖：
 
 ```sh
-sudo pacman -S --needed base-devel python qemu-system-x86 grub xorriso
+sudo pacman -S --needed base-devel python qemu-system-x86 grub xorriso mtools edk2-ovmf
 ```
 
 Debian / Ubuntu：
 
 ```sh
-sudo apt install build-essential binutils python3 qemu-system-x86 grub-pc-bin grub-common xorriso
+sudo apt install build-essential binutils python3 qemu-system-x86 grub-pc-bin grub-common xorriso mtools ovmf
 ```
 
 源码构建脚本目前面向 x86-64 Linux 宿主。预编译内核可以由其他宿主上的 QEMU 模拟运行；这些宿主未纳入本包测试。可通过 `NV_QEMU` 环境变量指定 QEMU 可执行文件的完整路径。
@@ -43,6 +63,10 @@ sudo apt install build-essential binutils python3 qemu-system-x86 grub-pc-bin gr
 
 ```text
 help
+silicon
+firmament
+prism
+forge vector
 ports
 ports --scan
 origin
@@ -65,14 +89,18 @@ rest
 
 **Loom 命令修改的文件需要执行 `anchor`，才能把 `/home` 保存到数据镜像。Folio 的保存和导出会自动提交 `/home`。** `/tmp` 在重启后清空；上一次 `anchor` 之后未保存的修改也会丢弃。`rest` 关机，`renew` 重启，二者不会自动保存。
 
-完整的 28 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
+完整的 31 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
 
 ## 构建、测试和 ISO
 
 ```sh
 make -j4
+make esp            # x64 测试指纹包含 ESP
+make test-host      # 6 组源码边界夹具，使用 UBSan
 make test
-make iso
+make iso            # BIOS/GRUB ISO
+make esp            # UEFI ESP 镜像（需要 mtools）
+make iso-uefi       # 纯 UEFI El Torito ISO
 python3 scripts/test.py --iso
 ```
 
@@ -85,7 +113,7 @@ make ARCH=i686 iso
 NV_ARCH=i686 python3 scripts/test.py --iso
 ```
 
-不需要宿主 libc 或第三方 C 库；源码采用 freestanding 编译和直接链接。`make clean` 只删除当前架构的 `build/ARCH/`，其中包括该架构的数据镜像；有保存内容时先备份镜像。
+不需要宿主 libc 或第三方 C 库；源码采用 freestanding 编译和直接链接。UEFI 构建同样只用 gcc/binutils，ESP 打包需要 mtools。`make clean` 只删除当前架构的 `build/ARCH/`，其中包括该架构的数据镜像；有保存内容时先备份镜像。
 
 每个架构的 `build/ARCH/` 中包含：
 
@@ -93,42 +121,50 @@ NV_ARCH=i686 python3 scripts/test.py --iso
 | --- | --- |
 | `nuvora.elf` | 内核符号文件；x64 版本是 ELF64 / AMD64 |
 | `boot.elf` | 提供给 Multiboot 引导器和 QEMU 的启动文件 |
-| `nuvora-core-0.4.0-ARCH.iso` | 已验证的 BIOS / GRUB 启动 ISO |
+| `BOOTX64.EFI` | x64 UEFI stub（PE32+，由 `mkuefi.py` 从独立链接的 stub ELF 生成） |
+| `esp.img` | UEFI 系统分区镜像（FAT，含 `BOOTX64.EFI` 与内核 ELF） |
+| `nuvora-core-0.7.2-ARCH.iso` | 已验证的 BIOS / GRUB 启动 ISO |
+| `nuvora-core-0.7.2-x86_64-uefi.iso` | x64 纯 UEFI El Torito ISO |
 | `apps/*.elf` | 该架构的独立用户态程序 |
 | `test-results/` | 真实虚拟机执行日志、结果表和截图 |
 
 **x64 的 `boot.elf` 使用 ELF32 容器承载 32 位引导入口和 64 位内核机器码。** 入口主动启用 PAE、长模式和 NX，再调用 64 位 C 内核；用户程序加载的是 ELF64。该容器用于兼容 Multiboot v1，不表示内核运行在 32 位模式。
 
-ISO 当前仅支持 **BIOS 启动**，没有 UEFI 或 Secure Boot。默认运行脚本不会操作宿主机分区或安装引导器。
+BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02000000 并携带基址重定位表（由 `mkuefi.py` 从 `--emit-relocs` 链接的 stub ELF 生成），固件在首选基址被占用时可自行搬移；已在 QEMU OVMF/edk2 固件上验证，尚未在实体主板固件上认证。
 
 ## 当前已实现
 
 | 模块 | 实现范围 |
 | --- | --- |
-| CPU 与启动 | i686 保护模式、x86-64 长模式；GDT、TSS、IDT；PIC、PIT |
-| 内存 | 物理页所有权检查、可合并内核堆、独立页表、带双侧保护页的内核栈、内存耗尽回滚 |
+| CPU 与启动 | 启动能力检查、i686/x64、x87/MMX/SSE 上下文隔离；GDT、TSS、IDT；PIC、PIT |
+| 固件启动 | Multiboot v1 BIOS/GRUB（两架构）；x64 自包含 UEFI stub（ESP 加载、多卷回退、带基址重定位、EFI 内存图、GOP 帧缓冲、配置表 RSDP、ExitBootServices） |
+| ACPI 与 PCIe | RSDP/RSDT/XSDT/MCFG 校验解析（扫描或 EFI 直通），segment 0 ECAM 4 KiB 配置空间，CF8/CFC 回退 |
+| 内存 | 物理页所有权检查、可合并内核堆、独立页表、带双侧保护页的内核栈、内存耗尽回滚；x64 管理 64 GiB / i686 192 MiB；DMA 掩码约束 |
 | x64 保护 | 四级页表、完整 64 位寄存器保存、只读代码页、堆和栈 NX |
 | 进程 | Ring 3、轮转抢占、休眠、让出、创建、原地替换执行、等待、终止、退出内存及时回收 |
 | 可执行文件 | ELF32 / ELF64 静态程序加载，范围检查和失败回滚 |
-| 系统调用 | 27 项原创 ABI 操作，USB 查询和用户指针边界校验 |
+| 系统调用 | 29 项原创 ABI 操作，DEVCTL 扩展分发、CPU/GPU/USB 查询和用户指针边界校验 |
 | 文件系统 | 分层内存文件树、目录、相对路径、文件句柄、读写、移动和删除 |
 | 虚拟节点 | `/dev/null`、`/dev/zero`、`/dev/console`，`/sys` 动态状态 |
-| 磁盘 | IDE 主盘 ATA PIO；`/home` 双槽 CRC32 快照与旧版本恢复 |
-| 命令环境 | 28 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
+| 磁盘 | IDE 主盘 ATA PIO（LBA48 与 64 位扇区计数）；`/home` 双槽 CRC32 快照，槽容量 16 MiB，快照缓冲随内存伸缩 |
+| 命令环境 | 31 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
 | 文档 | Folio 全屏编辑器；`.nvd` 原生格式；RTF/Word 可读导出 |
+| 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
+| 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘；鼠标和存储设备只识别 |
-| 验证 | x64 每次 104 项、i686 每次 100 项用户态检查；完整 USB 与帮助回归另行记录 |
+| 验证 | x64 每次 130 项、i686 每次 123 项用户态检查（含 1 GiB / 5 GiB 配置）；另有 ACPI/PCI 合成坏表、q35 ECAM 与 OVMF UEFI 启动回归 |
 
-两种架构均在 32、64、128、256 MiB 配置下实际启动测试。256 MiB 配置用于确认内核的 128 MiB 管理上限正常生效，不表示本版管理了全部 256 MiB。详见 [测试说明](docs/TESTING.md)。
+两种架构均在 32、64、128、256 MiB 配置下实际启动测试，x64 另有 1 GiB 与 5 GiB（跨 4 GiB 边界）配置回归。64 GiB 是 x64 的管理上限，不表示本版管理了全部物理内存。详见 [测试说明](docs/TESTING.md)。
 
 ## 明确的限制
 
 - 单核、单用户研究环境；内核执行期间不被抢占，没有 SMP 锁、用户账户或完整权限模型。
-- 两种架构目前均最多管理 128 MiB 物理内存。x64 ABI v1 仍使用 1–2 GiB 的用户地址窗口，没有大地址空间支持。
-- 暂无网络栈、NVMe、AHCI、音频、GPU 加速、桌面和 Unicode 终端；USB 目前支持 xHCI 枚举、Hub、键盘输入和设备描述符，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
+- x64 最多管理 64 GiB 物理内存，i686 最多 192 MiB。x64 ABI v1 仍使用 1–2 GiB 的用户地址窗口，没有大地址空间支持；USB DMA 固定使用 4 GiB 以下页。
+- UEFI 仅支持 x64、BIOS 启动的 ISO 之外另有纯 UEFI El Torito ISO；都没有 Secure Boot。UEFI stub 已携带基址重定位表并在启动介质上提供多卷回退，在 QEMU OVMF/edk2 验证，未在实体主板固件认证。
+- 暂无 ACPI AML/电源管理、网络栈、NVMe、AHCI、音频、GPU 加速、桌面和 Unicode 终端；USB 目前支持 xHCI 枚举、Hub、键盘输入和设备描述符，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
 - 暂无 `fork`、管道、套接字、动态链接、POSIX/Linux ABI 或通用文件系统格式支持。
-- 暂无浮点和 SIMD 上下文切换；相关指令会终止触发它们的用户进程。
-- 文件系统与快照是本项目的简化格式，不是 ext4；只在指定 QEMU 硬件模型上验证。
+- x87/MMX/SSE 状态已经隔离；AVX/XSAVE、AVX-512/AMX、多核与微码更新尚未实现。SSE #XM 递交受 QEMU TCG 限制而明确跳过，尚未通过实机验证。
+- 文件系统共 128 个节点，普通文件最大 128 KiB；内核堆 8 MiB、每进程用户堆 4 MiB。单份快照最多 16 MiB，缓冲还受可用 RAM 约束。扩大数据镜像不会同步扩大这些容量。文件系统与快照采用本项目的简化格式。
 - 测试通过不构成生产级安全或可靠性证明。没有进行真实硬件、长期压力或断电时序的全面认证。
 
 架构细节见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)，系统调用见 [ABI.md](docs/ABI.md)，下一阶段范围见 [ROADMAP.md](docs/ROADMAP.md)。

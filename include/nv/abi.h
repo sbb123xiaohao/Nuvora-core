@@ -1,7 +1,7 @@
 #ifndef NV_ABI_H
 #define NV_ABI_H
 #include <nv/types.h>
-#define NV_VERSION "0.4.0"
+#define NV_VERSION "0.7.2"
 #define NV_ABI_VERSION 1
 #define NV_NAME_MAX 31
 #define NV_PATH_MAX 192
@@ -10,7 +10,7 @@
 #define NV_OPEN_MAX 16
 #define NV_TASK_MAX 32
 #define NV_PAGE 4096u
-/* Private ABI: int 0x81; eax=operation; ebx/ecx/edx/esi/edi=arguments. */
+/* Private ABI: int 0x81; eax=operation; ebx/ecx/edx=arguments. */
 enum nv_call {
     NV_EMIT,
     NV_TAKE,
@@ -39,8 +39,105 @@ enum nv_call {
     NV_REPLACE,
     NV_EXEC,
     NV_USB,
+    NV_HARDWARE,
+    NV_DEVCTL, /* generic extensible device control; see enum nv_subsystem */
     NV_CALL_COUNT
 };
+enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
+/* NV_DEVCTL convention: eax=NV_DEVCTL, ebx=subsystem (enum nv_subsystem),
+ * ecx=subsystem-local op code, edx=user pointer to a fixed-size request/
+ * response struct whose exact type and size are implied by (subsystem, op) —
+ * same convention NV_HARDWARE/NV_USB already use. Adding a new op never
+ * changes NV_DEVCTL itself or bumps NV_ABI_VERSION; only the subsystem's own
+ * op enum grows. USB keeps its existing NV_USB entry point. */
+enum nv_subsystem {
+    NV_SUB_CPU = 1,
+    NV_SUB_GPU = 2,
+    NV_SUB_NET = 3 /* reserved: no network stack yet (see ROADMAP.md #6) */
+};
+enum nv_gpu_op {
+    NV_GPU_OP_MAP_BAR = 1,
+    NV_GPU_OP_SET_MODE, /* not implemented: needs a display mode-setting path first */
+    NV_GPU_OP_PRESENT,  /* not implemented: needs NV_GPU_OP_SET_MODE first */
+    NV_GPU_OP_SUBMIT    /* not implemented: needs command submission machinery first */
+};
+struct nv_gpu_map_bar_req {
+    u32 index, bar;
+};
+struct nv_gpu_map_bar_res {
+    u32 ok, reserved;
+    u64 length; /* Kernel mapping window, not BAR size or VRAM capacity. */
+};
+/* MAP_BAR uses one in/out buffer: allocate the whole union, not just the
+ * 8-byte request. Kernel-only, one page per BAR; no user pointer is returned.
+ * A writable buffer receives a zero response on errors; EFAULT writes nothing. */
+union nv_gpu_map_bar_io {
+    struct nv_gpu_map_bar_req request;
+    struct nv_gpu_map_bar_res response;
+};
+_Static_assert(sizeof(struct nv_gpu_map_bar_req) == 8, "GPU map-BAR request ABI");
+_Static_assert(sizeof(struct nv_gpu_map_bar_res) == 16, "GPU map-BAR response ABI");
+_Static_assert(sizeof(union nv_gpu_map_bar_io) == 16, "GPU map-BAR in/out ABI");
+enum { NV_FP_X87 = 1, NV_FP_FXSAVE = 2 };
+enum { NV_CPU_X87 = 1, NV_CPU_MMX = 2, NV_CPU_SSE = 4, NV_CPU_SSE2 = 8 };
+struct nv_cpu_info {
+    char vendor[16], brand[64];
+    u32 version, bits, family, model, stepping, max_basic, max_extended;
+    u32 features_edx, features_ecx, extended_edx, leaf7_ebx, physical_bits;
+    u32 fp_mode, usable, online_cpus;
+};
+#define NV_GPU_MAX 16u
+enum { NV_GPU_DISCOVERED = 1 };
+enum {
+    NV_GPU_NVIDIA = 1,
+    NV_GPU_BAD_CAPS = 2,
+    NV_GPU_BAD_HEADER = 4,
+    NV_GPU_BAD_EXT_CAPS = 8
+};
+enum { NV_PCI_MSI = 1, NV_PCI_MSIX = 2, NV_PCI_EXPRESS = 4 };
+enum {
+    NV_PCIE_AER = 1,
+    NV_PCIE_ACS = 2,
+    NV_PCIE_ATS = 4,
+    NV_PCIE_SRIOV = 8,
+    NV_PCIE_RESIZABLE_BAR = 16,
+    NV_PCIE_PASID = 32,
+    NV_PCIE_DPC = 64
+};
+enum {
+    NV_BAR_MEMORY = 1,
+    NV_BAR_IO = 2,
+    NV_BAR_PREFETCH = 4,
+    NV_BAR_64 = 8,
+    NV_BAR_UNASSIGNED = 16,
+    NV_BAR_INVALID = 32,
+    NV_BAR_UPPER = 64
+};
+struct nv_pci_bar {
+    u32 low, high, flags, reserved;
+};
+struct nv_gpu_info {
+    u32 bus, device, function, vendor, product, revision, subvendor, subproduct;
+    u32 class_code, subclass, interface, command, status, irq_line, irq_pin;
+    u32 capabilities, pcie_link, state, flags, ext_capabilities;
+    struct nv_pci_bar bars[6];
+};
+_Static_assert(sizeof(struct nv_cpu_info) == 140, "CPU info ABI");
+_Static_assert(sizeof(struct nv_gpu_info) == 176, "GPU info ABI");
+enum {
+    NV_PLATFORM_ACPI = 1,
+    NV_PLATFORM_XSDT = 2,
+    NV_PLATFORM_MCFG = 4,
+    NV_PLATFORM_ECAM = 8,
+    NV_PLATFORM_CF8 = 16,
+    NV_PLATFORM_ECAM_DISABLED = 32
+};
+struct nv_platform_info {
+    u32 flags, acpi_revision, mcfg_entries, ecam_regions, rejected_entries;
+    u32 segment, start_bus, end_bus, base_low, base_high, config_bytes, reserved;
+    char oem_id[8], oem_table_id[8];
+};
+_Static_assert(sizeof(struct nv_platform_info) == 64, "platform info ABI");
 enum { NV_USB_CONTROLLERS = 1, NV_USB_DEVICES = 2, NV_USB_RESCAN = 3 };
 #define NV_USB_CONTROLLER_MAX 8u
 #define NV_USB_DEVICE_MAX 32u

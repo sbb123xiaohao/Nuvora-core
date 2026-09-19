@@ -27,15 +27,7 @@ _start:
     mov $boot_stack_top,%esp
     mov %eax,%esi
     mov %ebx,%edi
-    mov $0x80000000,%eax
-    cpuid
-    cmp $0x80000001,%eax
-    jb no_long_mode
-    mov $0x80000001,%eax
-    cpuid
-    and $0x20100000,%edx
-    cmp $0x20100000,%edx
-    jne no_long_mode
+    call boot_cpu_check
     mov $boot_pdpt,%eax
     or $3,%eax
     mov %eax,boot_pml4
@@ -63,11 +55,6 @@ _start:
     or $0x80010000,%eax
     mov %eax,%cr0
     ljmp $0x08,$long_start
-no_long_mode:
-    movl $0x4f364f58,0xb8000
-    movl $0x4f214f34,0xb8004
-2:  hlt
-    jmp 2b
 .code64
 long_start:
     mov $0x10,%ax
@@ -85,4 +72,16 @@ long_start:
 3:  cli
     hlt
     jmp 3b
+/* 64-bit entry for the UEFI stub. The stub is already in long mode with a
+ * working stack and interrupts off; it passes the boot_info pointer in RDI. */
+.global uefi_entry
+uefi_entry:
+    cli
+    cld
+    mov $boot_stack_top,%rsp
+    xor %ebp,%ebp
+    call kernel_uefi_main
+4:  hlt
+    jmp 4b
+#include "../cpu_boot.inc"
 .section .note.GNU-stack,"",@progbits

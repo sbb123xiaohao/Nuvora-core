@@ -1,6 +1,7 @@
 #include "runtime.h"
 #include "commands.h"
 #include "ports.h"
+#include "hardware.h"
 static void status(void) {
     struct nv_info i;
     if (info(&i) < 0)
@@ -122,6 +123,12 @@ static int dispatch(int n, char **v) {
         }
         return 0;
     }
+    if (!strcmp(cmd, "silicon") && n == 1)
+        return show_cpu();
+    if (!strcmp(cmd, "firmament") && n == 1)
+        return show_platform();
+    if (!strcmp(cmd, "prism") && n == 1)
+        return show_gpu();
     if (!strcmp(cmd, "ports") && (n == 1 || (n == 2 && !strcmp(v[1], "--scan")))) {
         int r = n == 2 ? usb_scan() : 0;
         return r < 0 ? r : show_ports();
@@ -130,7 +137,8 @@ static int dispatch(int n, char **v) {
         char a[NV_ARG_MAX] = {0};
         if (n == 2) {
             /* The program receives the path verbatim, including spaces. */
-            if (strlcpy(a, v[1], sizeof(a)) >= sizeof(a)) return -NV_E2BIG;
+            if (strlcpy(a, v[1], sizeof(a)) >= sizeof(a))
+                return -NV_E2BIG;
         }
         int pid = spawn("/apps/folio", a);
         return pid < 0 ? pid : (wait_task(pid) < 0 ? -NV_ECHILD : 0);
