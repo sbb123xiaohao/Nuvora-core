@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package original sources, both verified builds, logs and GRUB source materials."""
+"""Package original sources, verified x64 and ARM64 builds and execution logs."""
 import hashlib
 import json
 import pathlib
@@ -8,7 +8,7 @@ import zipfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
 target = pathlib.Path(sys.argv[1]).resolve()
-VERSION = '0.7.3'
+VERSION = '0.8.0'
 selected = []
 for path in sorted(root.rglob('*')):
     if not path.is_file():
@@ -17,11 +17,12 @@ for path in sorted(root.rglob('*')):
     if rel.as_posix() == 'SHA256SUMS' or '__pycache__' in rel.parts or path.suffix == '.pyc':
         continue
     if rel.parts[0] == 'build':
-        if len(rel.parts) < 3 or rel.parts[1] not in ['x86_64', 'i686']:
+        if len(rel.parts) < 3 or rel.parts[1] not in ['x86_64', 'aarch64']:
             continue
         tail = rel.parts[2:]
         keep = (len(tail) == 1 and (tail[0] in ['boot.elf', 'nuvora.elf', 'nuvora.map'] or
-                tail[0] == f'nuvora-core-{VERSION}-{rel.parts[1]}.iso'))
+                (rel.parts[1] == 'aarch64' and tail[0] == 'Image') or
+                (rel.parts[1] == 'x86_64' and tail[0] == f'nuvora-core-{VERSION}-x86_64.iso')))
         keep |= len(tail) == 1 and rel.parts[1] == 'x86_64' and tail[0] in ['BOOTX64.EFI', 'esp.img', f'nuvora-core-{VERSION}-x86_64-uefi.iso']
         keep |= len(tail) == 2 and tail[0] == 'apps' and path.suffix == '.elf'
         keep |= len(tail) == 2 and tail[0] == 'test-results' and path.suffix in ['.log', '.json', '.md', '.png']
@@ -29,7 +30,7 @@ for path in sorted(root.rglob('*')):
             continue
     selected.append(path)
 
-for arch, assertions in [('x86_64', 130), ('i686', 123)]:
+for arch, assertions in [('x86_64', 131)]:
     build = root / 'build' / arch
     results = json.loads((build / 'test-results/results.json').read_text())
     execution = json.loads((build / 'test-results/execution.json').read_text())
@@ -52,6 +53,17 @@ for arch, assertions in [('x86_64', 130), ('i686', 123)]:
     fingerprint = json.loads((build / 'test-results/build-fingerprint.json').read_text())
     for name, digest in fingerprint.items():
         assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name + ': changed after testing'
+
+arm = root / 'build/aarch64'
+arm_run = json.loads((arm / 'test-results/execution.json').read_text())
+assert arm_run['arch'] == 'aarch64' and arm_run['version'] == VERSION
+assert arm_run['completed'] and arm_run['checks'] == 4
+assert arm_run['image_sha256'] == hashlib.sha256((arm / 'Image').read_bytes()).hexdigest()
+arm_results = json.loads((arm / 'test-results/results.json').read_text())
+assert len(arm_results) == 4 and all(row['result'] == 'PASS' for row in arm_results)
+for memory in (64, 256, 1024, 5120):
+    log = (arm / f'test-results/arm64-{memory}MiB.log').read_text()
+    assert 'ARM64 RESULT: 10 passed, 0 failed' in log
 
 manifest = []
 prefix = f'nuvora-core-{VERSION}/'

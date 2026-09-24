@@ -1,24 +1,24 @@
 # 测试与复现
 
-测试在 QEMU 8.2.2 的 TCG 模拟器中实际执行；编译器为 GCC 13.3.0，链接器为 GNU ld 2.42。虚拟硬件覆盖 PC 与 q35、单 CPU、VGA、COM1、PS/2、PIT/PIC，存储测试连接 IDE primary master 数据镜像；q35 额外挂载 ISA IDE 桥，以保持内核传统 ATA PIO 端口与 q35 的 AHCI 默认设备隔离。本轮 UEFI 检查使用 Ubuntu OVMF 的 `OVMF_CODE_4M.fd` 与配套 VARS，通过 pflash 加载（可用 `NV_OVMF` 指定固件），数据镜像与 ESP 分别挂在 IDE primary master 和 slave。
+x64 与 ARM64 在 QEMU 8.2.2 TCG 模拟器中实际执行；编译器为 GCC 13.3.0，链接器为 GNU ld 2.42。虚拟硬件覆盖 PC 与 q35、单 CPU、VGA、COM1、PS/2、PIT/PIC，存储测试连接 IDE primary master 数据镜像；q35 额外挂载 ISA IDE 桥，以保持内核传统 ATA PIO 端口与 q35 的 AHCI 默认设备隔离。本轮 UEFI 检查使用 Ubuntu OVMF 的 `OVMF_CODE_4M.fd` 与配套 VARS，通过 pflash 加载（可用 `NV_OVMF` 指定固件），数据镜像与 ESP 分别挂在 IDE primary master 和 slave。
 
 ## 结果范围
 
 | 架构 | 用户态断言 / 每次启动 | 内存配置 | 宿主集成检查 |
 | --- | --- | --- | --- |
-| x86-64 | 130 项 | 32 / 64 / 128 / 256 MiB，另有 1 GiB 与 5 GiB（跨 4 GiB 边界）回归 | 53 组，全部通过（含 CPU/ACPI/PCIe/GPU/USB/帮助/大存储/UEFI） |
-| i686 | 123 项 | 32 / 64 / 128 / 256 MiB | 42 组（含 CPU/ACPI/PCIe/GPU/USB/帮助/大存储） |
+| x86-64 | 131 项 | 32 / 64 / 128 / 256 MiB，另有 1 GiB 与 5 GiB（跨 4 GiB 边界）回归 | 完整回归 53 组通过（含 BIOS/UEFI ISO） |
+| ARM64 | 10 项 / 单个 EL0 工作负载 | 64 / 256 / 1024 / 5120 MiB | 4 组（设备树、页表、NEON、SVC 与内核隔离） |
 
-最终执行记录分别位于 `build/x86_64/test-results/` 和 `build/i686/test-results/`。`RESULTS.md` 与 `results.json` 由测试程序根据成功执行结果生成。每次 probe 的完整日志含逐项 PASS 记录；宿主必须同时收到 QEMU 正确的退出码并找到零失败汇总，才把该轮判为通过。
+执行记录分别位于 `build/x86_64/test-results/` 和 `build/aarch64/test-results/`。`RESULTS.md` 与 `results.json` 由测试程序根据成功执行结果生成。每次 probe 的完整日志含逐项 PASS 记录；宿主必须同时收到 QEMU 正确的退出码并找到零失败汇总，才把该轮判为通过。
 
 ## CPU / 平台 / 显卡矩阵
 
 | 架构 | 成功运行完整 probe 的 CPU 模型 | 启动前拒绝的 CPU 配置 |
 | --- | --- | --- |
 | x64 | 默认 qemu64、core2duo、Nehalem、phenom、max | qemu64 分别关闭 nx、pae、fxsr、sse2、lm、msr、fpu、cmov |
-| i686 | 默认 qemu32、pentium2,-fxsr、pentium3、max | 486、pentium、qemu32,-fpu |
+| ARM64 | QEMU virt 上的 cortex-a57 | 尚无 ARM64 CPU 特征拒绝矩阵 |
 
-这是 QEMU TCG CPU 模型验证，不表示对应实体处理器已经认证。`pentium2,-fxsr` 专门覆盖没有 FXSAVE 的传统 x87 保存路径。
+这是 QEMU TCG CPU 模型验证，不表示对应实体处理器已经认证。
 
 每次 probe 有 1 项硬件异常递交检查明确跳过：有 SSE 的 QEMU 8.2.2 TCG 记录了未屏蔽除零的 MXCSR 位，但没有递交 #XM；无 SSE 的模型不执行 SSE。日志以 `SKIP` 单列，成功断言只校验其结果分类，不能解读为 #XM 递交已通过。物理 CPU 上若出现相同问题，测试不会将其当作 TCG 跳过。
 
@@ -30,7 +30,7 @@ ACPI 解析器执行 11 项合成固件检查，覆盖 RSDP 双校验和、EBDA 
 
 ## DEVCTL 整合回归
 
-追加 x64 14 项、i686 13 项设备控制断言：操作路由、保留接口的 ENOSYS、完整 16 字节输出边界、只读/跨页/溢出与高位指针、索引错误时响应清零、600 次失败请求后仍能映射、600 次成功请求复用窗口、MMIO 保持 supervisor-only。无显卡/单显卡/多功能显卡三种场景还分别运行两个独立 `forge probe devctl` 子进程，核对发现快照保持一致；无显卡时明确跳过实际映射检查。
+x64 包含 14 项设备控制断言：操作路由、保留接口的 ENOSYS、完整 16 字节输出边界、只读/跨页/溢出与高位指针、索引错误时响应清零、600 次失败请求后仍能映射、600 次成功请求复用窗口、MMIO 保持 supervisor-only。无显卡/单显卡/多功能显卡三种场景还分别运行两个独立 `forge probe devctl` 子进程，核对发现快照保持一致；无显卡时明确跳过实际映射检查。
 
 ## 检查内容
 
@@ -65,9 +65,8 @@ make esp        # UEFI：需要 mtools
 make iso-uefi
 python3 scripts/test.py --iso
 
-make ARCH=i686 -j4
-make ARCH=i686 iso
-NV_ARCH=i686 python3 scripts/test.py --iso
+make ARCH=aarch64 CROSS=aarch64-linux-gnu- -j4
+make ARCH=aarch64 test
 ```
 
 缺少制作 ISO 的工具时，`make test` 仍可运行直接启动及存储测试，只跳过 ISO 光驱检查；缺少 OVMF 固件时 UEFI 组打印跳过原因；x64 测试前必须用 mtools 构建 ESP，缺失产物会报错。发布打包要求实际完成 UEFI 组，不能用跳过结果通过。也可通过 `--phase storage` 或 `--phase iso` 定向诊断；这些定向执行会生成仅包含相应阶段的结果表，不能作为完整测试矩阵。
@@ -96,14 +95,14 @@ NV_ARCH=i686 python3 scripts/test.py --iso
 
 ## 0.7.2 内存专项复现
 
-`python3 scripts/test.py --phase memory` 执行内存矩阵、内核保护页、低内存压力和 x64 碎片化启动；i686 可加 `NV_ARCH=i686`。定向运行不代替发布所需的 `--iso` 完整矩阵。
+`python3 scripts/test.py --phase memory` 执行内存矩阵、内核保护页、低内存压力和 x64 碎片化启动。定向运行不代替发布所需的 `--iso` 完整矩阵。
 
 x64 的 `nv.test=1 nv.memory-test=fragmented` 在启动内存表中加入 6 个页大小的保留空洞（8–28 MiB，每隔 4 MiB），自动用 32 MiB QEMU 执行。0.7.1 在该配置出现 `cannot reserve kernel heap`；0.7.2 通过完整用户态检查。夹具只在两个测试参数同时存在时启用，普通启动不会加入空洞。
 
-两架构新增 12 轮 1/511/512/513/1023/1024 页的用户堆扩缩容，核对再分配清零、释放后地址拒绝访问、空闲页计数恢复；x64 另验证直接访问物理映射别名和 1 TiB 内核堆只能终止子进程，不能读取内核内容。根因、失败证据和变更范围见 [MEMORY-0.7.2.md](MEMORY-0.7.2.md)。
+x64 在 0.8.0 执行 12 轮 1/511/512/513/1023/2048 页的用户堆扩缩容，核对再分配清零、释放后地址拒绝访问、空闲页计数恢复；x64 另验证直接访问物理映射别名和 1 TiB 内核堆只能终止子进程，不能读取内核内容。根因、失败证据和变更范围见 [MEMORY-0.7.2.md](MEMORY-0.7.2.md)。
 
 ## 0.7.3 文件扩容复现
 
-`--phase memory` 与 `--phase storage` 均包含 32 MiB 的恢复文件扩容检查。运行器写入带有效校验和、含 131071 字节文件的专用快照；启动后以 `forge probe file-growth` 执行 7 项检查，要求追加后的堆占用维持 128 KiB、数据完整、超限拒绝、删除全部回收。每架构日志为 `restored-file-growth.log`，独立于常规 probe 的 130/123 项。
+`--phase memory` 与 `--phase storage` 均包含 32 MiB 的恢复文件扩容检查。运行器写入带有效校验和、含 131071 字节文件的专用快照；启动后以 `forge probe file-growth` 执行 7 项检查，要求追加后的堆占用维持 128 KiB、数据完整、超限拒绝、删除全部回收。x64 日志为 `restored-file-growth.log`，独立于常规 probe 的 131 项；ARM64 尚无此文件系统。
 
 宿主夹具使用真实 ramfs 与堆分配器，旧 0.7.2 在恰好 128 KiB 可用时返回 ENOMEM 的日志也随包保留。详细根因见 [MEMORY-0.7.3.md](MEMORY-0.7.3.md)。

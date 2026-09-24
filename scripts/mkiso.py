@@ -11,7 +11,7 @@ parser.add_argument('--uefi', action='store_true',
                     help='Build the UEFI El Torito ISO from build/ARCH/esp.img instead of the BIOS/GRUB ISO')
 args = parser.parse_args()
 
-VERSION = '0.7.3'
+VERSION = '0.8.0'
 
 
 def xorriso_binary():

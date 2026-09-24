@@ -12,6 +12,8 @@ parser.add_argument('--cpu', help='QEMU CPU model (for example: core2duo, phenom
 parser.add_argument('--machine', choices=['pc', 'q35'], default='pc', help='QEMU machine model')
 parser.add_argument('--no-ecam', action='store_true', help='Disable PCIe ECAM and use CF8/CFC fallback')
 args = parser.parse_args()
+if ARCH != 'x86_64':
+    parser.error('Use scripts/arm64.py for ARCH=aarch64; 32-bit x86 is retired')
 if args.memory < 32:
     parser.error('--memory must be at least 32 MiB')
 

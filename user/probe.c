@@ -180,15 +180,34 @@ static void memory_tests(void) {
           "cross-page output validation is complete");
     close_file(fd);
     check(call(NV_GROW, 0x80000000u, 0, 0) == -NV_EINVAL, "heap shrink overflow rejected");
-    check(call(NV_GROW, 1025, 0, 0) == -NV_ENOMEM, "per-process heap bound");
-    check((iptr)grow(1025) == -NV_ENOMEM, "native pointer wrapper preserves allocation errors");
+    check(call(NV_GROW, 131073, 0, 0) == -NV_ENOMEM, "per-process heap bound");
+    check((iptr)grow(131073) == -NV_ENOMEM, "native pointer wrapper preserves allocation errors");
     int pid = spawn("/apps/fault", "peer");
     check(pid > 0 && wait_task(pid) == 142, "separate process address spaces");
     settle();
     grow(-1);
     info(&after);
     check(after.free_pages == before.free_pages, "user pages and page tables reclaimed");
-    static const u32 lengths[] = {1, 511, 512, 513, 1023, 1024};
+    bool model_buffer = true;
+    u32 model_pages = before.ram_pages >= 960u * 256u ? 65536u :
+                      before.ram_pages >= 240u * 256u ? 16384u : 0;
+    if (model_pages) {
+        u8 *model = grow((i32)model_pages);
+        if ((iptr)model < 0) model_buffer = false;
+        else {
+            for (u32 i = 0; i < model_pages; ++i) {
+                u8 *page = model + i * NV_PAGE;
+                if (page[0] || page[NV_PAGE - 1]) model_buffer = false;
+                page[0] = 0x54;
+                page[NV_PAGE - 1] = 0x5a;
+            }
+            model_buffer = (iptr)grow(-(i32)model_pages) > 0 && model_buffer;
+            info(&after);
+            model_buffer = after.free_pages == before.free_pages && model_buffer;
+        }
+    }
+    check(model_buffer, "large model buffer mapping, zeroing and reclaim");
+    static const u32 lengths[] = {1, 511, 512, 513, 1023, 2048};
     bool contents = true, reclaimed = true;
     for (u32 round = 0; round < 2 * ARRAY_LEN(lengths); ++round) {
         u32 count = lengths[round % ARRAY_LEN(lengths)];

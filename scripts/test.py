@@ -17,8 +17,10 @@ from mkdisk import create, SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS
 REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
 results = []
-VERSION = '0.7.3'
-EXPECTED_ASSERTIONS = 130 if ARCH == 'x86_64' else 123
+VERSION = '0.8.0'
+EXPECTED_ASSERTIONS = 131
+if ARCH != 'x86_64':
+    raise SystemExit('Use scripts/arm64.py test for ARM64; 32-bit x86 is retired')
 
 def record(name, detail):
     results.append({'test': name, 'result': 'PASS', 'detail': detail})

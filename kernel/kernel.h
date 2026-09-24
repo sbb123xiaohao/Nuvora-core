@@ -1,13 +1,15 @@
 #ifndef NV_KERNEL_H
 #define NV_KERNEL_H
+#ifndef __x86_64__
+#error "kernel/ implements x86_64; the ARM64 bring-up lives in arch/aarch64"
+#endif
 #include <nv/abi.h>
 #include <nv/acpi.h>
 #include <nv/string.h>
 #include <nv/bootinfo.h>
 #define PAGE 4096u
-/* Managed RAM ceiling. The x64 identity map covers everything with 2 MiB
- * pages above the protected kernel region; page addresses are uptr-wide. The
- * i686 ceiling is bounded by non-PAE paging and KSTACK_BASE (0x10000000). */
+/* Managed RAM ceiling. x64 uses 2 MiB mappings above the protected kernel
+ * image and uptr-wide physical page addresses. */
 #ifdef __x86_64__
 #define PHYS_LIMIT (64ull * 1024 * 1024 * 1024) /* 64 GiB */
 #else
@@ -16,7 +18,9 @@
 #define USER_BASE 0x40000000u
 #define USER_IMAGE_END 0x41000000u
 #define USER_HEAP 0x50000000u
-#define USER_HEAP_END 0x50400000u
+/* ABI 1 keeps user pointers below 2 GiB; give model buffers 512 MiB of that
+ * window while retaining a separate user stack and executable image. */
+#define USER_HEAP_END 0x70000000u
 #define USER_STACK_TOP 0x7fff0000u
 #define USER_STACK_PAGES 8u
 #define KHEAP_SIZE (8u * 1024u * 1024u)

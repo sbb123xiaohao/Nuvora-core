@@ -1,29 +1,52 @@
 SHELL := /bin/sh
+ARCH ?= x86_64
+ifeq ($(filter $(ARCH),x86_64 aarch64),)
+$(error ARCH must be x86_64 or aarch64; 32-bit x86 is no longer supported)
+endif
+ifeq ($(ARCH),aarch64)
+CROSS ?= aarch64-linux-gnu-
+CC := $(CROSS)gcc
+LD := $(CROSS)ld
+OBJCOPY := $(CROSS)objcopy
+PYTHON ?= python3
+BUILD := build/aarch64
+ARM_CFLAGS := -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-stack-protector -mgeneral-regs-only -fno-asynchronous-unwind-tables -std=c11 -O2 -Wall -Wextra -Werror -Iinclude -MMD -MP
+ARM_OBJS := $(BUILD)/arch/aarch64/boot.o $(BUILD)/arch/aarch64/neon.o $(BUILD)/arch/aarch64/user.o $(BUILD)/arch/aarch64/vectors.o $(BUILD)/arch/aarch64/kernel.o $(BUILD)/common/string.o
+.DELETE_ON_ERROR:
+.PHONY: all run test clean check
+all: $(BUILD)/Image
+$(BUILD)/%.o: %.S
+	@mkdir -p $(dir $@)
+	$(CC) -ffreestanding -g -c $< -o $@
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(ARM_CFLAGS) -c $< -o $@
+$(BUILD)/nuvora.elf: $(ARM_OBJS) arch/aarch64/linker.ld
+	$(LD) -T arch/aarch64/linker.ld -Map $(BUILD)/nuvora.map -o $@ $(ARM_OBJS)
+$(BUILD)/Image: $(BUILD)/nuvora.elf
+	$(OBJCOPY) -O binary $< $@
+run: all
+	$(PYTHON) scripts/arm64.py run
+test: all
+	$(PYTHON) scripts/arm64.py test
+check: test
+clean:
+	rm -rf $(BUILD)
+-include $(ARM_OBJS:.o=.d)
+else
 CROSS ?=
 CC := $(CROSS)gcc
 LD := $(CROSS)ld
 PYTHON ?= python3
-ARCH ?= x86_64
-ifeq ($(filter $(ARCH),i686 x86_64),)
-$(error ARCH must be i686 or x86_64)
-endif
 BUILD := build/$(ARCH)
 export NV_ARCH := $(ARCH)
 OBJCOPY := $(CROSS)objcopy
-ifeq ($(ARCH),x86_64)
 ARCHDIR := x86_64
 MACHINE := elf_x86_64
 ARCHFLAGS := -m64 -mcmodel=small -mno-red-zone -mgeneral-regs-only
 ULINK := user/linker64.ld
 USTART := start64
 UEXTRA := $(BUILD)/user/wide64.o
-else
-ARCHDIR := i386
-MACHINE := elf_i386
-ARCHFLAGS := -m32 -march=i686 -mpreferred-stack-boundary=2 -mincoming-stack-boundary=2
-ULINK := user/linker.ld
-USTART := start
-endif
 BASEFLAGS := $(ARCHFLAGS) -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -mno-sse -mno-sse2 -mno-mmx -msoft-float
 CFLAGS := $(BASEFLAGS) -std=c11 -O2 -g1 -Wall -Wextra -Werror -Iinclude -MMD -MP -ffunction-sections -fdata-sections
 ASFLAGS := $(BASEFLAGS) -g
@@ -35,11 +58,7 @@ UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
 .PHONY: all clean run window test test-host iso iso-uefi esp disk check FORCE
-ifeq ($(ARCH),x86_64)
 all: $(BUILD)/boot.elf $(BUILD)/BOOTX64.EFI
-else
-all: $(BUILD)/boot.elf
-endif
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -59,12 +78,7 @@ $(BUILD)/BOOTX64.EFI: $(BUILD)/uefi.elf
 	$(PYTHON) scripts/mkuefi.py $< $@
 $(BUILD)/esp.img: $(BUILD)/BOOTX64.EFI $(BUILD)/nuvora.elf scripts/mkesp.py FORCE
 	$(PYTHON) scripts/mkesp.py $@
-ifeq ($(ARCH),x86_64)
 esp: $(BUILD)/esp.img
-else
-esp:
-	@echo 'UEFI ESP is only supported for ARCH=x86_64' >&2; exit 1
-endif
 $(BUILD)/apps/folio.elf: $(BUILD)/user/folio.o $(BUILD)/user/document.o $(UCOMMON) $(ULINK)
 $(BUILD)/apps/%.elf: $(BUILD)/user/%.o $(UCOMMON) $(ULINK)
 	@mkdir -p $(dir $@)
@@ -79,11 +93,7 @@ $(BUILD)/nuvora.elf: $(KOBJS) $(BUILD)/archive.o arch/$(ARCHDIR)/linker.ld
 	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 -T arch/$(ARCHDIR)/linker.ld -Map $(BUILD)/nuvora.map -o $@ $(filter %.o,$^)
 	$(PYTHON) scripts/check_image.py $@
 $(BUILD)/boot.elf: $(BUILD)/nuvora.elf
-ifeq ($(ARCH),x86_64)
 	$(OBJCOPY) -O elf32-i386 $< $@
-else
-	cp $< $@
-endif
 	$(PYTHON) scripts/check_image.py $@
 disk:
 	$(PYTHON) scripts/mkdisk.py $(BUILD)/nuvora-store.img --if-missing
@@ -105,3 +115,4 @@ clean:
 	rm -rf $(BUILD)
 -include $(KOBJS:.o=.d) $(wildcard $(BUILD)/user/*.d) $(BUILD)/arch/x86_64/uefi.d
 .SECONDARY: $(UCOMMON) $(patsubst %,$(BUILD)/user/%.o,$(APPS))
+endif

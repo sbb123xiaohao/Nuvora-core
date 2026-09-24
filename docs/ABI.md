@@ -2,7 +2,7 @@
 
 ABI 与 Linux 不兼容。共同常量和结构以 `include/nv/abi.h` 为准，用户侧封装在 `user/runtime.h`。
 
-两种架构都使用 `int 0x81`。调用号在 EAX，前三个参数在 EBX / ECX / EDX，返回值读取 EAX 的有符号 32 位值。x64 内核保存完整 64 位寄存器，但 ABI 1 的调用号、参数和用户地址仍限制为 32 位；非零高位返回 `-NV_EINVAL`。普通用户地址必须位于当前进程实际映射的 1–2 GiB 窗口内。
+x64 使用 `int 0x81`。调用号在 EAX，前三个参数在 EBX / ECX / EDX，返回值读取 EAX 的有符号 32 位值。x64 内核保存完整 64 位寄存器，但 ABI 1 的调用号、参数和用户地址仍限制为 32 位；非零高位返回 `-NV_EINVAL`。普通用户地址必须位于当前进程实际映射的 1–2 GiB 窗口内。
 
 除 `CLOCK` 的无符号 tick 位模式外，负数表示 `-NV_E...`，非负数表示结果。零长度 I/O 不解引用缓冲区。每次 I/O 上限为 16384 字节。
 
@@ -46,9 +46,9 @@ CONTROL：1 保存 `/home`，2 关机，3 重启，4 清空 VGA，5 测试退出
 
 STOP 允许 PID 1 管理其他进程；普通进程只能终止自己的子进程；任何进程均不能通过 STOP 终止 PID 1 或自己。WAIT 对退出状态只允许领取一次。未领取状态的进程会保留 zombie 元数据，但它的用户页、页表和内核栈在安全切换后释放。主动终止状态为 143；CPU 异常状态为 `128 + vector`。
 
-`GROW` 以 4096 字节页为单位，正数增加、负数归还、零查询。分配上限为每进程 4 MiB；失败不推进 break。返回值与 `sbrk` 的形状相似，但不是 POSIX 接口。运行库将错误符号扩展到宿主指针宽度，可用 `(iptr)result < 0` 判断。
+`GROW` 以 4096 字节页为单位，正数增加、负数归还、零查询。x64 分配上限为每进程 512 MiB；失败不推进 break。返回值与 `sbrk` 的形状相似，但不是 POSIX 接口。运行库将错误符号扩展到宿主指针宽度，可用 `(iptr)result < 0` 判断。
 
-程序入口由 `user/start.S` 或 `user/start64.S` 转入 `int user_main(const char *args)`。x64 内部 C 调用遵循 SysV AMD64 整数调用约定；系统调用使用上述独立约定。x64 程序必须禁止 red zone。内核 C 和随包通用应用继续以整数指令编译；专用用户程序可在查询能力后使用 x87/MMX/SSE，不能启用 AVX/XSAVE 等尚未支持的状态。浮点 C 调用约定和完整 libc 不在当前 ABI 范围。
+程序入口由 `user/start64.S` 转入 `int user_main(const char *args)`。x64 内部 C 调用遵循 SysV AMD64 整数调用约定；系统调用使用上述独立约定。x64 程序必须禁止 red zone。内核 C 和随包通用应用继续以整数指令编译；专用用户程序可在查询能力后使用 x87/MMX/SSE，不能启用 AVX/XSAVE 等尚未支持的状态。浮点 C 调用约定和完整 libc 不在当前 ABI 范围。ARM64 当前只有测试用 SVC，还没有这一 ABI。
 
 ## Folio 屏幕与提交调用
 
@@ -66,7 +66,7 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 
 调用号 27 不改变已有 0–26 号调用。CPU 子操作要求 ECX=0，EDX 指向 140 字节的 `nv_cpu_info`；GPU 子操作要求 ECX 为 0–15，EDX 指向 176 字节的 `nv_gpu_info`；PLATFORM 子操作要求 ECX=0，EDX 指向 64 字节的 `nv_platform_info`。完整缓冲区必须处处可写，否则在任何写入前返回 `-NV_EFAULT`。错误操作/索引返回 `-NV_EINVAL`。CPU 与 PLATFORM 返回 1；GPU 返回 1 表示存在，0 表示该索引没有设备且不修改输出。
 
-字段与位标记以 `include/nv/abi.h` 为准。所有数字为固定 32 位字段；64 位 BAR 与 ECAM 基址由 `high` / `low` 拼接，避免两种架构的自然对齐差异。保留字段为零。CPU `usable` 表示内核启用的状态，原始 CPUID 特性不自动等于可用功能。GPU `state=NV_GPU_DISCOVERED` 仅表示发现设备；`capabilities` 和 `ext_capabilities` 不代表中断、隔离或加速已经启用。
+字段与位标记以 `include/nv/abi.h` 为准。所有数字为固定 32 位字段；64 位 BAR 与 ECAM 基址由 `high` / `low` 拼接，保持既定的固定字段布局。保留字段为零。CPU `usable` 表示内核启用的状态，原始 CPUID 特性不自动等于可用功能。GPU `state=NV_GPU_DISCOVERED` 仅表示发现设备；`capabilities` 和 `ext_capabilities` 不代表中断、隔离或加速已经启用。
 
 `nv_platform_info.flags` 报告 ACPI、XSDT、MCFG、ECAM、CF8 回退及命令行禁用 ECAM 的状态。`config_bytes` 为当前覆盖设备可读取的配置空间大小：ECAM 为 4096，纯 CF8 为 256。`mcfg_entries` 是固件记录数，`ecam_regions` 是实际启用数，`rejected_entries` 包含坏校验/长度/范围/重叠、非 segment 0、超出架构物理地址和 ECAM/CF8 交叉检查不一致的项目。当前只使用 segment 0；第一个活动范围的总线与基址写入结构。详细范围见 [CPU-GPU.md](CPU-GPU.md)。
 

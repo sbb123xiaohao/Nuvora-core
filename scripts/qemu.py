@@ -18,8 +18,7 @@ OVMF_DIRS = (
 
 
 def qemu_binary():
-    return os.environ.get('NV_QEMU') or shutil.which('qemu-system-x86_64') or (
-        shutil.which('qemu-system-i386') if ARCH == 'i686' else None)
+    return os.environ.get('NV_QEMU') or shutil.which('qemu-system-x86_64')
 
 
 def find_uefi_firmware():
@@ -67,7 +66,7 @@ def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None)
     binary = qemu_binary()
     if not binary:
         raise RuntimeError('Install qemu-system-x86 (Debian/Ubuntu) or qemu-system-x86 (Arch).')
-    cmd = [binary, '-accel', 'tcg', '-machine', machine, '-cpu', cpu or ('qemu64' if ARCH == 'x86_64' else 'qemu32'),
+    cmd = [binary, '-accel', 'tcg', '-machine', machine, '-cpu', cpu or 'qemu64',
            '-m', str(memory), '-smp', '1', '-nic', 'none']
     if kernel:
         cmd += ['-kernel', str(BUILD / 'boot.elf')]
