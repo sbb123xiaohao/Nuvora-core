@@ -48,7 +48,19 @@ static void reserve(u64 start, u64 end) {
         nv_buddy_refresh(&buddy, (u32)(start / PAGE),
                          (u32)(ALIGN_UP(end, PAGE) / PAGE - start / PAGE));
 }
-void memory_reserve(u64 base, u64 length) {
+static struct nv_spinlock allocator_lock;
+static void memory_reserve_locked(u64 base, u64 length);
+static uptr page_alloc_locked(void);
+static uptr page_alloc_below_locked(u64 limit);
+static uptr page_alloc_order_locked(u32 order);
+static uptr page_alloc_run_locked(u32 count);
+static void page_pin_locked(uptr p);
+static void page_free_locked(uptr p);
+static u32 pages_free_locked(void);
+static u32 heap_used_locked(void);
+static void * kmalloc_locked(usize n);
+static void kfree_locked(void *p);
+static void memory_reserve_locked(u64 base, u64 length) {
     if (length && base <= ~0ull - length)
         reserve(base, base + length);
 }
@@ -116,7 +128,7 @@ void memory_init(const struct boot_info *bi) {
     *head = (struct block){.magic = BLOCK_MAGIC, .size = HEAP_SIZE - sizeof(*head), .free = 1};
     /* Allocate the compact free-block index from mapped, pinned kernel pages
      * before publishing it. Page zero in the ordinary RAM bitmap stays busy. */
-    buddy_levels = kmalloc(nv_buddy_bytes(managed_pages));
+    buddy_levels = kmalloc_locked(nv_buddy_bytes(managed_pages));
     if (!buddy_levels)
         panic("cannot allocate page allocator metadata");
     nv_buddy_init(&buddy, bitmap, buddy_levels, managed_pages);
@@ -134,7 +146,7 @@ static uptr commit_pages(u32 first, u32 count) {
     memset(phys_ptr(p), 0, (usize)count * PAGE);
     return p;
 }
-uptr page_alloc_below(u64 limit) {
+static uptr page_alloc_below_locked(u64 limit) {
     if (!free_count)
         return 0;
     /* Low-first scan: keeps DMA-capable allocations near the bottom of RAM. */
@@ -163,7 +175,7 @@ uptr page_alloc_below(u64 limit) {
     }
     return 0;
 }
-uptr page_alloc(void) {
+static uptr page_alloc_locked(void) {
     if (!free_count)
         return 0;
     if (buddy_levels) {
@@ -199,7 +211,7 @@ uptr page_alloc(void) {
     }
     return 0;
 }
-uptr page_alloc_order(u32 order) {
+static uptr page_alloc_order_locked(u32 order) {
     if (order > NV_BUDDY_MAX_ORDER || !buddy_levels ||
         free_count < (1u << order)) return 0;
     u32 first = nv_buddy_find(&buddy, order, 1u << 20, managed_pages);
@@ -207,11 +219,11 @@ uptr page_alloc_order(u32 order) {
         first = nv_buddy_find(&buddy, order, 1, MIN(1u << 20, managed_pages));
     return first < managed_pages ? commit_pages(first, 1u << order) : 0;
 }
-uptr page_alloc_run(u32 count) {
+static uptr page_alloc_run_locked(u32 count) {
     if (!count || free_count < count)
         return 0;
     if (!(count & (count - 1)) && buddy_levels && count <= (1u << NV_BUDDY_MAX_ORDER))
-        return page_alloc_order((u32)__builtin_ctz(count));
+        return page_alloc_order_locked((u32)__builtin_ctz(count));
     u64 total = buddy_levels ? managed_pages : (u64)ARRAY_LEN(bitmap) * 32;
     u64 run = 0, start = 0;
     for (u64 i = 0; i < total; ++i) {
@@ -237,13 +249,13 @@ uptr page_alloc_run(u32 count) {
     }
     return 0;
 }
-void page_pin(uptr p) {
+static void page_pin_locked(uptr p) {
     if (p >= PHYS_LIMIT || p % PAGE ||
         !(allocated[p / PAGE / 32] & (1u << (p / PAGE % 32))))
         panic("invalid page pin");
     allocated[p / PAGE / 32] &= ~(1u << (p / PAGE % 32));
 }
-void page_free(uptr p) {
+static void page_free_locked(uptr p) {
     if (p >= PHYS_LIMIT || p % PAGE ||
         !(allocated[p / PAGE / 32] & (1u << (p / PAGE % 32))))
         panic("invalid page free");
@@ -253,13 +265,13 @@ void page_free(uptr p) {
     if (p / PAGE >= (1u << 20)) normal_depleted = false;
     if (buddy_levels) nv_buddy_refresh(&buddy, (u32)(p / PAGE), 1);
 }
-u32 pages_free(void) {
+static u32 pages_free_locked(void) {
     return free_count;
 }
 u32 pages_total(void) {
     return total_count;
 }
-u32 heap_used(void) {
+static u32 heap_used_locked(void) {
     return used_bytes;
 }
 u32 heap_total(void) {
@@ -267,14 +279,14 @@ u32 heap_total(void) {
 }
 static void *slab_get_page(void *unused) {
     (void)unused;
-    uptr p = page_alloc();
+    uptr p = page_alloc_locked();
     return p ? phys_ptr(p) : NULL;
 }
 static void slab_put_page(void *unused, void *ptr) {
     (void)unused;
-    page_free(ptr_phys(ptr));
+    page_free_locked(ptr_phys(ptr));
 }
-void *kmalloc(usize n) {
+static void *kmalloc_locked(usize n) {
     if (!n || n > HEAP_SIZE - sizeof(struct block) - 15)
         return NULL;
     if (slabs_active && n <= 2048) {
@@ -321,7 +333,7 @@ static void merge(struct block *b) {
         next->magic = 0;
     }
 }
-void kfree(void *ptr) {
+static void kfree_locked(void *ptr) {
     if (!ptr)
         return;
     if (slabs_active && (uptr)ptr >= PHYS_WINDOW &&
@@ -345,6 +357,70 @@ void kfree(void *ptr) {
     merge(b);
     if (b->prev && b->prev->free)
         merge(b->prev);
+}
+
+/* One IRQ-safe lock covers ownership, slab callbacks and heap metadata. */
+void memory_reserve(u64 base, u64 length) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    memory_reserve_locked(base, length);
+    spin_unlock_irqrestore(&allocator_lock, flags);
+}
+uptr page_alloc(void) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    uptr result = page_alloc_locked();
+    spin_unlock_irqrestore(&allocator_lock, flags);
+    return result;
+}
+uptr page_alloc_below(u64 limit) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    uptr result = page_alloc_below_locked(limit);
+    spin_unlock_irqrestore(&allocator_lock, flags);
+    return result;
+}
+uptr page_alloc_order(u32 order) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    uptr result = page_alloc_order_locked(order);
+    spin_unlock_irqrestore(&allocator_lock, flags);
+    return result;
+}
+uptr page_alloc_run(u32 count) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    uptr result = page_alloc_run_locked(count);
+    spin_unlock_irqrestore(&allocator_lock, flags);
+    return result;
+}
+void page_pin(uptr p) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    page_pin_locked(p);
+    spin_unlock_irqrestore(&allocator_lock, flags);
+}
+void page_free(uptr p) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    page_free_locked(p);
+    spin_unlock_irqrestore(&allocator_lock, flags);
+}
+u32 pages_free(void) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    u32 result = pages_free_locked();
+    spin_unlock_irqrestore(&allocator_lock, flags);
+    return result;
+}
+u32 heap_used(void) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    u32 result = heap_used_locked();
+    spin_unlock_irqrestore(&allocator_lock, flags);
+    return result;
+}
+void * kmalloc(usize n) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    void * result = kmalloc_locked(n);
+    spin_unlock_irqrestore(&allocator_lock, flags);
+    return result;
+}
+void kfree(void *p) {
+    uptr flags = spin_lock_irqsave(&allocator_lock);
+    kfree_locked(p);
+    spin_unlock_irqrestore(&allocator_lock, flags);
 }
 void *vm_mmio_map(u64 physical, u32 length) {
     /* The final PTE is a shared single-page firmware/ECAM aperture. */

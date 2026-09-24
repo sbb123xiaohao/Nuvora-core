@@ -16,36 +16,47 @@ struct tss64 {
     u16 reserved3, iomap;
 } PACKED;
 _Static_assert(sizeof(struct tss64) == 104, "long-mode TSS");
-static u64 gdt[7];
+static u64 gdts[NV_CPU_MAX][7];
 static struct idt_entry64 idt[256];
-static struct tss64 tss;
-static u8 emergency_stack[8192] ALIGNED(16);
+static struct tss64 tsses[NV_CPU_MAX];
+static u8 emergency_stack[NV_CPU_MAX][8192] ALIGNED(16);
 extern uptr isr_table[];
 extern void gdt_load(const struct table_ptr64 *);
 volatile u32 ticks;
 void arch_set_stack(uptr top) {
-    tss.rsp[0] = top;
+    tsses[0].rsp[0] = top;
 }
 static void gate(u32 v, uptr a, u8 flags, u8 ist) {
     idt[v] = (struct idt_entry64){(u16)a, 8, ist, flags, (u16)(a >> 16), (u32)(a >> 32), 0};
 }
-void arch_init(void) {
+static void local_tables(u32 slot, uptr stack) {
+    u64 *gdt = gdts[slot];
+    struct tss64 *t = &tsses[slot];
     gdt[1] = 0x00af9a000000ffffull;
     gdt[2] = 0x00cf92000000ffffull;
     gdt[3] = 0x00affa000000ffffull;
     gdt[4] = 0x00cff2000000ffffull;
-    memset(&tss, 0, sizeof(tss));
-    tss.iomap = sizeof(tss);
-    tss.ist[0] = (uptr)emergency_stack + sizeof(emergency_stack);
-    u64 b = (uptr)&tss, limit = sizeof(tss) - 1;
+    memset(t, 0, sizeof(*t));
+    t->rsp[0] = stack;
+    t->iomap = sizeof(*t);
+    t->ist[0] = (uptr)emergency_stack[slot] + sizeof(emergency_stack[slot]);
+    u64 b = (uptr)t, limit = sizeof(*t) - 1;
     gdt[5] = (limit & 0xffff) | ((b & 0xffffff) << 16) | (0x89ull << 40) |
              ((limit & 0xf0000) << 32) | ((b & 0xff000000) << 32);
     gdt[6] = b >> 32;
-    struct table_ptr64 gp = {sizeof(gdt) - 1, (uptr)gdt};
+    struct table_ptr64 gp = {sizeof(gdts[slot]) - 1, (uptr)gdt};
     gdt_load(&gp);
+    struct table_ptr64 ip = {sizeof(idt) - 1, (uptr)idt};
+    __asm__ volatile("lidt %0" ::"m"(ip));
+}
+void arch_ap_init(u32 slot, uptr stack) { local_tables(slot, stack); }
+void arch_init(void) {
+    local_tables(0, 0);
     for (u32 i = 0; i < 48; ++i)
         gate(i, isr_table[i], 0x8e, i == 8 ? 1 : 0);
     gate(0x81, isr_table[48], 0xee, 0);
+    gate(0xf0, isr_table[49], 0x8e, 0);
+    gate(0xff, isr_table[50], 0x8e, 0);
     struct table_ptr64 ip = {sizeof(idt) - 1, (uptr)idt};
     __asm__ volatile("lidt %0" ::"m"(ip));
     outb(0x20, 0x11);
@@ -64,6 +75,8 @@ void arch_init(void) {
     outb(0x40, (u8)(d >> 8));
 }
 struct frame *interrupt_dispatch(struct frame *f) {
+    if (f->vector == 0xff) return f;
+    if (f->vector == 0xf0) { smp_eoi(); return f; }
     if (f->vector == 0x81)
         return syscall_dispatch(f);
     if (f->vector == 8)
@@ -97,6 +110,7 @@ struct frame *interrupt_dispatch(struct frame *f) {
     if (f->vector == 32) {
         ++ticks;
         task_tick();
+        net_poll();
     }
     if (f->vector == 33)
         keyboard_irq();

@@ -277,8 +277,11 @@ struct frame *syscall_dispatch(struct frame *f) {
         case NV_SUB_GPU:
             result = gpu_ioctl(b, c);
             break;
+        case NV_SUB_AI:
+            result = ai_ioctl(b, c);
+            break;
         case NV_SUB_NET:
-            result = -NV_ENOSYS; /* Known reserved subsystem, not an unknown ID. */
+            result = net_ioctl(b, c);
             break;
         default:
             result = -NV_EINVAL;

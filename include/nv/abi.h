@@ -53,7 +53,8 @@ enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
 enum nv_subsystem {
     NV_SUB_CPU = 1,
     NV_SUB_GPU = 2,
-    NV_SUB_NET = 3 /* reserved: no network stack yet (see ROADMAP.md #6) */
+    NV_SUB_NET = 3,
+    NV_SUB_AI = 4
 };
 enum nv_gpu_op {
     NV_GPU_OP_MAP_BAR = 1,

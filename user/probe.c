@@ -481,7 +481,7 @@ static void hardware_tests(void) {
     struct nv_gpu_info gpu;
     struct nv_platform_info platform;
     check(cpu_info(&cpu) == 1 && cpu.version == 1 && cpu.bits == 8 * sizeof(uptr) &&
-              cpu.online_cpus == 1 && (cpu.usable & NV_CPU_X87),
+              cpu.online_cpus >= 1 && cpu.online_cpus <= 32 && (cpu.usable & NV_CPU_X87),
           "CPU identity and enabled state ABI");
     check(call(NV_HARDWARE, 0, 0, 0) == -NV_EINVAL &&
               call(NV_HARDWARE, NV_HW_CPU, 1, (uptr)&cpu) == -NV_EINVAL &&
@@ -571,6 +571,10 @@ int user_main(const char *args) {
         core_regressions();
         exec_tests();
         tokenizer_tests();
+        int tpid = spawn("/apps/tensor", "");
+        check(tpid > 0 && wait_task(tpid) == 0, "AI CPU matrix backend, bounds and memory reclamation");
+        int cpid = spawn("/apps/ctest", "alpha 'two words' ''");
+        check(cpid > 0 && wait_task(cpid) == 0, "C main argc/argv, BSS and allocation library");
     }
     print("PROBE RESULT: ");
     print_u32(passed);

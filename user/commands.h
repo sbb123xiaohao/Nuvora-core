@@ -3,6 +3,8 @@ struct command_help {
     const char *name, *syntax, *purpose, *example, *notes;
 };
 static const struct command_help commands[] = {
+    {"run", "run PROGRAM [ARG...]", "Run a C ELF64 program with preserved argument boundaries.",
+     "run ctest alpha \"two words\" \"\"", "Uses argc/argv; forge retains the legacy raw argument format."},
     {"help", "help [COMMAND]", "List all commands, or explain one command.", "help ports",
      "Every listed command accepts --help. atlas is an alias for help."},
     {"atlas", "atlas [COMMAND]", "List all commands, or explain one command.", "atlas folio",

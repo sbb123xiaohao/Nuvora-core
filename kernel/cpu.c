@@ -95,6 +95,7 @@ void cpu_init(void) {
 }
 void cpu_get_info(struct nv_cpu_info *out) {
     *out = identity;
+    out->online_cpus = smp_online();
 }
 int cpu_ioctl(u32 op, u32 user_ptr) {
     (void)op;

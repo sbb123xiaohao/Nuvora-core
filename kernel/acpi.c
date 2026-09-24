@@ -4,6 +4,8 @@ static struct nv_platform_info platform;
 static u64 cached_page = ~0ull;
 static const u8 *cached_mapping;
 static u32 address_bits;
+static struct nv_acpi_result tables;
+const struct nv_madt *acpi_madt(void) { return &tables.madt; }
 
 static bool physical_read(void *context, u64 address, void *out, u32 length) {
     (void)context;
@@ -38,7 +40,7 @@ void acpi_init(bool no_ecam, u64 rsdp) {
     struct nv_cpu_info cpu;
     cpu_get_info(&cpu);
     address_bits = MIN(cpu.physical_bits, 52u);
-    struct nv_acpi_result tables;
+    memset(&tables, 0, sizeof(tables));
     bool found = rsdp ? nv_acpi_parse_rsdp(physical_read, NULL, rsdp, &tables) : false;
     if (!found)
         found = nv_acpi_discover(physical_read, NULL, &tables);

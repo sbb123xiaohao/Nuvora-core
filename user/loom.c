@@ -67,7 +67,7 @@ static void process_list(void) {
         println(t.name);
     }
 }
-static int run_app(const char *app, char **argv, int argc, bool background) {
+static int run_app(const char *app, char **argv, int argc, bool background, bool standard) {
     char path[NV_PATH_MAX], args[NV_ARG_MAX];
     bool slash = false;
     for (const char *p = app; *p; ++p)
@@ -82,7 +82,23 @@ static int run_app(const char *app, char **argv, int argc, bool background) {
             return -NV_E2BIG;
         strlcpy(path + 6, app, sizeof(path) - 6);
     }
-    int r = join_args(args, sizeof(args), argv, 2, argc);
+    int r = 0;
+    if (!standard) r = join_args(args, sizeof(args), argv, 2, argc);
+    else {
+        u32 n = 0;
+        for (int i = 2; i < argc; ++i) {
+            if (n + 3 >= sizeof(args)) return -NV_E2BIG;
+            if (i > 2) args[n++] = ' ';
+            args[n++] = '"';
+            for (const char *p = argv[i]; *p; ++p) {
+                if (n + 3 >= sizeof(args)) return -NV_E2BIG;
+                if (*p == '"' || *p == '\\') args[n++] = '\\';
+                args[n++] = *p;
+            }
+            args[n++] = '"';
+        }
+        args[n] = 0;
+    }
     if (r < 0)
         return r;
     int pid = spawn(path, args);
@@ -106,6 +122,7 @@ static int run_app(const char *app, char **argv, int argc, bool background) {
 }
 static int dispatch(int n, char **v) {
     const char *cmd = v[0];
+    if (!strcmp(cmd, "run") && n >= 2) return run_app(v[1], v, n, false, true);
     const struct command_help *entry = find_command(cmd);
     if (n == 2 && !strcmp(v[1], "--help") && entry) {
         explain_command(entry);
@@ -209,10 +226,10 @@ static int dispatch(int n, char **v) {
         return 0;
     }
     if ((!strcmp(cmd, "forge") || !strcmp(cmd, "scatter")) && n >= 2)
-        return run_app(v[1], v, n, !strcmp(cmd, "scatter"));
+        return run_app(v[1], v, n, !strcmp(cmd, "scatter"), false);
     if (!strcmp(cmd, "trial") && n == 1) {
         char *args[] = {"forge", "probe"};
-        return run_app("probe", args, 2, false);
+        return run_app("probe", args, 2, false, false);
     }
     if ((!strcmp(cmd, "gather") || !strcmp(cmd, "quench") || !strcmp(cmd, "doze")) && n == 2) {
         u32 value;

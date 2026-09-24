@@ -74,6 +74,11 @@ void vm_kernel_init(void) {
     cr0 |= 0x1000c;
     __asm__ volatile("mov %0,%%cr0" ::"r"(cr0) : "memory");
 }
+void vm_ap_bootstrap(void) {
+    kernel_pt[0][7] = 0x7000 | P_PRESENT;
+    __asm__ volatile("invlpg (%0); invlpg (%1)" :: "r"((uptr)0x7000),
+                     "r"((uptr)phys_ptr(0x7000)) : "memory");
+}
 /* Kernel heap has contiguous virtual addresses, not a contiguous physical
  * allocation requirement. Do not publish or pin partial allocations. */
 void *vm_heap_create(void) {

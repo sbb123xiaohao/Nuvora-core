@@ -1,23 +1,8 @@
 #include "kernel.h"
+#include <nv/elf.h>
 struct task tasks[NV_TASK_MAX];
 struct task *current;
 static u32 next_pid = 1;
-struct elf_header {
-    u8 ident[16];
-    u16 type, machine;
-    u32 version;
-    u64 entry, phoff, shoff;
-    u32 flags;
-    u16 ehsize, phentsize, phnum, shentsize, shnum, shstr;
-} PACKED;
-struct program_header {
-    u32 type, flags;
-    u64 offset, vaddr, paddr, filesz, memsz, align;
-} PACKED;
-#define ELF_CLASS 2
-#define ELF_MACHINE 62
-_Static_assert(sizeof(struct elf_header) == 64, "ELF64 header");
-_Static_assert(sizeof(struct program_header) == 56, "ELF64 program header");
 void task_init(void) {
     memset(tasks, 0, sizeof(tasks));
 }
@@ -47,51 +32,18 @@ void task_reap(void) {
             memset(t, 0, sizeof(*t));
     }
 }
-static int load_elf(struct task *t, const u8 *data, u32 len, u32 *entry) {
-    if (len < sizeof(struct elf_header))
-        return -NV_ENOEXEC;
-    const struct elf_header *h = (const void *)(uptr)data;
-    if (memcmp(h->ident, "\177ELF", 4) || h->ident[4] != ELF_CLASS || h->ident[5] != 1 ||
-        h->ident[6] != 1 || h->type != 2 || h->machine != ELF_MACHINE || h->version != 1 ||
-        h->ehsize != sizeof(*h) || h->phentsize != sizeof(struct program_header) || !h->phnum ||
-        h->phnum > 32)
-        return -NV_ENOEXEC;
-    if (h->phoff > len || h->phnum > (len - h->phoff) / sizeof(struct program_header))
-        return -NV_ENOEXEC;
-    const struct program_header *ph = (const void *)(uptr)(data + h->phoff);
-    bool executable_entry = false;
-    for (u32 i = 0; i < h->phnum; ++i) {
-        const struct program_header *p = &ph[i];
-        if (p->type == 2 || p->type == 3 || p->type == 7)
-            return -NV_ENOEXEC;
-        if (p->type != 1)
-            continue;
-        if (!p->memsz && !p->filesz)
-            continue;
-        if (p->filesz > p->memsz || p->offset > len || p->filesz > len - p->offset ||
-            p->vaddr < USER_BASE || p->vaddr >= USER_IMAGE_END ||
-            p->memsz > USER_IMAGE_END - p->vaddr || (p->flags & ~7u) || ((p->flags & 3) == 3))
-            return -NV_ENOEXEC;
-        if (p->align > 1 &&
-            ((p->align & (p->align - 1)) || ((p->offset ^ p->vaddr) & (p->align - 1))))
-            return -NV_ENOEXEC;
-        if (!p->memsz)
-            continue;
-        if ((p->flags & 1) && h->entry >= p->vaddr && h->entry - p->vaddr < p->memsz)
-            executable_entry = true;
+static int load_elf(struct task *t, const u8 *data, const struct nv_elf_image *image) {
+    for (u32 i = 0; i < image->count; ++i) {
+        const struct nv_elf_segment *p = &image->segments[i];
         u32 first = p->vaddr & ~4095u, end = ALIGN_UP(p->vaddr + p->memsz, PAGE);
         for (u32 va = first; va < end; va += PAGE) {
-            int r =
-                vm_map(t->pd, va, ((p->flags & 2) ? P_WRITE : 0) | ((p->flags & 1) ? P_EXEC : 0));
-            if (r < 0)
-                return r == -NV_EEXIST ? -NV_ENOEXEC : r;
+            int r = vm_map(t->pd, va, ((p->flags & 2) ? P_WRITE : 0) |
+                                     ((p->flags & 1) ? P_EXEC : 0));
+            if (r < 0) return r;
         }
-        if (copy_to_space(t->pd, p->vaddr, data + p->offset, p->filesz) < 0)
+        if (copy_to_space(t->pd, (u32)p->vaddr, data + p->offset, (u32)p->filesz) < 0)
             return -NV_ENOEXEC;
     }
-    if (!executable_entry)
-        return -NV_ENOEXEC;
-    *entry = h->entry;
     return 0;
 }
 static int prepare_image(struct task *t, const char *path, const char *args, struct frame *frame) {
@@ -102,11 +54,13 @@ static int prepare_image(struct task *t, const char *path, const char *args, str
     int r = fs_blob(path, &data, &len);
     if (r < 0)
         return r;
+    struct nv_elf_image image;
+    r = nv_elf64_validate(data, len, USER_BASE, USER_IMAGE_END, &image);
+    if (r < 0) return r;
     t->pd = vm_create();
     if (!t->pd)
         return -NV_ENOMEM;
-    u32 entry;
-    r = load_elf(t, data, len, &entry);
+    r = load_elf(t, data, &image);
     if (r < 0)
         return r;
     for (u32 i = 1; i <= USER_STACK_PAGES; ++i) {
@@ -114,13 +68,13 @@ static int prepare_image(struct task *t, const char *path, const char *args, str
         if (r < 0)
             return r;
     }
-    *frame = (struct frame){.cs = 0x1b,
-                            .ss = 0x23,
-                            .eflags = 0x202,
-                            .eip = entry,
-                            .useresp = USER_STACK_TOP - 512,
-                            .ebx = USER_STACK_TOP - NV_ARG_MAX};
-    return copy_to_space(t->pd, frame->ebx, args, strlen(args) + 1);
+    u8 stack[PAGE] ALIGNED(16);
+    u32 sp, raw;
+    r = nv_elf64_stack(path, args, &image, stack, USER_STACK_TOP - PAGE, &sp, &raw);
+    if (r < 0) return r;
+    *frame = (struct frame){.cs = 0x1b, .ss = 0x23, .eflags = 0x202,
+                            .eip = image.entry, .useresp = sp, .ebx = raw};
+    return copy_to_space(t->pd, USER_STACK_TOP - PAGE, stack, PAGE);
 }
 static void name_task(struct task *t, const char *path) {
     const char *name = path;
@@ -183,6 +137,7 @@ int task_exec(const char *path, const char *args) {
      * PID, parent, children, working directory and open handles remain intact. */
     pte_t *old = current->pd;
     console_release(current->pid);
+    net_task_exit(current->pid);
     current->pd = staged.pd;
     current->heap_end = USER_HEAP;
     *current->frame = frame;
@@ -232,6 +187,7 @@ struct frame *schedule(struct frame *f) {
     }
 }
 static void finish(struct task *t, int status) {
+    net_task_exit(t->pid);
     console_release(t->pid);
     t->status = status;
     t->state = NV_ZOMBIE;

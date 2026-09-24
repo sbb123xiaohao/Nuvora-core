@@ -50,6 +50,11 @@ static void boot_from_multiboot(u32 magic, const struct multiboot *mb, struct bo
             pos += m->size + 4;
         }
     } else if (mb->flags & 1) {
+        /* Preserve conventional RAM bounds for the AP bootstrap. The physical
+         * allocator still reserves all memory below kernel_end. */
+        if (mb->mem_lower > 4 && mb->mem_lower <= 640)
+            bi->mem[bi->mem_count++] = (struct boot_mem_entry){0x1000,
+                                               (u64)mb->mem_lower * 1024 - 0x1000, 1};
         bi->mem[bi->mem_count++] = (struct boot_mem_entry){0x100000ull, (u64)mb->mem_upper * 1024u, 1};
     } else
         panic("bootloader provided no RAM map");
@@ -107,6 +112,8 @@ void kernel_start(const struct boot_info *bi) {
     acpi_init(boot_option(bi->cmdline, "nv.no-ecam=1"), bi->rsdp);
     kprintf("[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging\n");
     memory_selftest();
+    smp_init(boot_option(bi->cmdline, "nv.no-smp=1"));
+    if (test_mode) smp_selftest();
     console_fb_enable();
     task_init();
     fs_init();
@@ -116,6 +123,8 @@ void kernel_start(const struct boot_info *bi) {
     store_init();
     gpu_init();
     usb_init();
+    net_init();
+    ai_init();
     kprintf("[ok] %u MiB managed RAM, %u free pages\n", pages_total() / 256, pages_free());
     const char *program = test_mode ? "/apps/probe" : "/apps/loom";
     if (test_mode && boot_option(bi->cmdline, "nv.init-fault=1"))

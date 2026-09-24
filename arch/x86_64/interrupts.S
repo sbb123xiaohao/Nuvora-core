@@ -242,6 +242,14 @@ isr_129:
     pushq $0
     pushq $129
     jmp interrupt_common
+isr_240:
+    pushq $0
+    pushq $240
+    jmp interrupt_common
+isr_255:
+    pushq $0
+    pushq $255
+    jmp interrupt_common
 interrupt_common:
     push %rax
     push %rbx
@@ -334,4 +342,6 @@ isr_table:
     .quad isr_46
     .quad isr_47
     .quad isr_129
+    .quad isr_240
+    .quad isr_255
 .section .note.GNU-stack,"",@progbits

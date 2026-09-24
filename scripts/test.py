@@ -18,7 +18,7 @@ REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
 results = []
 VERSION = '0.9.0'
-EXPECTED_ASSERTIONS = 131
+EXPECTED_ASSERTIONS = 133
 if ARCH != 'x86_64':
     raise SystemExit('Use scripts/arm64.py test for ARM64; 32-bit x86 is retired')
 
@@ -286,7 +286,7 @@ def memory_pressure():
 def build_fingerprint():
     files = {ROOT / 'Makefile', ROOT / 'start.py', BUILD / 'boot.elf', BUILD / 'nuvora.elf'}
     files.update((BUILD / 'apps').glob('*.elf'))
-    for directory in ['kernel', 'arch', 'common', 'include', 'user', 'tests', 'scripts']:
+    for directory in ['kernel', 'arch', 'common', 'include', 'user', 'tests', 'scripts', 'sdk']:
         files.update(p for p in (ROOT / directory).rglob('*')
                      if p.is_file() and p.suffix in {'.c', '.h', '.S', '.ld', '.inc', '.py', '.mjs'})
     if ARCH == 'x86_64':

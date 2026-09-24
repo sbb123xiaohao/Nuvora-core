@@ -7,6 +7,7 @@
 #include <nv/acpi.h>
 #include <nv/string.h>
 #include <nv/bootinfo.h>
+#include <nv/spinlock.h>
 #define PAGE 4096u
 /* Managed RAM ceiling. x64 uses 2 MiB mappings above the protected kernel
  * image and uptr-wide physical page addresses. */
@@ -89,11 +90,26 @@ static inline void idle_once(void) {
 }
 static inline uptr irq_save(void) {
     uptr f;
+#ifdef NV_HOST_TEST
+    return 0;
+#endif
     __asm__ volatile("pushf; pop %0; cli" : "=r"(f)::"memory");
     return f;
 }
 static inline void irq_restore(uptr f) {
+#ifdef NV_HOST_TEST
+    (void)f; return;
+#endif
     __asm__ volatile("push %0; popf" ::"r"(f) : "memory", "cc");
+}
+static inline uptr spin_lock_irqsave(struct nv_spinlock *lock) {
+    uptr flags = irq_save();
+    nv_spin_lock(lock);
+    return flags;
+}
+static inline void spin_unlock_irqrestore(struct nv_spinlock *lock, uptr flags) {
+    nv_spin_unlock(lock);
+    irq_restore(flags);
 }
 static inline void load_cr3(uptr p) {
     p = ptr_phys((const void *)p);
@@ -159,6 +175,14 @@ void usb_poll(void);
 int usb_rescan(void);
 int usb_controller_info(u32, struct nv_usb_controller *);
 int usb_device_info(u32, struct nv_usb_device *);
+const struct nv_madt *acpi_madt(void);
+void smp_init(bool);
+void smp_selftest(void);
+u32 smp_online(void);
+void smp_eoi(void);
+void smp_parallel(void (*)(void *, u32, u32), void *);
+void arch_ap_init(u32, uptr);
+void vm_ap_bootstrap(void);
 void arch_init(void);
 void cpu_init(void);
 void cpu_get_info(struct nv_cpu_info *);
@@ -172,6 +196,16 @@ void pci_write16(u32, u32, u16);
 void pci_visit(void (*)(u32, u32, u32));
 u32 pci_ecam_configure(const struct nv_mcfg_region *, u32, u32, u32 *,
                        struct nv_mcfg_region *);
+bool virtio_net_init(u8 *);
+bool virtio_net_ready(void);
+int virtio_net_send(const u8 *, u32);
+void virtio_net_poll(void (*)(const u8 *, u32));
+void ai_init(void);
+int ai_ioctl(u32, u32);
+void net_init(void);
+void net_poll(void);
+void net_task_exit(u32);
+int net_ioctl(u32, u32);
 void gpu_init(void);
 int gpu_get_info(u32, struct nv_gpu_info *);
 int gpu_ioctl(u32, u32);

@@ -50,10 +50,10 @@ UEXTRA := $(BUILD)/user/wide64.o
 BASEFLAGS := $(ARCHFLAGS) -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -mno-sse -mno-sse2 -mno-mmx -msoft-float
 CFLAGS := $(BASEFLAGS) -std=c11 -O2 -g1 -Wall -Wextra -Werror -Iinclude -MMD -MP -ffunction-sections -fdata-sections
 ASFLAGS := $(BASEFLAGS) -g
-KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/pci_decode.c
+KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/elf.c common/net.c common/acpi.c common/pci_decode.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := loom pulse spin fault probe folio relay vector
+APPS := loom pulse spin fault probe folio relay vector ctest net tensor
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
@@ -79,6 +79,8 @@ $(BUILD)/BOOTX64.EFI: $(BUILD)/uefi.elf
 $(BUILD)/esp.img: $(BUILD)/BOOTX64.EFI $(BUILD)/nuvora.elf scripts/mkesp.py FORCE
 	$(PYTHON) scripts/mkesp.py $@
 esp: $(BUILD)/esp.img
+$(BUILD)/apps/ctest.elf: user/ctest.c sdk/libc.c sdk/crt64.S $(wildcard sdk/include/*.h) scripts/nvcc.py $(ULINK)
+	$(PYTHON) scripts/nvcc.py user/ctest.c -o $@
 $(BUILD)/apps/folio.elf: $(BUILD)/user/folio.o $(BUILD)/user/document.o $(UCOMMON) $(ULINK)
 $(BUILD)/apps/%.elf: $(BUILD)/user/%.o $(UCOMMON) $(ULINK)
 	@mkdir -p $(dir $@)

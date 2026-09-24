@@ -54,7 +54,7 @@ static bool header(nv_physical_read read, void *context, u64 address, const char
                    struct acpi_header *out) {
     if (!address || !read(context, address, out, sizeof(*out)) ||
         memcmp(out->signature, signature, 4) || out->length < sizeof(*out) ||
-        out->length > ACPI_TABLE_MAX)
+        out->length > ACPI_TABLE_MAX || address > ~0ull - out->length)
         return false;
     return checksum(read, context, address, out->length);
 }
@@ -115,6 +115,55 @@ static void parse_mcfg(nv_physical_read read, void *context, u64 address,
     }
 }
 
+static bool madt_cpu(struct nv_madt *m, u32 id, u32 uid, u32 flags) {
+    if (!(flags & 1)) return true;
+    for (u32 i = 0; i < m->cpu_count; ++i)
+        if (m->cpus[i].apic_id == id || m->cpus[i].uid == uid) return false;
+    if (m->cpu_count == NV_CPU_MAX) ++m->omitted;
+    else m->cpus[m->cpu_count++] = (struct nv_madt_cpu){id, uid};
+    return true;
+}
+static bool parse_madt(nv_physical_read read, void *context, u64 address,
+                       struct nv_madt *out) {
+    struct acpi_header h;
+    struct nv_madt m = {0}; u32 fixed[2];
+    if (out->valid || !header(read, context, address, "APIC", &h) || h.length < 44 ||
+        !read(context, address + 36, fixed, sizeof(fixed))) return false;
+    m.lapic = fixed[0]; m.flags = fixed[1];
+    bool override = false;
+    for (u32 pos = 44; pos < h.length;) {
+        u8 record[16] = {0};
+        if (h.length - pos < 2 || !read(context, address + pos, record, 2) ||
+            record[1] < 2 || record[1] > h.length - pos) return false;
+        u32 length = record[1], type = record[0];
+        if (!read(context, address + pos, record, MIN(length, sizeof(record)))) return false;
+        u32 a, b, c;
+        memcpy(&a, record + 4, 4); memcpy(&b, record + 8, 4); memcpy(&c, record + 12, 4);
+        if (type == 0) {
+            if (length != 8 || !madt_cpu(&m, record[3], record[2], a)) return false;
+        } else if (type == 9) {
+            if (length != 16 || !madt_cpu(&m, a, c, b)) return false;
+        } else if (type == 1) {
+            if (length != 12 || !a || (a & 4095u)) return false;
+            if (m.io_count < ARRAY_LEN(m.io))
+                m.io[m.io_count++] = (struct nv_madt_ioapic){a, b, record[2]};
+        } else if (type == 2) {
+            u16 flags; memcpy(&flags, record + 8, 2);
+            if (length != 10 || record[2] || record[3] >= 16 ||
+                (flags & ~15u) || (flags & 3) == 2 || (flags & 12) == 8) return false;
+            for (u32 i = 0; i < m.iso_count; ++i)
+                if (m.iso[i].irq == record[3]) return false;
+            m.iso[m.iso_count++] = (struct nv_madt_iso){a, flags, record[3]};
+        } else if (type == 5) {
+            if (length != 12 || override) return false;
+            memcpy(&m.lapic, record + 4, 8); override = true;
+        }
+        pos += length;
+    }
+    if (!m.lapic || (m.lapic & 4095u) || m.lapic >= (1ull << 52)) return false;
+    m.valid = 1; *out = m;
+    return true;
+}
 static bool parse_root(nv_physical_read read, void *context, u64 address, bool xsdt,
                        struct nv_acpi_result *out) {
     struct acpi_header root;
@@ -132,9 +181,11 @@ static bool parse_root(nv_physical_read read, void *context, u64 address, bool x
         if (!read(context, address + sizeof(root) + (u64)i * width, &table, width))
             return false;
         struct acpi_header candidate;
-        if (table && read(context, table, &candidate, sizeof(candidate)) &&
-            !memcmp(candidate.signature, "MCFG", 4))
-            parse_mcfg(read, context, table, out);
+        if (table && read(context, table, &candidate, sizeof(candidate))) {
+            if (!memcmp(candidate.signature, "MCFG", 4)) parse_mcfg(read, context, table, out);
+            else if (!memcmp(candidate.signature, "APIC", 4) &&
+                     !parse_madt(read, context, table, &out->madt)) ++out->rejected_entries;
+        }
     }
     return true;
 }
@@ -161,6 +212,7 @@ static bool parse_rsdp(nv_physical_read read, void *context, u64 address,
         return true;
     /* Firmware with a broken XSDT can still provide a valid ACPI 1.0 RSDT. */
     memset(out->regions, 0, sizeof(out->regions));
+    memset(&out->madt, 0, sizeof(out->madt));
     out->root_kind = NV_ACPI_ROOT_NONE;
     out->mcfg_entries = out->rejected_entries = out->region_count = 0;
     return r.rsdt && parse_root(read, context, r.rsdt, false, out);
