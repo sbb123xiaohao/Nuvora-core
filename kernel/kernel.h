@@ -1,7 +1,7 @@
 #ifndef NV_KERNEL_H
 #define NV_KERNEL_H
 #ifndef __x86_64__
-#error "kernel/ implements x86_64; the ARM64 bring-up lives in arch/aarch64"
+#error "kernel/ implements x86_64; ARM64 is built from arch/aarch64"
 #endif
 #include <nv/abi.h>
 #include <nv/acpi.h>
@@ -10,11 +10,7 @@
 #define PAGE 4096u
 /* Managed RAM ceiling. x64 uses 2 MiB mappings above the protected kernel
  * image and uptr-wide physical page addresses. */
-#ifdef __x86_64__
 #define PHYS_LIMIT (64ull * 1024 * 1024 * 1024) /* 64 GiB */
-#else
-#define PHYS_LIMIT (192u * 1024u * 1024u)
-#endif
 #define USER_BASE 0x40000000u
 #define USER_IMAGE_END 0x41000000u
 #define USER_HEAP 0x50000000u
@@ -37,33 +33,23 @@
 #define P_WRITE 2u
 #define P_USER 4u
 #define P_EXEC 8u
-#ifdef __x86_64__
 #define NV_ARCH_NAME "x86-64"
 typedef u64 pte_t;
 #define P_ADDRESS 0x000ffffffffff000ull
 #define PHYS_WINDOW (1ull << 39)
 #define KHEAP_WINDOW (2ull << 39)
-#else
-#define NV_ARCH_NAME "i686"
-typedef u32 pte_t;
-#define P_ADDRESS 0xfffff000u
-#endif
 /* One continuous supervisor alias for all allocated RAM. Switching aliases
  * at 1 GiB breaks multi-page buffers that cross the user-address boundary.
  * Preserve zero as the allocation-failure sentinel; physical page 0 is reserved. */
 static inline void *phys_ptr(uptr p) {
-#ifdef __x86_64__
     if (p)
         p += PHYS_WINDOW;
-#endif
     return (void *)p;
 }
 static inline uptr ptr_phys(const void *ptr) {
     uptr p = (uptr)ptr;
-#ifdef __x86_64__
     if (p >= PHYS_WINDOW && p - PHYS_WINDOW < PHYS_LIMIT)
         p -= PHYS_WINDOW;
-#endif
     return p;
 }
 #define FS_NODES 128
@@ -113,19 +99,11 @@ static inline void load_cr3(uptr p) {
     p = ptr_phys((const void *)p);
     __asm__ volatile("mov %0,%%cr3" ::"r"(p) : "memory");
 }
-#ifdef __x86_64__
 struct frame {
     u64 r15, r14, r13, r12, r11, r10, r9, r8, edi, esi, ebp, edx, ecx, ebx, eax;
     u64 vector, error, eip, cs, eflags, useresp, ss;
 };
 _Static_assert(sizeof(struct frame) == 176, "64-bit interrupt frame");
-#else
-struct frame {
-    u32 gs, fs, es, ds, edi, esi, ebp, esp_dummy, ebx, edx, ecx, eax;
-    u32 vector, error, eip, cs, eflags, useresp, ss;
-};
-_Static_assert(sizeof(struct frame) == 76, "interrupt frame");
-#endif
 struct multiboot {
     u32 flags, mem_lower, mem_upper, boot_device, cmdline, mods_count, mods_addr;
     u32 syms[4], mmap_length, mmap_addr;
@@ -200,9 +178,7 @@ int gpu_ioctl(u32, u32);
 int cpu_ioctl(u32, u32);
 void arch_set_stack(uptr);
 void vm_kernel_init(void);
-#ifdef __x86_64__
 void *vm_heap_create(void);
-#endif
 void *vm_stack_alloc(u32);
 void vm_stack_free(void *);
 void *vm_mmio_map(u64, u32);
@@ -215,6 +191,7 @@ void memory_reserve(u64, u64);
 uptr page_alloc(void);
 uptr page_alloc_below(u64 limit); /* never returns pages at or above limit */
 uptr page_alloc_run(u32 count);   /* physically contiguous run, zeroed */
+uptr page_alloc_order(u32 order); /* aligned 2^order physical pages, zeroed */
 void page_free(uptr);
 void page_pin(uptr); /* convert an owned page to a permanent kernel reservation */
 u32 pages_free(void);

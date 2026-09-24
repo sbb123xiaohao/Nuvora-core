@@ -113,7 +113,29 @@ static void heap_churn(void) {
     assert(heap_used() == 0);
     free(heap); heap = NULL; head = NULL;
 }
+static void slab_churn(void) {
+    const uptr physical = 0x6100000u;
+    enum { COUNT = 64, SLOTS = 300 };
+    u8 *ram = fixed_map(PHYS_WINDOW + physical, COUNT * PAGE, -1);
+    reset_pages(physical, COUNT * PAGE);
+    nv_slab_init(&slabs, slab_get_page, slab_put_page, NULL);
+    slabs_active = true;
+    u8 *objects[SLOTS];
+    for (u32 i = 0; i < SLOTS; ++i) {
+        objects[i] = kmalloc(16);
+        assert(objects[i] && ((uptr)objects[i] & 15) == 0 && !objects[i][0]);
+        objects[i][0] = (u8)(i + 1);
+    }
+    assert(pages_free() == COUNT - 2);
+    for (u32 i = 0; i < SLOTS; ++i) {
+        assert(objects[i][0] == (u8)(i + 1));
+        kfree(objects[i]);
+    }
+    assert(pages_free() == COUNT && heap_used() == 0);
+    slabs_active = false;
+    munmap(ram, COUNT * PAGE);
+}
 int main(void) {
-    boundary_run(); allocator_edges(); heap_churn();
-    puts("PASS memory: 1 GiB boundary isolation; reserved/DMA/fragmented pages; 12000 heap operations");
+    boundary_run(); allocator_edges(); heap_churn(); slab_churn();
+    puts("PASS memory: boundary/DMA/fragmentation, 12000 heap operations, slab page reclaim");
 }

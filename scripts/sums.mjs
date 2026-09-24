@@ -4,7 +4,7 @@ import { readdirSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir).sort()) {

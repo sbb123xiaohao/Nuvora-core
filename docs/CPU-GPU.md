@@ -1,4 +1,6 @@
-# CPU 稳定性与 NVIDIA 支持准备（0.6.0）
+# CPU 稳定性与 NVIDIA 支持准备（0.6.0 历史说明）
+
+下述设备能力描述保留 0.6.0 阶段的记录。当前只构建 x64 和 ARM64；i686 代码已移除，当前功能以 [架构说明](ARCHITECTURE.md) 和 [0.9.0 内存管理](MEMORY-0.9.0.md) 为准。
 
 启动后输入 `silicon` 查看 CPU，`firmament` 查看 ACPI/PCIe 平台，`prism` 查看显卡。对应命令都支持 `--help`。终端仍使用 ASCII，中文说明在本文件中。
 

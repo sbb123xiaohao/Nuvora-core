@@ -15,11 +15,7 @@ void cpu_fp_reset(struct fp_state *state) {
 }
 void cpu_fp_save(struct fp_state *state) {
     if (identity.fp_mode == NV_FP_FXSAVE) {
-#ifdef __x86_64__
         __asm__ volatile("fxsave64 %0" : "=m"(*state)::"memory");
-#else
-        __asm__ volatile("fxsave %0" : "=m"(*state)::"memory");
-#endif
     } else
         __asm__ volatile("fnsave %0" : "=m"(*state)::"memory");
 }
@@ -29,11 +25,7 @@ void cpu_fp_restore(const struct fp_state *state) {
          * Overwrite their previous owner before FXRSTOR (also clears pending
          * exceptions). The dummy operand has a fixed kernel address. */
         __asm__ volatile("fninit; fildl %0" ::"m"(fp_zero) : "memory");
-#ifdef __x86_64__
         __asm__ volatile("fxrstor64 %0" ::"m"(*state) : "memory");
-#else
-        __asm__ volatile("fxrstor %0" ::"m"(*state) : "memory");
-#endif
     } else
         __asm__ volatile("frstor %0" ::"m"(*state) : "memory");
 }

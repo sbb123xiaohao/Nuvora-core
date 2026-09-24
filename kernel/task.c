@@ -2,7 +2,6 @@
 struct task tasks[NV_TASK_MAX];
 struct task *current;
 static u32 next_pid = 1;
-#ifdef __x86_64__
 struct elf_header {
     u8 ident[16];
     u16 type, machine;
@@ -19,21 +18,6 @@ struct program_header {
 #define ELF_MACHINE 62
 _Static_assert(sizeof(struct elf_header) == 64, "ELF64 header");
 _Static_assert(sizeof(struct program_header) == 56, "ELF64 program header");
-#else
-struct elf_header {
-    u8 ident[16];
-    u16 type, machine;
-    u32 version, entry, phoff, shoff, flags;
-    u16 ehsize, phentsize, phnum, shentsize, shnum, shstr;
-} PACKED;
-struct program_header {
-    u32 type, offset, vaddr, paddr, filesz, memsz, flags, align;
-} PACKED;
-_Static_assert(sizeof(struct elf_header) == 52, "ELF32 header");
-_Static_assert(sizeof(struct program_header) == 32, "ELF32 program header");
-#define ELF_CLASS 1
-#define ELF_MACHINE 3
-#endif
 void task_init(void) {
     memset(tasks, 0, sizeof(tasks));
 }
@@ -136,9 +120,6 @@ static int prepare_image(struct task *t, const char *path, const char *args, str
                             .eip = entry,
                             .useresp = USER_STACK_TOP - 512,
                             .ebx = USER_STACK_TOP - NV_ARG_MAX};
-#ifndef __x86_64__
-    frame->gs = frame->fs = frame->es = frame->ds = 0x23;
-#endif
     return copy_to_space(t->pd, frame->ebx, args, strlen(args) + 1);
 }
 static void name_task(struct task *t, const char *path) {

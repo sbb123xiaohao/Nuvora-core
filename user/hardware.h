@@ -21,11 +21,7 @@ static int show_cpu(void) {
     println(" (single-CPU scheduler)");
     print("Physical address bits: ");
     print_u32(c.physical_bits);
-#ifdef __x86_64__
     println("; managed RAM limit: 64 GiB");
-#else
-    println("; managed RAM limit: 192 MiB");
-#endif
     print("State format: ");
     println(c.fp_mode == NV_FP_FXSAVE ? "FXSAVE (512 bytes)" : "x87 FNSAVE (108 bytes)");
     print("Enabled context: x87");
@@ -41,11 +37,7 @@ static int show_cpu(void) {
     println("; OS AVX/XSAVE: disabled");
     print("Hardware NX: ");
     print(c.extended_edx & (1u << 20) ? "yes" : "no");
-#ifdef __x86_64__
     println("; page NX: enabled");
-#else
-    println("; page NX: unavailable with i686 non-PAE paging");
-#endif
     return 0;
 }
 static void print_address(u32 high, u32 low) {

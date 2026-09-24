@@ -1,8 +1,14 @@
-# Nuvora Core 0.8.0
+# Nuvora Core 0.9.0
 
 用 C 和汇编从零编写的实验操作系统内核。x86-64 版本有 BIOS/GRUB 与 UEFI 启动、Loom 用户环境及文件和磁盘快照；ARM64 版本是独立的 QEMU `virt` 引导、内存与 EL0/NEON 运行基线。两种构建均为 64 位；不再构建 x86 32 位版本。
 
 这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前目标是 QEMU 的单核 PC / ARM `virt` 虚拟机；联网、多核与 AI 加速器驱动等缺口在本文末尾列出。
+
+## 0.9.0 物理页与小对象分配
+
+- x64 和 ARM64 使用共享的分阶空闲块索引：2^order 个对齐物理页可分配、拆分和归还后合并；保留页和 DMA 低地址约束继续有效。x64 优先从 4 GiB 以上的普通 RAM 分配，ARM64 在 QEMU `virt` 上从设备树给出的可用 RAM 分配。
+- 两种架构共享 16–2048 字节的小对象 slab，实现对象清零、占用验证和空页归还；x64 的 `kmalloc` 仍有可合并的固定虚拟堆作为大对象及内存紧张时的回退路径。
+- 移除剩余的 i686 内核和用户态条件代码；仅保留 x64 BIOS 启动所需的 32 位汇编入口，随即切换到 64 位内核。实际机制、测试和未实现的 Linux 内存管理功能见 [0.9.0 内存管理](docs/MEMORY-0.9.0.md)。
 
 ## 0.8.0 ARM64 与计算内存
 
@@ -27,7 +33,7 @@
 ## 0.7.0 UEFI、大内存与大存储
 
 - **UEFI 启动（x64）**：自包含 EFI stub（`arch/x86_64/uefi.c`）从 ESP 读取 ELF64 内核，把 EFI 内存图、GOP 帧缓冲和配置表中的 ACPI RSDP 经中性 `boot_info` 移交内核，`ExitBootServices` 后进入长模式。stub 携带 PE32+ 基址重定位表（`.reloc`），首选基址被占用时固件可自行搬移；启动介质定位失败时会枚举全部 SimpleFileSystem 卷。帧缓冲控制台用内核内置点阵字体渲染 80×25 文本，Folio 同样可用；串口输出保持不变。`make` 产出 `BOOTX64.EFI`，`make esp` 打包 ESP 镜像，`make iso-uefi` 产出纯 UEFI ISO；`start.py --uefi` 直接以 OVMF/edk2 固件启动。
-- **大内存**：x64 物理管理上限 128 MiB → **64 GiB**（前 32 MiB 4 KiB 页保护内核镜像，其余 2 MiB 大页恒等映射，物理页地址 64 位化）；i686 上限提升到 192 MiB。USB 等设备 DMA 仍由显式掩码约束在 4 GiB 以下。1 GiB 与 5 GiB（跨 4 GiB 边界）配置纳入完整用户态回归。
+- **大内存**：x64 物理管理上限 128 MiB → **64 GiB**（前 32 MiB 4 KiB 页保护内核镜像，其余 2 MiB 大页恒等映射，物理页地址 64 位化）；旧版 i686 曾提高至 192 MiB，现已移除。USB 等设备 DMA 仍由显式掩码约束在 4 GiB 以下。1 GiB 与 5 GiB（跨 4 GiB 边界）配置纳入完整用户态回归。
 - **大存储**：ATA PIO 驱动支持 **LBA48** 与 64 位 LBA/扇区计数；新 `NVSTORE2` 镜像头自带槽位几何与 u64 总扇区数，快照槽 **1 MiB → 16 MiB** 且快照缓冲按可用内存动态伸缩，数据镜像默认 64 MiB、可到 TiB 级。旧 8 MiB `NVSTORE1` 镜像继续可用。
 
 本轮启动移交统一为 `include/nv/bootinfo.h` 的 `boot_info`；已知 RSDP 地址的 ACPI 直通解析仍全量校验签名、长度与校验和。详见 [CHANGELOG.md](docs/CHANGELOG.md)。
@@ -107,7 +113,7 @@ rest
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 7 组源码边界夹具，使用 UBSan
+make test-host      # 8 组源码边界夹具，使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -134,8 +140,8 @@ python3 start.py --arch aarch64 --memory 256
 | `Image` | ARM64 QEMU `virt` 原始引导镜像 |
 | `BOOTX64.EFI` | x64 UEFI stub（PE32+，由 `mkuefi.py` 从独立链接的 stub ELF 生成） |
 | `esp.img` | UEFI 系统分区镜像（FAT，含 `BOOTX64.EFI` 与内核 ELF） |
-| `nuvora-core-0.8.0-x86_64.iso` | x64 BIOS / GRUB 启动 ISO |
-| `nuvora-core-0.8.0-x86_64-uefi.iso` | x64 纯 UEFI El Torito ISO |
+| `nuvora-core-0.9.0-x86_64.iso` | x64 BIOS / GRUB 启动 ISO |
+| `nuvora-core-0.9.0-x86_64-uefi.iso` | x64 纯 UEFI El Torito ISO |
 | `apps/*.elf` | x64 独立用户态程序；ARM64 尚未提供 ELF 应用 |
 | `test-results/` | 真实虚拟机执行日志、结果表和截图 |
 
@@ -150,7 +156,7 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | CPU 与启动 | x64：GDT/TSS/IDT/PIC/PIT，x87/MMX/SSE 上下文隔离；ARM64：Image/DTB 启动、EL1 与 EL0 入口、NEON 自检 |
 | 固件启动 | x64 Multiboot v1 BIOS/GRUB 及 UEFI stub；ARM64 为 QEMU `virt` 的 Image 启动，未提供 UEFI |
 | ACPI 与 PCIe | RSDP/RSDT/XSDT/MCFG 校验解析（扫描或 EFI 直通），segment 0 ECAM 4 KiB 配置空间，CF8/CFC 回退 |
-| 内存 | x64：最高 64 GiB 物理页、512 MiB 用户堆、8 MiB 内核堆、页表及失败回滚；ARM64：设备树可用范围、最高 64 GiB、位图所有权与 EL0 隔离 |
+| 内存 | x64：最高 64 GiB 物理页、512 MiB 用户堆、8 MiB 内核堆、分阶页与小对象 slab、失败回滚；ARM64：设备树可用范围、最高 64 GiB、共享分阶页/slab 与 EL0 隔离 |
 | x64 保护 | 四级页表、完整 64 位寄存器保存、只读代码页、堆和栈 NX |
 | 进程 | x64：Ring 3 轮转抢占及完整生命周期；ARM64：一个静态 EL0 工作负载，尚无多进程调度 |
 | 可执行文件 | x64 ELF64 静态程序加载、范围检查和失败回滚；ARM64 尚无 ELF 加载器 |
@@ -163,7 +169,7 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
 | 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘；鼠标和存储设备只识别 |
-| 验证 | x64 每次 131 项用户态检查（含 1 GiB / 5 GiB 配置）；ARM64 在 64/256/1024/5120 MiB 配置下各 10 项；另有 ACPI/PCI 合成坏表、q35 ECAM 与 OVMF 回归 |
+| 验证 | x64 每次 131 项用户态检查（含 1 GiB / 5 GiB 配置）；ARM64 在 64/256/1024/5120 MiB 配置下各 15 项；另有 ACPI/PCI 合成坏表、q35 ECAM 与 OVMF 回归 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 

@@ -22,7 +22,6 @@ boot_cpu_check:
     jb boot_cpu_fail
     mov $1,%eax
     cpuid
-#ifdef __x86_64__
     /* FPU, MSR, PAE, CMOV, FXSR, SSE, SSE2. */
     and $0x07008061,%edx
     cmp $0x07008061,%edx
@@ -35,10 +34,6 @@ boot_cpu_check:
     cpuid
     and $0x20100000,%edx /* long mode and NX */
     cmp $0x20100000,%edx
-#else
-    and $0x8001,%edx /* i686 compiler baseline: FPU and CMOV */
-    cmp $0x8001,%edx
-#endif
     jne boot_cpu_fail
     popal
     ret
@@ -83,9 +78,5 @@ boot_cpu_fail:
     jmp 4b
 .section .rodata
 boot_cpu_message:
-#ifdef __x86_64__
     .asciz "CPU UNSUPPORTED: need x64 FPU CMOV MSR PAE FXSR SSE2 NX.\r\n"
-#else
-    .asciz "CPU UNSUPPORTED: need i686 CPUID FPU CMOV.\r\n"
-#endif
 .section .text

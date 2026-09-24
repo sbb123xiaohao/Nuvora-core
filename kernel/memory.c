@@ -1,33 +1,29 @@
 #include "kernel.h"
+#include <nv/page_buddy.h>
+#include <nv/slab.h>
 #define NPAGE (PHYS_LIMIT / PAGE)
 #define HEAP_SIZE KHEAP_SIZE
 #define BLOCK_MAGIC 0x4e56424cu
 static u32 bitmap[NPAGE / 32], allocated[NPAGE / 32], free_count, total_count, search_word;
-#ifndef __x86_64__
-bool fb_window_mapped;
-static u32 initial_pd[1024] ALIGNED(PAGE),
-    initial_pt[PHYS_LIMIT / (4u * 1024u * 1024u)][1024] ALIGNED(PAGE);
-u32 *kernel_pd = initial_pd;
-pte_t stack_pt[1024] ALIGNED(PAGE);
-pte_t mmio_pt[1024] ALIGNED(PAGE);
-#endif
+static u32 normal_cursor = 1u << 20, dma_cursor = 1;
+static bool normal_depleted;
+static struct nv_page_buddy buddy;
+static u8 *buddy_levels;
+static u32 managed_pages;
+static struct nv_slab_pool slabs;
+static bool slabs_active;
+static void *slab_get_page(void *unused);
+static void slab_put_page(void *unused, void *ptr);
 extern pte_t stack_pt[];
 extern pte_t mmio_pt[];
 static u32 mmio_pages;
 _Static_assert(NV_TASK_MAX *KSTACK_STRIDE <= 512, "kernel stacks fit one page table");
-#ifdef __x86_64__
 /* Keep the fixed kernel load image below firmware reservations (OVMF uses
  * ACPI NVS at 8 MiB). Map and pin ordinary pages from actual usable RAM. */
 static u8 *heap;
-#else
-static u8 heap[HEAP_SIZE] ALIGNED(16);
-#endif
 struct block {
     u32 magic, size, free, pad;
     struct block *prev, *next;
-#ifndef __x86_64__
-    u32 reserved[2];
-#endif
 };
 _Static_assert(sizeof(struct block) == 32, "aligned heap metadata");
 static struct block *head;
@@ -48,6 +44,9 @@ static void reserve(u64 start, u64 end) {
             --free_count;
         }
     }
+    if (buddy_levels)
+        nv_buddy_refresh(&buddy, (u32)(start / PAGE),
+                         (u32)(ALIGN_UP(end, PAGE) / PAGE - start / PAGE));
 }
 void memory_reserve(u64 base, u64 length) {
     if (length && base <= ~0ull - length)
@@ -76,8 +75,14 @@ void memory_init(const struct boot_info *bi) {
         panic("bootloader provided no RAM map");
     /* Usable RAM first; reserved entries then win over overlapping regions. */
     for (u32 i = 0; i < bi->mem_count; ++i)
-        if (bi->mem[i].type == 1)
+        if (bi->mem[i].type == 1) {
             available(bi->mem[i].base, bi->mem[i].length);
+            if (bi->mem[i].base < PHYS_LIMIT &&
+                bi->mem[i].length <= ~0ull - bi->mem[i].base) {
+                u64 end = MIN(bi->mem[i].base + bi->mem[i].length, PHYS_LIMIT);
+                if (end / PAGE > managed_pages) managed_pages = (u32)(end / PAGE);
+            }
+        }
     for (u32 i = 0; i < bi->mem_count; ++i) {
         const struct boot_mem_entry *m = &bi->mem[i];
         if (m->type != 1 && m->base < PHYS_LIMIT) {
@@ -104,19 +109,40 @@ void memory_init(const struct boot_info *bi) {
     if (free_count < 1024)
         panic("at least 32 MiB RAM is recommended");
     vm_kernel_init();
-#ifdef __x86_64__
     heap = vm_heap_create();
     if (!heap)
         panic("cannot reserve kernel heap; at least 32 MiB RAM is recommended");
-#endif
     head = (struct block *)heap;
     *head = (struct block){.magic = BLOCK_MAGIC, .size = HEAP_SIZE - sizeof(*head), .free = 1};
+    /* Allocate the compact free-block index from mapped, pinned kernel pages
+     * before publishing it. Page zero in the ordinary RAM bitmap stays busy. */
+    buddy_levels = kmalloc(nv_buddy_bytes(managed_pages));
+    if (!buddy_levels)
+        panic("cannot allocate page allocator metadata");
+    nv_buddy_init(&buddy, bitmap, buddy_levels, managed_pages);
+    nv_slab_init(&slabs, slab_get_page, slab_put_page, NULL);
+    slabs_active = true;
+}
+static uptr commit_pages(u32 first, u32 count) {
+    for (u32 i = first; i < first + count; ++i) {
+        bitmap[i / 32] |= 1u << (i % 32);
+        allocated[i / 32] |= 1u << (i % 32);
+    }
+    free_count -= count;
+    if (buddy_levels) nv_buddy_refresh(&buddy, first, count);
+    uptr p = (uptr)((u64)first * PAGE);
+    memset(phys_ptr(p), 0, (usize)count * PAGE);
+    return p;
 }
 uptr page_alloc_below(u64 limit) {
     if (!free_count)
         return 0;
     /* Low-first scan: keeps DMA-capable allocations near the bottom of RAM. */
     u64 top_page = MIN(limit, (u64)PHYS_LIMIT) / PAGE;
+    if (buddy_levels) {
+        u32 first = nv_buddy_find(&buddy, 0, 1, (u32)MIN(top_page, managed_pages));
+        return first < managed_pages ? commit_pages(first, 1) : 0;
+    }
     u64 top_word = MIN(top_page / 32 + 1, (u64)ARRAY_LEN(bitmap));
     for (u32 w = 0; w < top_word; ++w) {
         if (bitmap[w] == 0xffffffffu)
@@ -140,6 +166,24 @@ uptr page_alloc_below(u64 limit) {
 uptr page_alloc(void) {
     if (!free_count)
         return 0;
+    if (buddy_levels) {
+        u32 first = managed_pages;
+        if (!normal_depleted && managed_pages > (1u << 20)) {
+            first = nv_buddy_find(&buddy, 0, normal_cursor, managed_pages);
+            if (first == managed_pages)
+                first = nv_buddy_find(&buddy, 0, 1u << 20, normal_cursor);
+            if (first == managed_pages) normal_depleted = true;
+        }
+        if (first == managed_pages)
+            first = nv_buddy_find(&buddy, 0, dma_cursor, MIN(1u << 20, managed_pages));
+        if (first == managed_pages)
+            first = nv_buddy_find(&buddy, 0, 1, dma_cursor);
+        if (first >= (1u << 20) && first < managed_pages)
+            normal_cursor = first + 1 < managed_pages ? first + 1 : 1u << 20;
+        else if (first < managed_pages)
+            dma_cursor = first + 1 < MIN(1u << 20, managed_pages) ? first + 1 : 1;
+        return first < managed_pages ? commit_pages(first, 1) : 0;
+    }
     for (u32 step = 0; step < ARRAY_LEN(bitmap); ++step) {
         u32 w = (search_word + step) % ARRAY_LEN(bitmap);
         if (bitmap[w] != 0xffffffffu) {
@@ -155,10 +199,20 @@ uptr page_alloc(void) {
     }
     return 0;
 }
+uptr page_alloc_order(u32 order) {
+    if (order > NV_BUDDY_MAX_ORDER || !buddy_levels ||
+        free_count < (1u << order)) return 0;
+    u32 first = nv_buddy_find(&buddy, order, 1u << 20, managed_pages);
+    if (first == managed_pages)
+        first = nv_buddy_find(&buddy, order, 1, MIN(1u << 20, managed_pages));
+    return first < managed_pages ? commit_pages(first, 1u << order) : 0;
+}
 uptr page_alloc_run(u32 count) {
     if (!count || free_count < count)
         return 0;
-    u64 total = (u64)ARRAY_LEN(bitmap) * 32;
+    if (!(count & (count - 1)) && buddy_levels && count <= (1u << NV_BUDDY_MAX_ORDER))
+        return page_alloc_order((u32)__builtin_ctz(count));
+    u64 total = buddy_levels ? managed_pages : (u64)ARRAY_LEN(bitmap) * 32;
     u64 run = 0, start = 0;
     for (u64 i = 0; i < total; ++i) {
         if (marked((u32)i)) {
@@ -175,6 +229,7 @@ uptr page_alloc_run(u32 count) {
                 allocated[w] |= 1u << bit;
             }
             free_count -= count;
+            if (buddy_levels) nv_buddy_refresh(&buddy, (u32)start, count);
             uptr p = (uptr)(start * PAGE);
             memset(phys_ptr(p), 0, (usize)count * PAGE);
             return p;
@@ -195,6 +250,8 @@ void page_free(uptr p) {
     allocated[p / PAGE / 32] &= ~(1u << (p / PAGE % 32));
     bitmap[p / PAGE / 32] &= ~(1u << (p / PAGE % 32));
     ++free_count;
+    if (p / PAGE >= (1u << 20)) normal_depleted = false;
+    if (buddy_levels) nv_buddy_refresh(&buddy, (u32)(p / PAGE), 1);
 }
 u32 pages_free(void) {
     return free_count;
@@ -208,9 +265,27 @@ u32 heap_used(void) {
 u32 heap_total(void) {
     return HEAP_SIZE;
 }
+static void *slab_get_page(void *unused) {
+    (void)unused;
+    uptr p = page_alloc();
+    return p ? phys_ptr(p) : NULL;
+}
+static void slab_put_page(void *unused, void *ptr) {
+    (void)unused;
+    page_free(ptr_phys(ptr));
+}
 void *kmalloc(usize n) {
     if (!n || n > HEAP_SIZE - sizeof(struct block) - 15)
         return NULL;
+    if (slabs_active && n <= 2048) {
+        void *small = nv_slab_alloc(&slabs, n);
+        if (small) {
+            u32 unit = 16;
+            while (unit < n) unit *= 2;
+            used_bytes += unit;
+            return small;
+        }
+    }
     n = ALIGN_UP(n, 16);
     for (struct block *b = head; b; b = b->next) {
         if (b->magic != BLOCK_MAGIC)
@@ -249,6 +324,16 @@ static void merge(struct block *b) {
 void kfree(void *ptr) {
     if (!ptr)
         return;
+    if (slabs_active && (uptr)ptr >= PHYS_WINDOW &&
+        (uptr)ptr - PHYS_WINDOW < PHYS_LIMIT) {
+        uptr p = ptr_phys(ptr) & ~(uptr)(PAGE - 1);
+        if (!(allocated[p / PAGE / 32] & (1u << (p / PAGE % 32))))
+            panic("invalid slab page");
+        u32 size = nv_slab_free(&slabs, ptr);
+        if (!size || used_bytes < size) panic("invalid slab free");
+        used_bytes -= size;
+        return;
+    }
     if ((uptr)ptr < (uptr)heap + sizeof(struct block) || (uptr)ptr >= (uptr)heap + HEAP_SIZE ||
         (uptr)ptr % 16)
         panic("heap pointer out of range");
@@ -261,136 +346,18 @@ void kfree(void *ptr) {
     if (b->prev && b->prev->free)
         merge(b->prev);
 }
-#ifndef __x86_64__
-void vm_kernel_init(void) {
-    for (u32 i = 0; i < ARRAY_LEN(initial_pt); ++i) {
-        initial_pd[i] = (u32)initial_pt[i] | P_PRESENT | P_WRITE;
-        for (u32 j = 0; j < 1024; ++j) {
-            u32 p = (i * 1024 + j) * PAGE;
-            u32 flags = P_PRESENT | P_WRITE;
-            if (p >= (uptr)kernel_begin && p < (uptr)kernel_ro_end)
-                flags = P_PRESENT;
-            initial_pt[i][j] = p ? p | flags : 0;
-        }
-    }
-    initial_pd[KSTACK_BASE >> 22] = (uptr)stack_pt | P_PRESENT | P_WRITE;
-    initial_pd[MMIO_BASE >> 22] = (uptr)mmio_pt | P_PRESENT | P_WRITE;
-    load_cr3((uptr)kernel_pd);
-    u32 cr0;
-    __asm__ volatile("mov %%cr0,%0" : "=r"(cr0));
-    /* Keep FP disabled until cpu_init configures eager per-task state. */
-    cr0 |= 0x8001000cu;
-    __asm__ volatile("mov %0,%%cr0" ::"r"(cr0) : "memory");
-}
-u32 *vm_create(void) {
-    u32 p = page_alloc();
-    if (!p)
-        return NULL;
-    u32 *pd = (u32 *)(uptr)p;
-    for (u32 i = 0; i < USER_BASE >> 22; ++i)
-        pd[i] = kernel_pd[i];
-    return pd;
-}
-int vm_map(u32 *pd, u32 va, u32 flags) {
-    if (va < USER_BASE || va >= 0x80000000u || va % PAGE)
-        return -NV_EINVAL;
-    u32 di = va >> 22, ti = (va >> 12) & 1023;
-    if (!(pd[di] & P_PRESENT)) {
-        u32 p = page_alloc();
-        if (!p)
-            return -NV_ENOMEM;
-        pd[di] = p | 7;
-    }
-    u32 *pt = (void *)(uptr)(pd[di] & ~4095u);
-    if (pt[ti] & P_PRESENT)
-        return -NV_EEXIST;
-    u32 p = page_alloc();
-    if (!p) {
-        vm_unmap(pd, va);
-        return -NV_ENOMEM;
-    }
-    pt[ti] = p | P_PRESENT | P_USER | (flags & P_WRITE);
-    return 0;
-}
-uptr vm_translate(u32 *pd, u32 va) {
-    if (!(pd[va >> 22] & P_PRESENT))
-        return 0;
-    u32 *pt = (void *)(uptr)(pd[va >> 22] & ~4095u);
-    u32 p = pt[(va >> 12) & 1023];
-    return p & P_PRESENT ? (p & ~4095u) + (va & 4095) : 0;
-}
-void vm_unmap(u32 *pd, u32 va) {
-    u32 di = va >> 22;
-    if (di < USER_BASE >> 22 || di >= 512 || !(pd[di] & 1))
-        return;
-    u32 *pt = (void *)(uptr)(pd[di] & ~4095u);
-    u32 ti = (va >> 12) & 1023;
-    if (pt[ti] & 1) {
-        page_free(pt[ti] & ~4095u);
-        pt[ti] = 0;
-        __asm__ volatile("invlpg (%0)" ::"r"(va) : "memory");
-    }
-    bool any = false;
-    for (u32 i = 0; i < 1024; ++i)
-        if (pt[i] & 1) {
-            any = true;
-            break;
-        }
-    if (!any) {
-        page_free((uptr)pt);
-        pd[di] = 0;
-    }
-}
-void vm_destroy(u32 *pd) {
-    if (!pd)
-        return;
-    for (u32 i = USER_BASE >> 22; i < 512; ++i)
-        if (pd[i] & 1) {
-            u32 *pt = (void *)(uptr)(pd[i] & ~4095u);
-            for (u32 j = 0; j < 1024; ++j)
-                if (pt[j] & 1)
-                    page_free(pt[j] & ~4095u);
-            page_free((uptr)pt);
-        }
-    page_free((uptr)pd);
-}
-bool user_range(u32 *pd, u32 va, u32 len, bool write) {
-    if (!len)
-        return true;
-    if (va < USER_BASE || va >= 0x80000000u || len > 0x80000000u - va)
-        return false;
-    u32 end = va + len - 1, mask = P_PRESENT | P_USER | (write ? P_WRITE : 0);
-    for (u32 p = va & ~4095u;; p += PAGE) {
-        u32 de = pd[p >> 22];
-        if ((de & mask) != mask)
-            return false;
-        u32 *pt = (void *)(uptr)(de & ~4095u);
-        if ((pt[(p >> 12) & 1023] & mask) != mask)
-            return false;
-        if (p == (end & ~4095u))
-            break;
-    }
-    return true;
-}
-#endif
 void *vm_mmio_map(u64 physical, u32 length) {
     /* The final PTE is a shared single-page firmware/ECAM aperture. */
     if (!length || physical % PAGE || physical >> 52 || length > 511 * PAGE ||
         physical > (1ull << 52) - length)
         return NULL;
-#ifndef __x86_64__
-    if (physical >> 32 || physical + length > 0x100000000ull)
-        return NULL;
-#endif
     u32 count = ALIGN_UP(length, PAGE) / PAGE;
     if (count > 511 - mmio_pages)
         return NULL;
     uptr base = MMIO_BASE + mmio_pages * PAGE;
     for (u32 i = 0; i < count; ++i) {
         pte_t flags = P_PRESENT | P_WRITE | 0x18; /* PCD + PWT: uncached registers. */
-#ifdef __x86_64__
         flags |= 1ull << 63;
-#endif
         mmio_pt[mmio_pages++] = (pte_t)(physical + i * PAGE) | flags;
         __asm__ volatile("invlpg (%0)" ::"r"(base + i * PAGE) : "memory");
     }
@@ -399,15 +366,9 @@ void *vm_mmio_map(u64 physical, u32 length) {
 void *vm_mmio_remap(u64 physical) {
     if (physical % PAGE || physical >> 52)
         return NULL;
-#ifndef __x86_64__
-    if (physical >> 32)
-        return NULL;
-#endif
     uptr address = MMIO_BASE + 511u * PAGE;
     pte_t flags = P_PRESENT | P_WRITE | 0x18; /* uncached supervisor-only aperture */
-#ifdef __x86_64__
     flags |= 1ull << 63;
-#endif
     mmio_pt[511] = (pte_t)physical | flags;
     __asm__ volatile("invlpg (%0)" : : "r"(address) : "memory");
     return (void *)address;
@@ -428,9 +389,7 @@ void *vm_stack_alloc(u32 slot) {
             return NULL;
         }
         pte_t flags = P_PRESENT | P_WRITE;
-#ifdef __x86_64__
         flags |= 1ull << 63;
-#endif
         stack_pt[first + i] = p | flags;
         __asm__ volatile("invlpg (%0)" ::"r"((uptr)(KSTACK_BASE + (first + i) * PAGE)) : "memory");
     }
@@ -478,19 +437,6 @@ int copy_to_space(pte_t *pd, u32 va, const void *src, u32 len) {
     }
     return 0;
 }
-#ifndef __x86_64__
-u32 vm_page_count(u32 *pd) {
-    u32 n = 0;
-    for (u32 i = USER_BASE >> 22; i < 512; ++i)
-        if (pd[i] & 1) {
-            u32 *pt = (void *)(uptr)(pd[i] & ~4095u);
-            for (u32 j = 0; j < 1024; ++j)
-                if (pt[j] & 1)
-                    ++n;
-        }
-    return n;
-}
-#endif
 static void exhaustion_selftest(void) {
     u32 before = free_count, old = heap_used();
     /* Drain every page without recording the (potentially huge) list: the

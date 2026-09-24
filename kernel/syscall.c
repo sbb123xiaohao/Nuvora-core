@@ -8,14 +8,12 @@ void fill_info(struct nv_info *i) {
 struct frame *syscall_dispatch(struct frame *f) {
     if ((f->cs & 3) != 3 || !current)
         panic("syscall outside user mode");
-#ifdef __x86_64__
     /* ABI 1 deliberately exposes a 32-bit user-address window on both CPUs. */
     if (f->eax > 0xffffffffu || f->ebx > 0xffffffffu || f->ecx > 0xffffffffu ||
         f->edx > 0xffffffffu) {
         f->eax = (u32)-NV_EINVAL;
         return f;
     }
-#endif
     current->frame = f;
     task_reap();
     usb_poll();

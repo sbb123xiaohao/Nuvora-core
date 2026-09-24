@@ -5,11 +5,7 @@ const struct boot_info *boot_info;
 static struct boot_info multiboot_boot;
 /* The x64 assembly entry initially maps only the first GiB. Boot metadata
  * must be readable before memory_init installs the full kernel mappings. */
-#ifdef __x86_64__
 #define BOOT_READ_LIMIT (1u << 30)
-#else
-#define BOOT_READ_LIMIT PHYS_LIMIT
-#endif
 static bool boot_option(const char *command, const char *option) {
     usize n = strlen(option);
     for (const char *p = command; *p;) {
@@ -92,7 +88,6 @@ void kernel_main(u32 magic, const struct multiboot *mb) {
     boot_memory_fixture(&multiboot_boot);
     kernel_start(&multiboot_boot);
 }
-#ifdef __x86_64__
 void kernel_uefi_main(const struct boot_info *bi) {
     /* Copy while firmware mappings are still active. The handover and active
      * stack must belong to the kernel before its page tables replace CR3. */
@@ -100,7 +95,6 @@ void kernel_uefi_main(const struct boot_info *bi) {
     boot_memory_fixture(&multiboot_boot);
     kernel_start(&multiboot_boot);
 }
-#endif
 void kernel_start(const struct boot_info *bi) {
     boot_info = bi;
     console_init(bi);

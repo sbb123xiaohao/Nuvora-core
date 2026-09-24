@@ -25,7 +25,6 @@ static void devctl_tests(void) {
               devctl(NV_SUB_GPU, NV_GPU_OP_MAP_BAR, (void *)0x7ffffff8) == -NV_EFAULT &&
               devctl(NV_SUB_GPU, NV_GPU_OP_MAP_BAR, (void *)0xfffffff8) == -NV_EFAULT,
           "BAR output rejects null, kernel, MMIO, read-only and overflowing buffers");
-#ifdef __x86_64__
     int wide;
     __asm__ volatile("int $0x81"
                      : "=a"(wide)
@@ -33,7 +32,6 @@ static void devctl_tests(void) {
                        "d"(0x100000000ull + (uptr)&io)
                      : "memory", "cc");
     check(wide == -NV_EINVAL, "DEVCTL rejects nonzero high pointer bits");
-#endif
     io = (union nv_gpu_map_bar_io){.request = {NV_GPU_MAX, 0}};
     bool invalid =
         devctl(NV_SUB_GPU, NV_GPU_OP_MAP_BAR, &io) == -NV_EINVAL && map_response_empty(&io);
@@ -57,10 +55,6 @@ static void devctl_tests(void) {
                 (b->flags & (NV_BAR_UNASSIGNED | NV_BAR_INVALID | NV_BAR_UPPER)) || !physical ||
                 (physical & (NV_PAGE - 1)) || (physical >> cpu.physical_bits))
                 continue;
-#ifndef __x86_64__
-            if (physical >> 32)
-                continue;
-#endif
             index = i;
             chosen = bar;
             break;

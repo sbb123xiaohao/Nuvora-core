@@ -1,4 +1,6 @@
 #include <nv/string.h>
+#include <nv/page_buddy.h>
+#include <nv/slab.h>
 
 /* First ARM64 bring-up target: QEMU virt, Image handover, one EL1 CPU.
  * Device addresses and RAM extent come from the FDT, never from board offsets. */
@@ -22,8 +24,11 @@ extern void arm64_user_start(void), arm64_vectors(void);
 static u64 uart, ram_end;
 static u32 checks;
 static bool user_result, user_isolated;
-static u8 used[BITMAP_BYTES];
+static u8 used[BITMAP_BYTES] ALIGNED(4);
 static u8 owned[BITMAP_BYTES];
+static u8 buddy_levels[BITMAP_BYTES];
+static struct nv_page_buddy buddy;
+static struct nv_slab_pool slabs;
 static u64 free_count, total_count;
 static u64 root[512] ALIGNED(PAGE), low_l2[512] ALIGNED(PAGE);
 static u64 image_l3[8][512] ALIGNED(PAGE);
@@ -201,11 +206,24 @@ static void memory_init(uptr dtb, u32 dtb_size) {
     mark(dtb, dtb_size, true);
     for (u32 i = 0; i < reserved_count; ++i)
         mark(reserved[i].base, reserved[i].length, true);
+    nv_buddy_init(&buddy, (const u32 *)used, buddy_levels,
+                  (u32)((ram_end - RAM_BASE) / PAGE));
 }
 static u64 page_run(u32 count) {
     if (!count || count > free_count) return 0;
     u32 run = 0;
     u32 pages = (u32)((ram_end - RAM_BASE) / PAGE);
+    if (!(count & (count - 1)) && count <= (1u << NV_BUDDY_MAX_ORDER)) {
+        u32 index = nv_buddy_find(&buddy, (u32)__builtin_ctz(count), 0, pages);
+        if (index == pages) return 0;
+        u64 pa = RAM_BASE + (u64)index * PAGE;
+        mark(pa, (u64)count * PAGE, true);
+        for (u32 j = index; j < index + count; ++j)
+            owned[j / 8] |= 1u << (j & 7);
+        nv_buddy_refresh(&buddy, index, count);
+        memset((void *)(uptr)pa, 0, (usize)count * PAGE);
+        return pa;
+    }
     for (u32 i = 0; i < pages; ++i) {
         if (used[i / 8] & (1u << (i & 7))) run = 0;
         else if (++run == count) {
@@ -213,6 +231,7 @@ static u64 page_run(u32 count) {
             mark(pa, (u64)count * PAGE, true);
             for (u32 j = i + 1 - count; j <= i; ++j)
                 owned[j / 8] |= 1u << (j & 7);
+            nv_buddy_refresh(&buddy, i + 1 - count, count);
             memset((void *)(uptr)pa, 0, (usize)count * PAGE);
             return pa;
         }
@@ -231,6 +250,15 @@ static void page_release(u64 base, u32 count) {
         owned[index / 8] &= (u8)~(1u << (index & 7));
     }
     mark(base, (u64)count * PAGE, false);
+    nv_buddy_refresh(&buddy, (u32)((base - RAM_BASE) / PAGE), count);
+}
+static void *slab_get_page(void *unused) {
+    (void)unused;
+    return (void *)(uptr)page_run(1);
+}
+static void slab_put_page(void *unused, void *page) {
+    (void)unused;
+    page_release((uptr)page, 1);
 }
 static void mmu_init(void) {
     u64 pa_bits;
@@ -326,6 +354,7 @@ void arm64_main(uptr dtb) {
     puts("[ok] PL011 from FDT: "); hex(uart); putc('\n');
     memory_init(dtb, dtb_size);
     mmu_init();
+    nv_slab_init(&slabs, slab_get_page, slab_put_page, NULL);
     verify(free_count > 1024, "available managed RAM");
     puts("[ok] EL1 4 KiB tables, kernel RO/NX, device MMIO\n");
     puts("[ok] managed RAM pages: "); decimal(total_count);
@@ -341,6 +370,28 @@ void arm64_main(uptr dtb) {
            "tensor buffer boundaries");
     page_release(p, 256);
     verify(free_count == before, "tensor buffer reclaim");
+    u64 fragment = page_run(8);
+    verify(fragment && !((fragment - RAM_BASE) % (8 * PAGE)), "buddy order alignment");
+    u32 index = (u32)((fragment - RAM_BASE) / PAGE);
+    for (u32 i = 0; i < 8; i += 2) page_release(fragment + (u64)i * PAGE, 1);
+    verify(nv_buddy_find(&buddy, 3, index, index + 8) == buddy.pages,
+           "fragmented buddy block stays unavailable");
+    for (u32 i = 1; i < 8; i += 2) page_release(fragment + (u64)i * PAGE, 1);
+    verify(nv_buddy_find(&buddy, 3, index, index + 8) == index && free_count == before,
+           "buddy block merges after release");
+    void *small[300];
+    for (u32 i = 0; i < ARRAY_LEN(small); ++i) {
+        small[i] = nv_slab_alloc(&slabs, 16);
+        if (!small[i]) fail("slab allocation");
+        ((u8 *)small[i])[0] = (u8)(i + 1);
+    }
+    verify(free_count < before && nv_slab_alloc(&slabs, 0) == NULL,
+           "small object slab allocation");
+    for (u32 i = 0; i < ARRAY_LEN(small); ++i) {
+        if (((u8 *)small[i])[0] != (u8)(i + 1) || nv_slab_free(&slabs, small[i]) != 16)
+            fail("slab free or memory integrity");
+    }
+    verify(free_count == before, "empty slab pages reclaimed");
     const u32 a[] = {1, 2, 3, 4}, b[] = {5, 6, 7, 8};
     __asm__ volatile("msr cpacr_el1, %0; isb" :: "r"(3ull << 20) : "memory");
     verify(arm64_neon_dot(a, b) == 70, "NEON dot product");

@@ -7,15 +7,10 @@ static struct nv_cpu_info cpu;
 #define LOAD_X(n, o) "movups " #o "(%0),%%xmm" #n ";"
 #define SAVE_X(n, o) "movups %%xmm" #n "," #o "(%0);"
 #define X8(op) op(0, 0) op(1, 16) op(2, 32) op(3, 48) op(4, 64) op(5, 80) op(6, 96) op(7, 112)
-#ifdef __x86_64__
 #define X16(op)                                                                                    \
     X8(op)                                                                                         \
     op(8, 128) op(9, 144) op(10, 160) op(11, 176) op(12, 192) op(13, 208) op(14, 224) op(15, 240)
 #define XCOUNT 16
-#else
-#define X16(op) X8(op)
-#define XCOUNT 8
-#endif
 static void xmm_load(const u32 *p) {
     __asm__ volatile(X16(LOAD_X)::"r"(p) : "memory");
 }
@@ -38,11 +33,7 @@ static bool initial(void) {
         return false;
     u8 state[512] ALIGNED(16);
     if (cpu.fp_mode == NV_FP_FXSAVE) {
-#ifdef __x86_64__
         __asm__ volatile("fxsave64 %0" : "=m"(state));
-#else
-        __asm__ volatile("fxsave %0" : "=m"(state));
-#endif
         if (state[4])
             return false;
         for (u32 i = 0; i < 8; ++i)

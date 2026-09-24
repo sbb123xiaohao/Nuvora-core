@@ -11,7 +11,7 @@ OBJCOPY := $(CROSS)objcopy
 PYTHON ?= python3
 BUILD := build/aarch64
 ARM_CFLAGS := -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-stack-protector -mgeneral-regs-only -fno-asynchronous-unwind-tables -std=c11 -O2 -Wall -Wextra -Werror -Iinclude -MMD -MP
-ARM_OBJS := $(BUILD)/arch/aarch64/boot.o $(BUILD)/arch/aarch64/neon.o $(BUILD)/arch/aarch64/user.o $(BUILD)/arch/aarch64/vectors.o $(BUILD)/arch/aarch64/kernel.o $(BUILD)/common/string.o
+ARM_OBJS := $(BUILD)/arch/aarch64/boot.o $(BUILD)/arch/aarch64/neon.o $(BUILD)/arch/aarch64/user.o $(BUILD)/arch/aarch64/vectors.o $(BUILD)/arch/aarch64/kernel.o $(BUILD)/common/string.o $(BUILD)/common/page_buddy.o $(BUILD)/common/slab.o
 .DELETE_ON_ERROR:
 .PHONY: all run test clean check
 all: $(BUILD)/Image
@@ -50,7 +50,7 @@ UEXTRA := $(BUILD)/user/wide64.o
 BASEFLAGS := $(ARCHFLAGS) -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -mno-sse -mno-sse2 -mno-mmx -msoft-float
 CFLAGS := $(BASEFLAGS) -std=c11 -O2 -g1 -Wall -Wextra -Werror -Iinclude -MMD -MP -ffunction-sections -fdata-sections
 ASFLAGS := $(BASEFLAGS) -g
-KCS := $(wildcard kernel/*.c) common/string.c common/acpi.c common/pci_decode.c
+KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/pci_decode.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
 APPS := loom pulse spin fault probe folio relay vector

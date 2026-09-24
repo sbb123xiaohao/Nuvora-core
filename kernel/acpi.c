@@ -38,9 +38,6 @@ void acpi_init(bool no_ecam, u64 rsdp) {
     struct nv_cpu_info cpu;
     cpu_get_info(&cpu);
     address_bits = MIN(cpu.physical_bits, 52u);
-#ifndef __x86_64__
-    address_bits = MIN(address_bits, 32u);
-#endif
     struct nv_acpi_result tables;
     bool found = rsdp ? nv_acpi_parse_rsdp(physical_read, NULL, rsdp, &tables) : false;
     if (!found)

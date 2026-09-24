@@ -8,7 +8,7 @@ import zipfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
 target = pathlib.Path(sys.argv[1]).resolve()
-VERSION = '0.8.0'
+VERSION = '0.9.0'
 selected = []
 for path in sorted(root.rglob('*')):
     if not path.is_file():
@@ -63,7 +63,7 @@ arm_results = json.loads((arm / 'test-results/results.json').read_text())
 assert len(arm_results) == 4 and all(row['result'] == 'PASS' for row in arm_results)
 for memory in (64, 256, 1024, 5120):
     log = (arm / f'test-results/arm64-{memory}MiB.log').read_text()
-    assert 'ARM64 RESULT: 10 passed, 0 failed' in log
+    assert 'ARM64 RESULT: 15 passed, 0 failed' in log
 
 manifest = []
 prefix = f'nuvora-core-{VERSION}/'

@@ -25,7 +25,6 @@ static void abi_tests(void) {
     check(call(NV_EMIT, 1, 0, 16385) == -NV_E2BIG, "I/O work bounded");
     check(call(NV_OPEN, 0x100000, NV_READ, 0) == -NV_EFAULT, "kernel path pointer rejected");
     check(call(NV_INFO, (uptr)abi_tests, 0, 0) == -NV_EFAULT, "read-only output buffer rejected");
-#ifdef __x86_64__
     int wide_result;
     __asm__ volatile("int $0x81"
                      : "=a"(wide_result)
@@ -33,7 +32,6 @@ static void abi_tests(void) {
                      : "memory", "cc");
     check(sizeof(void *) == 8 && wide_result == -NV_EINVAL,
           "64-bit code and high ABI bits checked");
-#endif
     check(open_file("/apps/pulse", NV_WRITE) == -NV_EACCESS, "embedded programs read-only");
     check(open_file("/apps/pulse", NV_READ | NV_TRUNC) == -NV_EINVAL,
           "truncation requires write access");
@@ -244,7 +242,6 @@ static void process_tests(void) {
         println(faults[i]);
         check(r == (int)codes[i], "fault contained to child");
     }
-#ifdef __x86_64__
     pid = spawn("/apps/fault", "heap-exec");
     check(pid > 0 && wait_task(pid) == 142, "NX prevents execution from user heap");
     pid = spawn("/apps/fault", "stack-exec");
@@ -253,7 +250,6 @@ static void process_tests(void) {
     check(pid > 0 && wait_task(pid) == 142, "physical RAM alias is supervisor-only");
     pid = spawn("/apps/fault", "kernel-heap");
     check(pid > 0 && wait_task(pid) == 142, "kernel heap mapping is supervisor-only");
-#endif
     int a = spawn("/apps/spin", ""), b = spawn("/apps/spin", "");
     u32 start = clock_ticks();
     nap(350);
@@ -269,10 +265,8 @@ static void process_tests(void) {
     }
     check(a > 0 && b > 0 && at > 0 && bt > 0 && clock_ticks() - start >= 35,
           "timer preempts two syscall-free busy loops");
-#ifdef __x86_64__
     extern int wide_register_test(void);
     check(wide_register_test() == 1, "full 64-bit registers survive scheduling");
-#endif
     check(stop_task(a) == 0 && stop_task(b) == 0 && wait_task(a) == 143 && wait_task(b) == 143,
           "terminate and reap busy processes");
     check(stop_task(1) == -NV_EACCESS, "initial process protected");
@@ -319,11 +313,7 @@ static void executable_tests(void) {
     check(copy_file("/apps/pulse", "/tmp/bad-elf") == 0, "prepare malformed ELF fixture");
     fd = open_file("/tmp/bad-elf", NV_WRITE);
     u32 off = 0xfffffff0u;
-#ifdef __x86_64__
     seek_file(fd, 32, 0);
-#else
-    seek_file(fd, 28, 0);
-#endif
     emit(fd, &off, 4);
     close_file(fd);
     struct nv_info a, b;
