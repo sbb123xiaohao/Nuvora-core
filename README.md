@@ -1,8 +1,12 @@
-# Nuvora Core 0.7.2
+# Nuvora Core 0.7.3
 
 用 C 和汇编从零编写的实验操作系统内核，**默认运行于真正的 x86-64 长模式**，同时保留 i686 版本。支持 BIOS/GRUB 与 UEFI 两种启动方式、最高 64 GiB 物理内存管理（x64）、GB 级数据镜像，包含可启动内核、独立用户态程序、自定义 Loom 命令行、文件系统和磁盘快照。
 
 这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前交付目标是 QEMU 的单核 PC 虚拟机；联网、多核、ACPI 电源管理等缺口在本文末尾明确列出。
+
+## 0.7.3 文件缓冲内存修复
+
+修复快照恢复后的文件扩容可能超过 128 KiB 上限、浪费堆空间并提前返回内存不足的问题。新增真实分配器压力夹具和双架构快照恢复回归，核对失败时内容保留及删除后的完整回收。失败复现和本轮结果见 [MEMORY-0.7.3.md](docs/MEMORY-0.7.3.md)。
 
 ## 0.7.2 内存管理修复
 
@@ -123,8 +127,8 @@ NV_ARCH=i686 python3 scripts/test.py --iso
 | `boot.elf` | 提供给 Multiboot 引导器和 QEMU 的启动文件 |
 | `BOOTX64.EFI` | x64 UEFI stub（PE32+，由 `mkuefi.py` 从独立链接的 stub ELF 生成） |
 | `esp.img` | UEFI 系统分区镜像（FAT，含 `BOOTX64.EFI` 与内核 ELF） |
-| `nuvora-core-0.7.2-ARCH.iso` | 已验证的 BIOS / GRUB 启动 ISO |
-| `nuvora-core-0.7.2-x86_64-uefi.iso` | x64 纯 UEFI El Torito ISO |
+| `nuvora-core-0.7.3-ARCH.iso` | 已验证的 BIOS / GRUB 启动 ISO |
+| `nuvora-core-0.7.3-x86_64-uefi.iso` | x64 纯 UEFI El Torito ISO |
 | `apps/*.elf` | 该架构的独立用户态程序 |
 | `test-results/` | 真实虚拟机执行日志、结果表和截图 |
 

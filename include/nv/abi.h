@@ -1,7 +1,7 @@
 #ifndef NV_ABI_H
 #define NV_ABI_H
 #include <nv/types.h>
-#define NV_VERSION "0.7.2"
+#define NV_VERSION "0.7.3"
 #define NV_ABI_VERSION 1
 #define NV_NAME_MAX 31
 #define NV_PATH_MAX 192

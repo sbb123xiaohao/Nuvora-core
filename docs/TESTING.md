@@ -6,8 +6,8 @@
 
 | 架构 | 用户态断言 / 每次启动 | 内存配置 | 宿主集成检查 |
 | --- | --- | --- | --- |
-| x86-64 | 130 项 | 32 / 64 / 128 / 256 MiB，另有 1 GiB 与 5 GiB（跨 4 GiB 边界）回归 | 52 组，全部通过（含 CPU/ACPI/PCIe/GPU/USB/帮助/大存储/UEFI） |
-| i686 | 123 项 | 32 / 64 / 128 / 256 MiB | 41 组（含 CPU/ACPI/PCIe/GPU/USB/帮助/大存储） |
+| x86-64 | 130 项 | 32 / 64 / 128 / 256 MiB，另有 1 GiB 与 5 GiB（跨 4 GiB 边界）回归 | 53 组，全部通过（含 CPU/ACPI/PCIe/GPU/USB/帮助/大存储/UEFI） |
+| i686 | 123 项 | 32 / 64 / 128 / 256 MiB | 42 组（含 CPU/ACPI/PCIe/GPU/USB/帮助/大存储） |
 
 最终执行记录分别位于 `build/x86_64/test-results/` 和 `build/i686/test-results/`。`RESULTS.md` 与 `results.json` 由测试程序根据成功执行结果生成。每次 probe 的完整日志含逐项 PASS 记录；宿主必须同时收到 QEMU 正确的退出码并找到零失败汇总，才把该轮判为通过。
 
@@ -80,13 +80,14 @@ NV_ARCH=i686 python3 scripts/test.py --iso
 
 ## 源码边界夹具
 
-构建 x64 内核后执行 `make test-host`，或 `python3 scripts/test_regressions.py`。0.7.2 共 6 组全部通过，采用 GCC UBSan，直接包含被修复的 Nuvora C 源码；固件与 I/O 回调是明确的模拟输入，并非实体硬件结果。日志位于 `build/x86_64/test-results/host-regressions.log`。
+构建 x64 内核后执行 `make test-host`，或 `python3 scripts/test_regressions.py`。0.7.3 共 7 组全部通过，采用 GCC UBSan，直接包含被修复的 Nuvora C 源码；固件与 I/O 回调是明确的模拟输入，并非实体硬件结果。日志位于 `build/x86_64/test-results/host-regressions.log`。
 
 | 组 | 覆盖 |
 | --- | --- |
 | 地址 | 跨 4 GiB 的对齐、NX 地址掩码、物理地址与内核指针往返 |
 | 分配器 | 连续缓冲跨 1 GiB 时用户页不变、保留区、DMA 上界、碎片化分配失败和恢复、12000 轮堆操作 |
 | 堆页表 | 分散的物理页、0/1/17/1024/2047 页后注入 OOM 的完整回滚、固定页、NX/supervisor 权限、共享映射不随进程销毁 |
+| RAM 文件内存 | 4 种快照恢复长度，在充足/临界/不足堆预算下扩容；容量封顶、数据与稀疏区、失败原子性、完整回收 |
 | ATA | `0x123456789abc` 的 LBA48 端口序列、LBA28 边界、flush 命令、签名/版本/几何错误 |
 | 快照 | 低 RAM 无法恢复时禁止覆盖、极小槽位缓冲边界、扇区尾部清零 |
 | UEFI | 分段读取与 rewind、退出服务重试内存图更新、恶意 ELF、内存所有权、段复制和 BSS 清零 |
@@ -100,3 +101,9 @@ NV_ARCH=i686 python3 scripts/test.py --iso
 x64 的 `nv.test=1 nv.memory-test=fragmented` 在启动内存表中加入 6 个页大小的保留空洞（8–28 MiB，每隔 4 MiB），自动用 32 MiB QEMU 执行。0.7.1 在该配置出现 `cannot reserve kernel heap`；0.7.2 通过完整用户态检查。夹具只在两个测试参数同时存在时启用，普通启动不会加入空洞。
 
 两架构新增 12 轮 1/511/512/513/1023/1024 页的用户堆扩缩容，核对再分配清零、释放后地址拒绝访问、空闲页计数恢复；x64 另验证直接访问物理映射别名和 1 TiB 内核堆只能终止子进程，不能读取内核内容。根因、失败证据和变更范围见 [MEMORY-0.7.2.md](MEMORY-0.7.2.md)。
+
+## 0.7.3 文件扩容复现
+
+`--phase memory` 与 `--phase storage` 均包含 32 MiB 的恢复文件扩容检查。运行器写入带有效校验和、含 131071 字节文件的专用快照；启动后以 `forge probe file-growth` 执行 7 项检查，要求追加后的堆占用维持 128 KiB、数据完整、超限拒绝、删除全部回收。每架构日志为 `restored-file-growth.log`，独立于常规 probe 的 130/123 项。
+
+宿主夹具使用真实 ramfs 与堆分配器，旧 0.7.2 在恰好 128 KiB 可用时返回 ENOMEM 的日志也随包保留。详细根因见 [MEMORY-0.7.3.md](MEMORY-0.7.3.md)。

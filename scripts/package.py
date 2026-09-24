@@ -8,7 +8,7 @@ import zipfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
 target = pathlib.Path(sys.argv[1]).resolve()
-VERSION = '0.7.2'
+VERSION = '0.7.3'
 selected = []
 for path in sorted(root.rglob('*')):
     if not path.is_file():
@@ -36,7 +36,8 @@ for arch, assertions in [('x86_64', 130), ('i686', 123)]:
     assert execution == {'arch': arch, 'version': VERSION, 'phase': 'all', 'iso': True,
                          'completed': True, 'checks': len(results)}, arch + ': incomplete test run'
     assert results and all(r['result'] == 'PASS' for r in results)
-    required = {'GRUB BIOS ISO boot', 'Large data image / 4 TiB', 'USB hotplug and command ring wrap'}
+    required = {'GRUB BIOS ISO boot', 'Large data image / 4 TiB', 'USB hotplug and command ring wrap',
+                'Restored file growth / 32 MiB'}
     if arch == 'x86_64':
         required.update({'UEFI stub boot', 'UEFI ISO boot', 'Fragmented kernel heap / 32 MiB'})
     assert required <= {r['test'] for r in results}, arch + ': missing required execution checks'

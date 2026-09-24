@@ -8,7 +8,7 @@ from qemu import ROOT, BUILD
 
 def main():
     with tempfile.TemporaryDirectory(prefix='nuvora-regression-') as directory:
-        for name in ['address', 'memory', 'heap_map', 'disk', 'store', 'uefi']:
+        for name in ['address', 'memory', 'heap_map', 'fs_memory', 'disk', 'store', 'uefi']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -18,7 +18,7 @@ def main():
             subprocess.run(cmd, cwd=ROOT, check=True)
             args = [str(output)] + ([str(ROOT / 'build/x86_64/nuvora.elf')] if name == 'uefi' else [])
             subprocess.run(args, check=True)
-    print('ALL 6 HOST REGRESSION GROUPS PASSED (allocator/mapping fixtures and synthetic firmware/port I/O, UBSan enabled)')
+    print('ALL 7 HOST REGRESSION GROUPS PASSED (allocator/ramfs/mapping fixtures and synthetic firmware/port I/O, UBSan enabled)')
 
 if __name__ == '__main__':
     main()

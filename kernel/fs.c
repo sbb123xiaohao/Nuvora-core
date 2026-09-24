@@ -330,8 +330,10 @@ int fs_write(struct task *t, int fd, const void *buf, u32 len) {
     u32 end = offset + len;
     if (end > n->capacity) {
         u32 cap = MAX(256u, n->capacity);
+        /* Restored files have exact-size capacities, not powers of two.
+         * Saturate growth at the file limit to avoid wasting heap space. */
         while (cap < end)
-            cap *= 2;
+            cap = MIN(cap * 2, NV_FILE_MAX);
         u8 *data = kmalloc(cap);
         if (!data)
             return -NV_ENOMEM;

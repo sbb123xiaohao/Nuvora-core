@@ -511,12 +511,46 @@ static void hardware_tests(void) {
     pid = spawn("/apps/fault", "avx");
     check(pid > 0 && wait_task(pid) == 134, "AVX is rejected until extended state saving exists");
 }
+/* The storage runner seeds this file in a checksummed snapshot before boot. */
+static void restored_growth_tests(void) {
+    const char *path = "/home/growth";
+    struct nv_info before, after;
+    info(&before);
+    int fd = open_file(path, NV_READ | NV_WRITE | NV_APPEND);
+    check(fd >= 3 && seek_file(fd, 0, 2) == NV_FILE_MAX - 1,
+          "restored file has its exact saved length");
+    if (fd < 0)
+        return;
+    check(emit(fd, "!", 1) == 1, "append reaches the file size limit");
+    info(&after);
+    check(after.heap_used == before.heap_used,
+          "restored file growth stays within its aligned 128 KiB buffer budget");
+    bool valid = seek_file(fd, 0, 0) == 0;
+    u8 buffer[1024];
+    for (u32 offset = 0; offset < NV_FILE_MAX; offset += sizeof(buffer)) {
+        int n = take(fd, buffer, sizeof(buffer));
+        if (n != (int)sizeof(buffer)) {
+            valid = false;
+            break;
+        }
+        for (u32 i = 0; i < sizeof(buffer); ++i)
+            valid = valid && buffer[i] == (offset + i == NV_FILE_MAX - 1 ? '!' : 0x5a);
+    }
+    check(valid, "restored bytes and appended byte survive reallocation");
+    check(emit(fd, "?", 1) == -NV_ENOSPC, "growth beyond the file limit is rejected");
+    check(close_file(fd) == 0 && remove_path(path) == 0, "restored growth fixture removed");
+    info(&after);
+    check(after.heap_used + NV_FILE_MAX == before.heap_used,
+          "removing the grown file returns its entire heap allocation");
+}
 int user_main(const char *args) {
     if (app_help("probe", args))
         return 0;
     println("Nuvora Core integration probe (running in Ring 3)");
     if (!strcmp(args, "devctl")) {
         devctl_tests();
+    } else if (!strcmp(args, "file-growth")) {
+        restored_growth_tests();
     } else {
         abi_tests();
         hardware_tests();

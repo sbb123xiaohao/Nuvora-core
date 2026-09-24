@@ -17,7 +17,7 @@ from mkdisk import create, SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS
 REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
 results = []
-VERSION = '0.7.2'
+VERSION = '0.7.3'
 EXPECTED_ASSERTIONS = 130 if ARCH == 'x86_64' else 123
 
 def record(name, detail):
@@ -303,6 +303,29 @@ def store_slot_lbas(image):
     if image[:8] == b'NVSTORE2':
         return struct.unpack_from('<II', image, 16)
     return (8, 4096)
+
+def restored_file_growth():
+    disk = new_image('restored-file-growth.img')
+    path = b'/home/growth'
+    contents = b'\x5a' * (128 * 1024 - 1)
+    payload = struct.pack('<IIII', 1, 2, len(path), len(contents)) + path + contents
+    header = bytearray(512)
+    struct.pack_into('<8sIIII', header, 0, b'NVSS0001', 1, len(payload), zlib.crc32(payload), 0)
+    struct.pack_into('<I', header, 20, zlib.crc32(header))
+    with disk.open('r+b') as stream:
+        stream.seek(SLOT0_LBA * 512)
+        stream.write(header)
+        stream.write(payload)
+    vm = VM('restored-file-growth', disk, memory=32)
+    try:
+        assert 'restored /home generation 1' in vm.text(), vm.text()
+        out = vm.send('forge probe file-growth', 'PROBE RESULT: 7 passed, 0 failed')
+        assert 'FAIL ' not in out, out
+    finally:
+        vm.close()
+    record('Restored file growth / 32 MiB',
+           '7 guest assertions: append at 128 KiB, bounded heap use, preserved data, '
+           'file limit and complete reclamation')
 
 def persistence():
     disk = new_image('persistence.img')
@@ -696,6 +719,8 @@ def main():
         memory_pressure()
     if args.phase in ['all', 'hardware']:
         hardware_tests()
+    if args.phase in ['all', 'memory', 'storage']:
+        restored_file_growth()
     if args.phase in ['all', 'storage']:
         persistence()
         large_storage()
