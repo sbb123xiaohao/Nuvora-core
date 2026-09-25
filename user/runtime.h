@@ -1,11 +1,9 @@
 #ifndef NV_RUNTIME_H
 #define NV_RUNTIME_H
-#include <nv/abi.h>
+#include <nv/sdk.h>
 #include <nv/string.h>
 static inline int call(u32 op, u32 a, u32 b, u32 c) {
-    int r;
-    __asm__ volatile("int $0x81" : "=a"(r) : "0"(op), "b"(a), "c"(b), "d"(c) : "memory", "cc");
-    return r;
+    return nv_syscall(op, a, b, c);
 }
 static inline int emit(int fd, const void *p, u32 n) {
     return call(NV_EMIT, (u32)fd, (uptr)p, n);

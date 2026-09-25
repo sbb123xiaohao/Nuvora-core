@@ -1,7 +1,16 @@
 # 测试与复现
 
+**像素桌面扩展的验证边界：**x64 `make -j4` 已通过；宿主截图夹具
+以实际 `user/desktop_ui.h` 绘制 1280×800、640×480 的布局并人工检查；
+`make test-host` 的第 11 组对四种分辨率、两种像素格式比较整屏与分块绘制，
+并用 UBSan 检查边界与盘符选中状态。
+`forge probe devctl` 新增 4 个显示相关断言，故 QEMU 运行器将预期数从
+131 改为 135；当前环境没有 QEMU/OVMF，不能将历史的 131 项运行成绩
+当成本轮 135 项的通过结果。真实 UEFI GOP、显示复制和按键启动流程
+仍需 QEMU 与实体设备运行验证。
+
 **实体网络扩展的验证边界：**本轮 `make -j4` 通过，`make test-host`
-现为 10 组 UBSan 宿主测试。新增 `tests/network_test.c` 将实际
+现为 11 组 UBSan 宿主测试。新增 `tests/network_test.c` 将实际
 `kernel/net.c` 接入模拟的物理 NIC，覆盖 PCI 型号识别、DHCP
 Discover/Offer/Request/Ack、ARP 邻居缓存、UDP 收包、IPv4 校验和错误与
 链路断开清理。USB CDC-ECM/CDC 控制和 I225/I226 DMA 寄存器路径仅通过
@@ -65,7 +74,7 @@ x64 包含 14 项设备控制断言：操作路由、保留接口的 ENOSYS、�
 - UEFI（x64，需 OVMF/edk2 固件与 mtools 生成的 ESP）：stub 完成启动（携带 .reloc 基址重定位表、多卷回退）、内核到达 Ring 3，`horizon`/`origin` 可用；anchor 后重启从数据盘恢复 `/home`，并运行完整 `trial`；UEFI El Torito ISO 光驱启动同样进入用户态。
 - 使用流程：在 Loom 中执行 `trial` 并回到提示符；模拟 PS/2 键盘输入成功；保存真实 VGA 截图。
 - USB：PCI 控制器分类、xHCI 描述符与字符串、键盘 Boot Protocol、鼠标/存储只读识别、两级 Hub、66 次根端口热插拔、拔除后的 DMA 页回收和事件/命令环回绕。`--phase usb` 单独执行这组检查。
-- 帮助：逐一查询 33 个命令的 `--help`、`help`/`atlas` 别名、错误参数和字面量 `--help` 文件内容；8 个用户程序以 `forge APP --help` 正常退出。`--phase help` 单独执行这组检查。
+- 帮助：当前脚本准备逐一查询 34 个命令的 `--help`、`help`/`atlas` 别名、错误参数和字面量 `--help` 文件内容；9 个用户程序以 `forge APP --help` 正常退出。`--phase help` 单独执行这组检查，尚待本轮 QEMU 运行。
 - Folio：创建 `.nvd`，输入并选择文本，应用粗体和一级标题，关闭后重新打开校验，导出 `.rtf` 并检查标题字号和粗体控制字。
 - 启动介质：从 GRUB BIOS ISO 的虚拟光驱进入用户态，成功运行一个独立 ELF 子进程；x64 另从 UEFI ISO（OVMF）进入用户态。
 

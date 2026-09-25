@@ -12,7 +12,8 @@
 #define NV_VOLUME_MAX 4u
 #define NV_PARTITION_MAX 32u
 #define NV_PAGE 4096u
-/* Private ABI: int 0x81; eax=operation; ebx/ecx/edx=arguments. */
+/* Nuvora x64 application ABI: int 0x81; eax=operation; ebx/ecx/edx=arguments.
+ * Existing operation numbers and structure layouts are never renumbered. */
 enum nv_call {
     NV_EMIT,
     NV_TAKE,
@@ -57,8 +58,26 @@ enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
 enum nv_subsystem {
     NV_SUB_CPU = 1,
     NV_SUB_GPU = 2,
-    NV_SUB_NET = 3
+    NV_SUB_NET = 3,
+    NV_SUB_DISPLAY = 4
 };
+/* Display is an optional, unaccelerated firmware framebuffer. A successful
+ * INFO reports the mode; applications must still acquire exclusive ownership
+ * before presenting. Pixels are 32-bit little-endian words: BGRX8 accepts
+ * 0x00RRGGBB, RGBX8 accepts 0x00BBGGRR. The X byte is ignored. */
+#define NV_DISPLAY_API_VERSION 1u
+#define NV_DISPLAY_MAX_COPY (1024u * 1024u)
+enum { NV_DISPLAY_INFO = 1, NV_DISPLAY_ACQUIRE = 2,
+       NV_DISPLAY_PRESENT = 3, NV_DISPLAY_RELEASE = 4 };
+enum { NV_DISPLAY_BGRX8 = 1, NV_DISPLAY_RGBX8 = 2 };
+struct nv_display_info {
+    u32 api_version, width, height, pitch, format, max_copy_bytes;
+};
+struct nv_display_present {
+    u32 x, y, width, height, stride, pixels;
+};
+_Static_assert(sizeof(struct nv_display_info) == 24, "display info ABI");
+_Static_assert(sizeof(struct nv_display_present) == 24, "display present ABI");
 /* Network buffers are fixed-size and copied across the user/kernel boundary.
  * Address fields hold four IPv4 octets in network order (e.g. 0xc0a80101). */
 #define NV_NET_MAX 8u

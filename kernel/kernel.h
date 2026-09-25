@@ -25,10 +25,10 @@
 #define KSTACK_PAGES (KSTACK_SIZE / PAGE)
 #define KSTACK_STRIDE (KSTACK_PAGES + 2u)
 #define MMIO_BASE 0x20000000u
-/* Firmware framebuffer window: 8 MiB of kernel VA below KSTACK_BASE, backed by
- * four dedicated page tables. The covered physical RAM is left unmapped. */
-#define FB_WINDOW 0x0F800000u
-#define FB_WINDOW_PAGES (8u * 1024u * 1024u / PAGE)
+/* Dedicated supervisor PML4 entry. Up to 64 MiB of GOP memory is accessible
+ * without sacrificing DMA-capable low physical RAM or exposing it to users. */
+#define FB_WINDOW (3ull << 39)
+#define FB_WINDOW_PAGES (64u * 1024u * 1024u / PAGE)
 #define P_PRESENT 1u
 #define P_WRITE 2u
 #define P_USER 4u
@@ -150,6 +150,10 @@ NORETURN void panic(const char *);
 int console_getc(void);
 int console_key(u32);
 int console_surface(u32, u32, const struct nv_surface *);
+int console_display_info(struct nv_display_info *);
+int console_display_acquire(u32);
+int console_display_present(u32, const struct nv_display_present *);
+int display_ioctl(u32, u32);
 bool console_owned(u32);
 void console_release(u32);
 void keyboard_irq(void);

@@ -11,7 +11,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='nuvora-regression-') as directory:
         disk_image = pathlib.Path(directory) / 'two-volumes.img'
         create_gpt_disk(disk_image, size_mib=128, partitions=2)
-        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'store', 'uefi', 'network']:
+        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'store', 'uefi', 'network', 'display']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -24,7 +24,7 @@ def main():
             if name == 'gpt_disk':
                 args += [str(disk_image), '128']
             subprocess.run(args, check=True)
-    print('ALL 10 HOST REGRESSION GROUPS PASSED (including GPT and networking, UBSan enabled)')
+    print('ALL 11 HOST REGRESSION GROUPS PASSED (including GPT, networking and desktop, UBSan enabled)')
 
 if __name__ == '__main__':
     main()

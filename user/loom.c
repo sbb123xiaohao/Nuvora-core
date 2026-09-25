@@ -170,6 +170,10 @@ static int dispatch(int n, char **v) {
         return show_gpu();
     if (!strcmp(cmd, "net"))
         return network_command(n, v);
+    if (!strcmp(cmd, "desktop") && n == 1) {
+        int pid = spawn("/apps/desktop", "");
+        return pid < 0 ? pid : (wait_task(pid) < 0 ? -NV_ECHILD : 0);
+    }
     if (!strcmp(cmd, "ports") && (n == 1 || (n == 2 && !strcmp(v[1], "--scan")))) {
         int r = n == 2 ? usb_scan() : 0;
         return r < 0 ? r : show_ports();

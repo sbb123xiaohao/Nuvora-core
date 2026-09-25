@@ -1,6 +1,6 @@
 # Nuvora ABI 1
 
-ABI 与 Linux 不兼容。共同常量和结构以 `include/nv/abi.h` 为准，用户侧封装在 `user/runtime.h`。
+ABI 与 Linux 不兼容。共同常量和结构以 `include/nv/abi.h` 为准；第三方 x64 程序可使用 `include/nv/sdk.h`，项目内部封装仍在 `user/runtime.h`。接口约定、工具链和示例见 [SDK.md](SDK.md)。
 
 x64 使用 `int 0x81`。调用号在 EAX，前三个参数在 EBX / ECX / EDX，返回值读取 EAX 的有符号 32 位值。x64 内核保存完整 64 位寄存器，但 ABI 1 的调用号、参数和用户地址仍限制为 32 位；非零高位返回 `-NV_EINVAL`。普通用户地址必须位于当前进程实际映射的 1–2 GiB 窗口内。
 
@@ -79,4 +79,4 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 
 ## DEVCTL 扩展分发
 
-`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络子系统分别为 1/2/3；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)。
+`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络/显示子系统分别为 1/2/3/4；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。`NV_SUB_DISPLAY` 有独立的固件帧缓冲像素路径，**不代表 GPU modesetting 已启用**。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)，显示契约见 [SDK.md](SDK.md)。

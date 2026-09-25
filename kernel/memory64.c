@@ -14,7 +14,8 @@ static pte_t pd_high[HIGH_PD_COUNT][512] ALIGNED(PAGE);
 static pte_t heap_pdpt[512] ALIGNED(PAGE), heap_pd[512] ALIGNED(PAGE);
 static pte_t heap_pt[KHEAP_SIZE / (512u * PAGE)][512] ALIGNED(PAGE);
 _Static_assert(KHEAP_SIZE % (512u * PAGE) == 0, "heap occupies complete page tables");
-static pte_t fb_pt[4][512] ALIGNED(PAGE); /* FB_WINDOW: 8 MiB framebuffer aperture */
+static pte_t fb_pdpt[512] ALIGNED(PAGE), fb_pd[512] ALIGNED(PAGE);
+static pte_t fb_pt[FB_WINDOW_PAGES / 512][512] ALIGNED(PAGE);
 pte_t stack_pt[512] ALIGNED(PAGE);
 pte_t mmio_pt[512] ALIGNED(PAGE);
 pte_t *kernel_pd = pml4;
@@ -60,10 +61,12 @@ void vm_kernel_init(void) {
     if (fb && fb->format != NV_FB_NONE && !(fb->address & (PAGE - 1u)) &&
         fb->pitch && fb->height && (u64)fb->pitch * fb->height <= FB_WINDOW_PAGES * PAGE &&
         fb->address <= (1ull << 52) - FB_WINDOW_PAGES * PAGE) {
-        memory_reserve(FB_WINDOW, FB_WINDOW_PAGES * PAGE);
-        for (u32 s = 0; s < ARRAY_LEN(fb_pt); ++s) {
-            pd0[(FB_WINDOW >> 21) + s] = (uptr)fb_pt[s] | 3;
-            for (u32 j = 0; j < 512; ++j)
+        u32 pages = (u32)(((u64)fb->pitch * fb->height + PAGE - 1) / PAGE);
+        pml4[FB_WINDOW >> 39] = (uptr)fb_pdpt | 3;
+        fb_pdpt[0] = (uptr)fb_pd | 3;
+        for (u32 s = 0; s < (pages + 511) / 512; ++s) {
+            fb_pd[s] = (uptr)fb_pt[s] | 3;
+            for (u32 j = 0; j < 512 && s * 512 + j < pages; ++j)
                 fb_pt[s][j] = (fb->address + ((u64)s * 512u + j) * PAGE) | 3 | 0x18 | NX;
         }
         fb_window_mapped = true;
@@ -116,6 +119,7 @@ pte_t *vm_create(void) {
     root[0] = b | 7;
     root[PHYS_WINDOW >> 39] = pml4[PHYS_WINDOW >> 39];
     root[KHEAP_WINDOW >> 39] = pml4[KHEAP_WINDOW >> 39];
+    root[FB_WINDOW >> 39] = pml4[FB_WINDOW >> 39];
     l3[0] = pdpt[0];
     return root;
 }

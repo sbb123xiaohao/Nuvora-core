@@ -25,7 +25,13 @@ x86-64 新增 Intel I225/I226 PCIe 实体有线卡与 USB CDC-ECM 收发驱动�
 
 用 C 和汇编从零编写的实验操作系统内核。x86-64 版本有 BIOS/GRUB 与 UEFI 启动、Loom 用户环境及文件和磁盘快照；ARM64 版本是独立的 QEMU `virt` 引导、内存与 EL0/NEON 运行基线。两种构建均为 64 位；不再构建 x86 32 位版本。
 
-这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前验证目标仍是 QEMU 的单核 PC / ARM `virt` 虚拟机；实体网络尚未上机测试，多核与 AI 加速器驱动等缺口在本文末尾列出。
+这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前验证目标仍是 QEMU 的单核 PC / ARM `virt` 虚拟机；实体网络、像素桌面尚未上机测试，多核与 AI 加速器驱动等缺口在本文末尾列出。
+
+## 开放应用接口与图形桌面（x86-64 开发版）
+
+- 公开 `include/nv/abi.h`、`include/nv/sdk.h` 和 `include/nv/gfx.h`：保留旧 ABI 1 调用号和结构，新 `NV_SUB_DISPLAY` 子系统允许应用查询 UEFI GOP 像素模式、独占显示、分块提交矩形并释放。固件帧缓冲使用独立的最多 64 MiB supervisor 映射，用户程序只能提交自己的缓冲区。
+- Loom 输入 `desktop` 打开键盘操作的像素文件浏览器：方向键和 Enter 浏览目录及编辑文档，数字 1–4 浏览已挂载的 C:–F: 盘，5–7 进入系统目录；F1 查看按键，F2 新建、F5 刷新、F6 保存、Esc 退出。桌面在调用 Folio 时归还屏幕租约，结束后重新获取。
+- 该桌面目前没有鼠标、触控、多窗口合成、Unicode 字体或 GPU 加速；BIOS 文本模式不提供像素屏。开发程序的构建要求、API 数据结构和示例见 [应用 SDK](docs/SDK.md)。
 
 ## 0.9.0 物理页与小对象分配
 
@@ -194,7 +200,7 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘、CDC-ECM 和 ESP USB Dongle CDC 控制；鼠标和存储设备只识别 |
 | 网络 | x64 Intel I225/I226 PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
-| 验证 | x64 每次 131 项用户态检查（含 1 GiB / 5 GiB 配置）；ARM64 在 64/256/1024/5120 MiB 配置下各 15 项；另有 ACPI/PCI 合成坏表、q35 ECAM 与 OVMF 回归 |
+| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；此版新增显示断言后为 135 项待复验。ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项；另有 ACPI/PCI 合成坏表、q35 ECAM 与 OVMF 旧版回归 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 

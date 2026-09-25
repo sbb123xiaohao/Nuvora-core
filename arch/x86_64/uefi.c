@@ -489,7 +489,7 @@ static void fill_framebuffer(void *gop_void) {
     }
     if (format == NV_FB_NONE || info->horizontal < 80 || info->vertical < 25 ||
         info->pixels_per_scanline < info->horizontal ||
-        (u64)info->pixels_per_scanline * 4 * info->vertical > 8ull * 1024 * 1024 ||
+        (u64)info->pixels_per_scanline * 4 * info->vertical > 64ull * 1024 * 1024 ||
         (u64)info->pixels_per_scanline * 4 * info->vertical > mode->framebuffer_size)
         return;
     bi.fb.address = mode->framebuffer_base;

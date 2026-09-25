@@ -11,6 +11,8 @@ bool app_help(const char *name, const char *args) {
          "Full-screen text and formatted-document editor.\nCtrl-S saves; Ctrl-Q closes; F1 shows "
          "editor shortcuts.",
          "folio /home/report.nvd"},
+        {"desktop", "desktop", "Firmware framebuffer desktop with a keyboard-operated file browser.\n"
+         "F1 controls; Escape returns to Loom.", "desktop"},
         {"pulse", "forge pulse [quiet]",
          "Print five timed messages. quiet exits immediately with status 7.", "forge pulse"},
         {"spin", "scatter spin", "CPU-bound scheduler test; runs until terminated with quench PID.",

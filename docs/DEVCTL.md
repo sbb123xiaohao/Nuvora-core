@@ -1,6 +1,6 @@
 # 设备控制扩展接口（0.5.1 引入，0.6.0 保持兼容）
 
-0.5.1 版整合 `files.zip` 提供的五个文件：`abi.h`、`kernel.h`、`cpu.c`、`gpu.c`、`syscall.c`，引入 `NV_DEVCTL` 通用入口。当前开发版在原有 CPU/GPU 分发上增加了 `NV_SUB_NET` 网络功能；GPU BAR 请求约定见下文。
+0.5.1 版整合 `files.zip` 提供的五个文件：`abi.h`、`kernel.h`、`cpu.c`、`gpu.c`、`syscall.c`，引入 `NV_DEVCTL` 通用入口。当前开发版在原有 CPU/GPU 分发上增加了 `NV_SUB_NET` 网络和 `NV_SUB_DISPLAY` 固件像素帧缓冲功能；GPU BAR 请求约定见下文。
 
 这是静态编译进内核的扩展分发接口，还不是可加载模块机制。
 
@@ -23,6 +23,7 @@ ABI 版本保持 1，原有 0–27 号系统调用不变，追加 `NV_DEVCTL=28`
 | `NV_SUB_GPU=2` | `MAP_BAR=1` | 准备内核专用的一页 BAR 映射 |
 | `NV_SUB_GPU=2` | `SET_MODE=2`、`PRESENT=3`、`SUBMIT=4` | `-NV_ENOSYS`，不读写请求缓冲区 |
 | `NV_SUB_NET=3` | INFO、DHCP、STATIC、UDP_SEND、UDP_RECV、SELECT、WIFI_COMMAND、WIFI_READ | 见 [实体网络说明](NETWORK.md)；具体缓冲区见 `include/nv/abi.h` |
+| `NV_SUB_DISPLAY=4` | INFO、ACQUIRE、PRESENT、RELEASE | 独占像素显示；契约、样例与桌面见 [SDK.md](SDK.md) |
 | 未知子系统或未知 GPU 操作 | — | `-NV_EINVAL` |
 
 ## MAP_BAR 缓冲区

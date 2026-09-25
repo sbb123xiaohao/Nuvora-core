@@ -19,7 +19,7 @@ REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
 results = []
 VERSION = '0.9.0'
-EXPECTED_ASSERTIONS = 131
+EXPECTED_ASSERTIONS = 135
 if ARCH != 'x86_64':
     raise SystemExit('Use scripts/arm64.py test for ARM64; 32-bit x86 is retired')
 
@@ -477,7 +477,7 @@ def unrecognized_disk():
 
 def command_help_tests():
     vm = VM('command-help', new_image('command-help.img'))
-    names = set('help atlas origin silicon firmament prism horizon volumes partitions ports where step glance nest weave stitch unfold folio mirror shift prune sparks forge scatter gather quench tempo doze anchor trial scrub rest renew'.split())
+    names = set('help atlas origin silicon firmament prism horizon volumes partitions ports where step glance nest weave stitch unfold folio desktop mirror shift prune sparks forge scatter gather quench tempo doze anchor trial scrub rest renew'.split())
     try:
         vm.send('weave /home/--help "keep this file"')
         guide = vm.send('help')
@@ -497,12 +497,12 @@ def command_help_tests():
         vm.send('horizon', 'committed generation: 0')
         vm.send('weave /home/literal.txt --help')
         vm.send('unfold /home/literal.txt', '\n--help\n')
-        record('Command catalog and help', 'all 33 commands have purpose, usage and examples; help aliases, unknown commands and literal --help text checked; file and disk generation preserved')
-        for app in ['loom', 'folio', 'pulse', 'spin', 'fault', 'probe', 'relay', 'vector']:
+        record('Command catalog and help', 'all 34 commands have purpose, usage and examples; help aliases, unknown commands and literal --help text checked; file and disk generation preserved')
+        for app in ['loom', 'folio', 'pulse', 'spin', 'fault', 'probe', 'relay', 'vector', 'desktop']:
             out = vm.send('forge ' + app + ' --help', 'exited 0')
             assert 'Usage: ' in out and 'Example: ' in out, out
             assert 'PROBE RESULT:' not in out and '[fault]' not in out, out
-        record('Built-in program help', 'all 8 programs exit 0 for --help; fault/spin/probe/editor bodies are not entered')
+        record('Built-in program help', 'all 9 programs exit 0 for --help; fault/spin/probe/editor bodies are not entered')
         vm.send('ports', '0 controller(s), 0 device(s).')
         vm.send('ports --scan', '0 controller(s), 0 device(s).')
         record('USB absent controller', 'no-controller query and rescan remain usable')

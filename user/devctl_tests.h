@@ -17,6 +17,34 @@ static void devctl_tests(void) {
     struct nv_net_info network = {.index = NV_NET_MAX};
     check(devctl(NV_SUB_NET, NV_NET_INFO, &network) == -NV_EINVAL,
           "network enumeration bounds are enforced");
+    struct nv_display_info screen_mode = {0};
+    int display = nv_display_info(&screen_mode);
+    check((display == -NV_ENODEV ||
+           (display == 0 && screen_mode.api_version == NV_DISPLAY_API_VERSION &&
+            screen_mode.width >= 80 && screen_mode.height >= 25 &&
+            screen_mode.max_copy_bytes == NV_DISPLAY_MAX_COPY)) &&
+              devctl(NV_SUB_DISPLAY, NV_DISPLAY_INFO, NULL) == -NV_EFAULT &&
+              devctl(NV_SUB_DISPLAY, 0, NULL) == -NV_EINVAL,
+          "optional framebuffer mode and display request validation");
+    if (display == 0) {
+        u32 pixel = nv_display_rgb(screen_mode.format, 0x123456);
+        struct nv_display_present rect = {0, 0, 1, 1, 4, (u32)(uptr)&pixel};
+        check(nv_display_present(&rect) == -NV_EACCESS &&
+                  nv_display_acquire() == 0, "pixel display requires an exclusive lease");
+        check(nv_display_present(&rect) == 0, "leased pixel can be presented");
+        rect.width = screen_mode.width + 1;
+        check(nv_display_present(&rect) == -NV_EINVAL &&
+                  nv_display_release() == 0 &&
+                  nv_display_present(&rect) == -NV_EACCESS,
+              "display bounds, ownership and release are enforced");
+    } else {
+        struct nv_display_present rect = {0};
+        check(nv_display_acquire() == -NV_ENODEV, "text-only boot has no pixel lease");
+        check(nv_display_present(&rect) == -NV_ENODEV,
+              "text-only boot rejects pixel presentation");
+        check(nv_display_release() == -NV_EACCESS,
+              "text-only boot cannot release another screen");
+    }
     bool unsupported = true;
     for (u32 op = NV_GPU_OP_SET_MODE; op <= NV_GPU_OP_SUBMIT; ++op)
         unsupported &= devctl(NV_SUB_GPU, op, &io) == -NV_ENOSYS;
