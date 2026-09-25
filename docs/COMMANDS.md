@@ -11,6 +11,8 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `firmament` | 查看 ACPI 根表、MCFG、PCIe ECAM 范围和 CF8 回退 | `firmament --help` |
 | `prism` | 查看 PCI/PCIe 显卡、NVIDIA 标识、BAR 和扩展能力 | `prism --help` |
 | `horizon` | 显示内存、进程和数据盘状态 | `horizon` |
+| `volumes` | 查看已挂载 Nuvora 分区、盘符和快照容量 | `volumes` |
+| `partitions` | 查看检测到的 GPT 分区（包括未挂载的格式） | `partitions` |
 | `ports [--scan]` | 查看 PCI USB 控制器、设备描述符、Hub 和键盘状态 | `ports --scan` |
 | `where` | 查看当前目录 | `where` |
 | `step PATH` | 切换目录 | `step /home` |
@@ -30,7 +32,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `quench PID` | 终止进程 | `quench 3` |
 | `tempo` | 查看启动以来的定时器 tick | `tempo` |
 | `doze MS` | 休眠若干毫秒 | `doze 1000` |
-| `anchor` | 将 `/home` 保存到专用数据镜像 | `anchor` |
+| `anchor` | 提交 C: 及其他已挂载数据分区的快照 | `anchor` |
 | `trial` | 在当前系统启动用户态测试程序 | `trial` |
 | `scrub` | 清空 VGA 屏幕 | `scrub` |
 | `rest` | 关闭虚拟机，不自动保存 | `rest` |
@@ -42,7 +44,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 `ports --scan` 立即重试端口并处理拔插；后台还会定期扫描。xHCI 控制器发生不可恢复错误时会停止并显示 `failed`，不会把损坏 DMA 页重新交给用户进程。UHCI/OHCI/EHCI 控制器目前只报告 `unsupported`，不会伪造设备列表。
 
-路径按当前目录解析；输入行最多 511 个字符、24 个参数；完整路径最多 191 字节。引号不闭合或参数数量错误时显示对应命令的 usage。普通文件放在 `/home` 或 `/tmp`；只有 `/home` 可以由 `anchor` 持久化，`/tmp` 在重启后清空。
+路径按当前目录解析；输入行最多 511 个字符、24 个参数；完整路径最多 191 字节。引号不闭合或参数数量错误时显示对应命令的 usage。`C:/` 指向 `/home`，`D:/` 等映射到 `/drives/字母`，`anchor` 保存所有已挂载数据盘；`/tmp` 在重启后清空。详见 [GPT 分区说明](PARTITIONS.md)。
 
 ## Folio 全文编辑器
 
@@ -69,6 +71,6 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 `forge vector` 运行 x87/MMX/SSE 进程隔离与 EXEC 测试；成功显示 `VECTOR RESULT: PASS`。`silicon` 区分 CPU 原始功能与内核已启用状态。`firmament` 显示经过校验的 ACPI 根表、MCFG 项和当前 PCI 配置方式；在 q35 上可看到 4096 字节 ECAM，在传统 pc 机型上保留 256 字节 CF8/CFC。启动参数 `nv.no-ecam=1` 或 `python3 start.py --machine q35 --no-ecam` 强制使用回退路径。
 
-`prism` 只读输出显卡启动快照，并在 ECAM 可用时解析 AER、ACS、ATS、SR-IOV、Resizable BAR、PASID 与 DPC 标记；这些标记不表示对应功能已经启用，也不会加载 NVIDIA 驱动。所有 31 个命令支持 `--help`，8 个内置程序支持 `forge APP --help`。硬件边界见 [CPU-GPU.md](CPU-GPU.md)。
+`prism` 只读输出显卡启动快照，并在 ECAM 可用时解析 AER、ACS、ATS、SR-IOV、Resizable BAR、PASID 与 DPC 标记；这些标记不表示对应功能已经启用，也不会加载 NVIDIA 驱动。所有 33 个命令支持 `--help`，8 个内置程序支持 `forge APP --help`。硬件边界见 [CPU-GPU.md](CPU-GPU.md)。
 
-`forge probe devctl` 定向验证设备控制接口，`forge probe --help` 查看说明；`trial` 继续执行包含它在内的完整用户态回归。DEVCTL 本身是程序接口；0.6.0 新增的 Loom 命令只有 `firmament`，命令总数为 31。
+`forge probe devctl` 定向验证设备控制接口，`forge probe --help` 查看说明；`trial` 继续执行包含它在内的完整用户态回归。DEVCTL 本身是程序接口；0.6.0 新增的 Loom 命令只有 `firmament`，当时的命令总数为 31；本扩展加入 volumes 和 partitions 后为 33。

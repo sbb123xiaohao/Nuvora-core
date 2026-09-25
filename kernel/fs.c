@@ -8,6 +8,8 @@ struct node {
 };
 static struct node nodes[FS_NODES];
 static int home_node;
+static int volume_nodes[NV_VOLUME_MAX];
+static u32 mounted_volumes;
 static int child(int parent, const char *name) {
     for (int i = 1; i < FS_NODES; ++i)
         if (nodes[i].kind && nodes[i].parent == parent && !strcmp(nodes[i].name, name))
@@ -32,6 +34,15 @@ int fs_lookup(int cwd, const char *path) {
         return -NV_E2BIG;
     int n = *path == '/' ? 0 : cwd;
     const char *p = path;
+    /* Drive letters are aliases for independent persistent roots. */
+    char drive = path[0] >= 'a' && path[0] <= 'z' ? path[0] - 'a' + 'A' : path[0];
+    if (path[1] == ':' && drive >= 'C' && drive < 'C' + (int)NV_VOLUME_MAX) {
+        u32 index = (u32)(drive - 'C');
+        if (path[2] && path[2] != '/') return -NV_EINVAL;
+        if (index >= mounted_volumes) return -NV_ENODEV;
+        n = volume_nodes[index];
+        p = path + 2;
+    }
     while (*p) {
         while (*p == '/')
             ++p;
@@ -103,6 +114,8 @@ void fs_init(void) {
     nodes[0] = (struct node){.kind = NV_DIR, .parent = 0, .locked = true};
     make_node(0, "apps", NV_DIR, true);
     home_node = make_node(0, "home", NV_DIR, false);
+    volume_nodes[0] = home_node;
+    mounted_volumes = 1;
     make_node(0, "tmp", NV_DIR, false);
     int dev = make_node(0, "dev", NV_DIR, true), sys = make_node(0, "sys", NV_DIR, true);
     int n = make_node(dev, "null", NV_DEVICE, true);
@@ -119,6 +132,18 @@ void fs_init(void) {
     nodes[n].device = 3;
     n = make_node(sys, "version", NV_PROC, true);
     nodes[n].device = 4;
+}
+void fs_mount_volumes(u32 count) {
+    if (count <= 1) return;
+    int drives = make_node(0, "drives", NV_DIR, true);
+    if (drives < 0) panic("cannot create drive directory");
+    for (u32 i = 1; i < MIN(count, NV_VOLUME_MAX); ++i) {
+        char letter[2] = {(char)('C' + i), 0};
+        int node = make_node(drives, letter, NV_DIR, false);
+        if (node < 0) panic("cannot mount data partition");
+        volume_nodes[i] = node;
+        ++mounted_volumes;
+    }
 }
 int fs_kind(int n) {
     return n >= 0 && n < FS_NODES ? (int)nodes[n].kind : 0;
@@ -426,6 +451,28 @@ int fs_path(int n, char *out, usize cap) {
     strlcpy(out, tmp + p, cap);
     return 0;
 }
+int fs_display_path(int n, char *out, usize cap) {
+    char canonical[NV_PATH_MAX];
+    int r = fs_path(n, canonical, sizeof(canonical));
+    if (r < 0) return r;
+    for (u32 i = 0; i < mounted_volumes; ++i) {
+        char prefix[NV_PATH_MAX];
+        if (fs_path(volume_nodes[i], prefix, sizeof(prefix)) < 0) continue;
+        usize len = strlen(prefix);
+        if (strncmp(canonical, prefix, len) ||
+            (canonical[len] && canonical[len] != '/')) continue;
+        const char *tail = canonical + len;
+        usize need = 2 + (*tail ? strlen(tail) : 1) + 1;
+        if (need > cap) return -NV_E2BIG;
+        out[0] = (char)('C' + i); out[1] = ':';
+        if (*tail) strlcpy(out + 2, tail, cap - 2);
+        else { out[2] = '/'; out[3] = 0; }
+        return 0;
+    }
+    if (strlen(canonical) + 1 > cap) return -NV_E2BIG;
+    strlcpy(out, canonical, cap);
+    return 0;
+}
 static bool descendant(int n, int parent) {
     for (int i = 0; i < FS_NODES; ++i) {
         if (n == parent)
@@ -435,6 +482,11 @@ static bool descendant(int n, int parent) {
         n = nodes[n].parent;
     }
     return false;
+}
+static int volume_for(int node) {
+    for (u32 i = 0; i < mounted_volumes; ++i)
+        if (descendant(node, volume_nodes[i])) return (int)i;
+    return -1;
 }
 int fs_move(int cwd, const char *src, const char *dst) {
     int n = fs_lookup(cwd, src);
@@ -446,6 +498,9 @@ int fs_move(int cwd, const char *src, const char *dst) {
     int p = parent_for(cwd, dst, name);
     if (p < 0)
         return p;
+    int from_volume = volume_for(n), to_volume = volume_for(p);
+    if (from_volume >= 0 && to_volume >= 0 && from_volume != to_volume)
+        return -NV_EINVAL; /* no cross-volume rename without an atomic transaction */
     if (nodes[p].kind != NV_DIR)
         return -NV_ENOTDIR;
     if (nodes[n].locked || nodes[nodes[n].parent].locked || nodes[p].locked)
@@ -485,6 +540,9 @@ int fs_replace(int cwd, const char *src, const char *dst) {
     int p = parent_for(cwd, dst, name);
     if (p < 0)
         return p;
+    int from_volume = volume_for(n), to_volume = volume_for(p);
+    if (from_volume >= 0 && to_volume >= 0 && from_volume != to_volume)
+        return -NV_EINVAL;
     if (nodes[p].kind != NV_DIR)
         return -NV_ENOTDIR;
     if (!*dst || dst[strlen(dst) - 1] == '/')
@@ -508,17 +566,19 @@ int fs_replace(int cwd, const char *src, const char *dst) {
     return 0;
 }
 /* Snapshot serialization is little-endian: count; repeated kind/pathlen/size/path/data. */
-int fs_export_home(u8 *out, u32 cap, u32 *length) {
+int fs_export_volume(u32 volume, u8 *out, u32 cap, u32 *length) {
+    if (volume >= mounted_volumes) return -NV_ENODEV;
+    int root = volume_nodes[volume];
     if (cap < 4)
         return -NV_ENOSPC;
     u32 count = 0, pos = 4;
     /* Parent-before-child ordering, independent of inode reuse and renames. */
     for (u32 depth = 1; depth < FS_NODES; ++depth)
         for (int i = 1; i < FS_NODES; ++i) {
-            if (!nodes[i].kind || i == home_node || !descendant(i, home_node))
+            if (!nodes[i].kind || i == root || !descendant(i, root))
                 continue;
             u32 d = 0;
-            for (int p = i; p != home_node; p = nodes[p].parent)
+            for (int p = i; p != root; p = nodes[p].parent)
                 ++d;
             if (d != depth)
                 continue;
@@ -544,10 +604,14 @@ int fs_export_home(u8 *out, u32 cap, u32 *length) {
     *length = pos;
     return 0;
 }
-static void clear_home(void) {
+int fs_export_home(u8 *out, u32 cap, u32 *length) {
+    return fs_export_volume(0, out, cap, length);
+}
+static void clear_volume(u32 volume) {
+    int root = volume_nodes[volume];
     for (int pass = 0; pass < FS_NODES; ++pass)
         for (int i = 1; i < FS_NODES; ++i) {
-            if (!nodes[i].kind || i == home_node || !descendant(i, home_node))
+            if (!nodes[i].kind || i == root || !descendant(i, root))
                 continue;
             bool leaf = true;
             for (int j = 1; j < FS_NODES; ++j)
@@ -559,7 +623,11 @@ static void clear_home(void) {
                 delete_node(i);
         }
 }
-int fs_import_home(const u8 *data, u32 len) {
+int fs_import_volume(u32 volume, const u8 *data, u32 len) {
+    if (volume >= mounted_volumes) return -NV_ENODEV;
+    char prefix[NV_PATH_MAX];
+    if (fs_path(volume_nodes[volume], prefix, sizeof(prefix)) < 0) return -NV_EIO;
+    u32 prefix_len = strlen(prefix);
     if (len < 4)
         return -NV_EIO;
     u32 count;
@@ -576,15 +644,16 @@ int fs_import_home(const u8 *data, u32 len) {
         memcpy(&n, data + pos + 4, 4);
         memcpy(&size, data + pos + 8, 4);
         pos += 12;
-        if ((kind != NV_FILE && kind != NV_DIR) || (kind == NV_DIR && size) || n < 7 ||
+        if ((kind != NV_FILE && kind != NV_DIR) || (kind == NV_DIR && size) || n < prefix_len + 2 ||
             n >= NV_PATH_MAX || n > len - pos || size > len - pos - n || size > NV_FILE_MAX)
             return -NV_EIO;
         char path[NV_PATH_MAX];
         memcpy(path, data + pos, n);
         path[n] = 0;
-        if (strnlen(path, n) != n || strncmp(path, "/home/", 6) || path[n - 1] == '/')
+        if (strnlen(path, n) != n || strncmp(path, prefix, prefix_len) ||
+            path[prefix_len] != '/' || path[n - 1] == '/')
             return -NV_EIO;
-        for (u32 k = 6; k < n;) {
+        for (u32 k = prefix_len + 1; k < n;) {
             u32 first = k;
             while (k < n && path[k] != '/')
                 ++k;
@@ -598,7 +667,7 @@ int fs_import_home(const u8 *data, u32 len) {
     }
     if (pos != len)
         return -NV_EIO;
-    clear_home();
+    clear_volume(volume);
     pos = 4;
     for (u32 i = 0; i < count; ++i) {
         u32 kind, n, size;
@@ -612,13 +681,13 @@ int fs_import_home(const u8 *data, u32 len) {
         pos += n;
         int node = create_node(0, path, kind);
         if (node < 0) {
-            clear_home();
+            clear_volume(volume);
             return -NV_EIO;
         }
         if (size) {
             nodes[node].data = kmalloc(size);
             if (!nodes[node].data) {
-                clear_home();
+                clear_volume(volume);
                 return -NV_ENOMEM;
             }
             memcpy(nodes[node].data, data + pos, size);
@@ -627,4 +696,7 @@ int fs_import_home(const u8 *data, u32 len) {
         pos += size;
     }
     return 0;
+}
+int fs_import_home(const u8 *data, u32 len) {
+    return fs_import_volume(0, data, len);
 }

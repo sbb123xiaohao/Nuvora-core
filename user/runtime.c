@@ -70,6 +70,13 @@ void print_u32(u32 n) {
     number(b, n, 10);
     print(b);
 }
+void print_u64(u64 n) {
+    char b[32];
+    u32 i = sizeof(b) - 1;
+    b[i] = 0;
+    do { b[--i] = (char)('0' + n % 10); n /= 10; } while (n);
+    print(b + i);
+}
 void print_hex(u32 n) {
     char b[32];
     number(b, n, 16);

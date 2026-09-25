@@ -71,6 +71,29 @@ int main(void) {
         restored_growth(sizes[i], 0, false);
         restored_growth(sizes[i], NV_FILE_MAX - 16, true);
     }
+    fs_mount_volumes(2);
+    assert(fs_lookup(0, "C:/") == home_node);
+    int droot = fs_lookup(0, "D:/");
+    assert(droot > 0 && droot != home_node);
+    assert(fs_lookup(0, "d:/") == droot);
+    assert(fs_mkdir(0, "C:/notes") == 0 && fs_mkdir(0, "D:/notes") == 0);
+    assert(fs_move(0, "C:/notes", "D:/stolen") == -NV_EINVAL);
+    struct task t = {.cwd = droot};
+    for (u32 i = 0; i < NV_OPEN_MAX; ++i) t.fd[i].node = -1;
+    int fd = fs_open(&t, "D:/notes/file", NV_WRITE | NV_CREATE);
+    assert(fd >= 3 && fs_write(&t, fd, "second drive", 12) == 12);
+    assert(fs_close(&t, fd) == 0);
+    char name[NV_PATH_MAX];
+    assert(fs_display_path(droot, name, sizeof(name)) == 0 && !strcmp(name, "D:/"));
+    u8 *snapshot = malloc(4096);
+    assert(snapshot);
+    u32 length;
+    assert(fs_export_volume(1, snapshot, 4096, &length) == 0 && length > 4);
+    assert(fs_import_volume(0, snapshot, length) == -NV_EIO);
+    assert(fs_remove(0, "D:/notes/file") == 0 && fs_remove(0, "D:/notes") == 0);
+    assert(fs_import_volume(1, snapshot, length) == 0);
+    assert(fs_lookup(0, "D:/notes/file") > 0 && fs_lookup(0, "C:/notes") > 0);
+    free(snapshot);
     free(heap);
-    puts("PASS ramfs memory: restored sizes, bounded growth under pressure, sparse zeros, OOM rollback and full reclamation");
+    puts("PASS ramfs memory: bounded growth, rollback, distinct drive roots and isolated volume snapshots");
 }

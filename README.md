@@ -1,5 +1,19 @@
 # Nuvora Core 0.9.0
 
+## GPT 分区开发版
+
+新建 x64 数据镜像现在使用真正的 GPT 分区表，**默认一个 C: 数据分区**。
+首次建盘可用 `python3 start.py --disk-size 128 --partitions 2` 创建 C: 和 D:
+两个独立分区。`partitions` 查看 GPT 分区，`volumes` 查看已挂载分区；
+`C:/notes` 对应兼容路径 `/home/notes`，`D:/notes` 对应 `/drives/D/notes`。
+`anchor` 依次提交各盘的独立快照。旧 NVSTORE1/2 整盘镜像仍作为 C: 使用，
+不会自动转换或重写分区表。
+
+当前仅扫描 IDE primary master；最多列出 32 个 GPT 条目，最多挂载 4 个
+带有效 Nuvora 格式头的分区。其他格式只列出，不挂载或写入。项目尚无安装器，
+也不支持给已有磁盘在线缩容、分盘或挂载 NTFS/FAT。`--partitions` 仅对
+**新镜像**生效。详见 [GPT 分区说明](docs/PARTITIONS.md)。
+
 用 C 和汇编从零编写的实验操作系统内核。x86-64 版本有 BIOS/GRUB 与 UEFI 启动、Loom 用户环境及文件和磁盘快照；ARM64 版本是独立的 QEMU `virt` 引导、内存与 EL0/NEON 运行基线。两种构建均为 64 位；不再构建 x86 32 位版本。
 
 这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前目标是 QEMU 的单核 PC / ARM `virt` 虚拟机；联网、多核与 AI 加速器驱动等缺口在本文末尾列出。
@@ -55,6 +69,7 @@ python3 start.py --uefi                 # x64 UEFI 启动（需要 OVMF/edk2 固
 python3 start.py --window               # VGA/GOP 窗口
 python3 start.py --memory 5120          # 5 GiB 虚拟机内存
 python3 start.py --disk-size 1024       # 新建 1 GiB 数据镜像
+python3 start.py --disk-size 128 --partitions 2  # 首次建盘创建 C:、D:
 python3 start.py --cpu core2duo
 python3 start.py --machine q35
 python3 start.py --machine q35 --no-ecam
@@ -104,16 +119,16 @@ rest
 
 `quench` 和 `gather` 后面的 PID 以 `scatter` 的实际输出为准。`spin` 是故意不调用系统调用的死循环，用来观察时钟抢占；`quench` 可以终止它。
 
-**Loom 命令修改的文件需要执行 `anchor`，才能把 `/home` 保存到数据镜像。Folio 的保存和导出会自动提交 `/home`。** `/tmp` 在重启后清空；上一次 `anchor` 之后未保存的修改也会丢弃。`rest` 关机，`renew` 重启，二者不会自动保存。
+**Loom 命令修改的文件需要执行 `anchor`，才能把 C:（`/home`）及其他已挂载分区保存到数据镜像。Folio 的保存和导出会调用同一提交操作。** `/tmp` 在重启后清空；上一次 `anchor` 之后未保存的修改也会丢弃。`rest` 关机，`renew` 重启，二者不会自动保存。
 
-完整的 31 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
+完整的 33 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
 
 ## 构建、测试和 ISO
 
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 8 组源码边界夹具，使用 UBSan
+make test-host      # 9 组源码边界夹具，使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -163,8 +178,8 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 系统调用 | x64 原创 ABI 及 DEVCTL；ARM64 仅有测试用的计算结果/退出 SVC |
 | 文件系统 | 分层内存文件树、目录、相对路径、文件句柄、读写、移动和删除 |
 | 虚拟节点 | `/dev/null`、`/dev/zero`、`/dev/console`，`/sys` 动态状态 |
-| 磁盘 | IDE 主盘 ATA PIO（LBA48 与 64 位扇区计数）；`/home` 双槽 CRC32 快照，槽容量 16 MiB，快照缓冲随内存伸缩 |
-| 命令环境 | 31 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
+| 磁盘 | IDE 主盘 ATA PIO、GPT 分区识别；C: 及其他 Nuvora 分区各有独立双槽 CRC32 快照，上限每分区 16 MiB |
+| 命令环境 | 33 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
 | 文档 | Folio 全屏编辑器；`.nvd` 原生格式；RTF/Word 可读导出 |
 | 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
 | 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |

@@ -22,6 +22,10 @@ static const struct command_help commands[] = {
      "discovery and extended capability reporting are implemented; modesetting, 3D and CUDA are "
      "not implemented."},
     {"horizon", "horizon", "Show memory, processes, uptime and data-disk status.", "horizon", ""},
+    {"volumes", "volumes", "Show detected GPT data partitions and drive letters.", "volumes",
+     "New disks start with one C: partition. Additional preformatted partitions appear as D:, E:, F:."},
+    {"partitions", "partitions", "List GPT partitions, including unmounted foreign formats.",
+     "partitions", "Read-only discovery; only signed Nuvora partitions are mounted and writable."},
     {"ports", "ports [--scan]", "List USB controllers and connected USB devices.", "ports --scan",
      "--scan retries connected ports; automatic hotplug scans also run.\n"
      "xHCI: device descriptors, hubs and boot-keyboard input.\n"
@@ -66,7 +70,7 @@ static const struct command_help commands[] = {
      "There are 100 ticks per second."},
     {"doze", "doze MILLISECONDS", "Pause the shell for a specified duration.", "doze 500",
      "Valid range: 0 to 86400000 milliseconds; timer resolution is 10 ms."},
-    {"anchor", "anchor", "Commit /home to the Nuvora data disk.", "anchor",
+    {"anchor", "anchor", "Commit all mounted Nuvora data drives.", "anchor",
      "Requires the IDE Nuvora data image. /tmp is never persisted.\nUSB mass-storage devices are "
      "not mounted by this command."},
     {"trial", "trial", "Run the kernel's integration tests in a child process.", "trial",
@@ -107,5 +111,5 @@ static void help(void) {
         println(commands[i].purpose);
     }
     println("Paths accept /, . and ..; quote text containing spaces.");
-    println("Only /home is saved by anchor. /tmp is discarded on reboot.");
+    println("C:/ maps to /home; other drives use /drives/LETTER. anchor saves all drives.");
 }

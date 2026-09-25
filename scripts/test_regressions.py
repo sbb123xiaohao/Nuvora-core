@@ -5,10 +5,13 @@ import pathlib
 import subprocess
 import tempfile
 from qemu import ROOT, BUILD
+from mkgptdisk import create as create_gpt_disk
 
 def main():
     with tempfile.TemporaryDirectory(prefix='nuvora-regression-') as directory:
-        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'store', 'uefi']:
+        disk_image = pathlib.Path(directory) / 'two-volumes.img'
+        create_gpt_disk(disk_image, size_mib=128, partitions=2)
+        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'store', 'uefi']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -18,8 +21,10 @@ def main():
                    'common/page_buddy.c', 'common/slab.c', '-o', str(output)]
             subprocess.run(cmd, cwd=ROOT, check=True)
             args = [str(output)] + ([str(ROOT / 'build/x86_64/nuvora.elf')] if name == 'uefi' else [])
+            if name == 'gpt_disk':
+                args += [str(disk_image), '128']
             subprocess.run(args, check=True)
-    print('ALL 8 HOST REGRESSION GROUPS PASSED (buddy/slab/ramfs/mapping and synthetic firmware/port I/O, UBSan enabled)')
+    print('ALL 9 HOST REGRESSION GROUPS PASSED (including GPT/volume boundaries, UBSan enabled)')
 
 if __name__ == '__main__':
     main()

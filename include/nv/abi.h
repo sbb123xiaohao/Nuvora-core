@@ -9,6 +9,8 @@
 #define NV_FILE_MAX (128u * 1024u)
 #define NV_OPEN_MAX 16
 #define NV_TASK_MAX 32
+#define NV_VOLUME_MAX 4u
+#define NV_PARTITION_MAX 32u
 #define NV_PAGE 4096u
 /* Private ABI: int 0x81; eax=operation; ebx/ecx/edx=arguments. */
 enum nv_call {
@@ -41,6 +43,8 @@ enum nv_call {
     NV_USB,
     NV_HARDWARE,
     NV_DEVCTL, /* generic extensible device control; see enum nv_subsystem */
+    NV_VOLUME, /* enumerate mounted Nuvora data partitions */
+    NV_PARTITION, /* enumerate all validated GPT entries, including unmounted */
     NV_CALL_COUNT
 };
 enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
@@ -231,5 +235,16 @@ struct nv_taskinfo {
     u32 pid, parent, state, cpu_ticks, pages;
     char name[32];
 };
+struct nv_volume_info {
+    u32 letter, partition_index, snapshot_limit, generation;
+    u32 sectors_low, sectors_high;
+};
+_Static_assert(sizeof(struct nv_volume_info) == 24, "volume info ABI");
+enum { NV_PART_NUVORA = 1, NV_PART_MOUNTED = 2, NV_PART_LEGACY = 4 };
+struct nv_partition_info {
+    u32 number, flags, letter, reserved;
+    u32 start_low, start_high, sectors_low, sectors_high;
+};
+_Static_assert(sizeof(struct nv_partition_info) == 32, "partition info ABI");
 _Static_assert(sizeof(struct nv_dirent) == 40, "dirent ABI");
 #endif

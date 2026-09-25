@@ -30,6 +30,44 @@ static void status(void) {
     } else
         println("No Nuvora data disk. Files are held in RAM.");
 }
+static void list_volumes(void) {
+    println("Drive  Partition  Size  Snapshot limit  Saved generation");
+    u32 found = 0;
+    for (u32 i = 0; i < 4; ++i) {
+        struct nv_volume_info v;
+        if (volume_info(i, &v) <= 0) continue;
+        ++found;
+        char drive[4] = {(char)v.letter, ':', '/', 0};
+        print(drive); print("     ");
+        print_u32(v.partition_index); print("          ");
+        print_u64((((u64)v.sectors_high << 32) | v.sectors_low) / 2048);
+        print(" MiB  "); print_u32(v.snapshot_limit / 1024);
+        print(" KiB          "); print_u32(v.generation); print("\n");
+    }
+    if (!found) println("No formatted Nuvora data partition found.");
+}
+static void list_partitions(void) {
+    println("GPT entry  Start LBA  Size  Type  Drive");
+    u32 found = 0;
+    for (u32 i = 0; i < NV_PARTITION_MAX; ++i) {
+        struct nv_partition_info p;
+        if (partition_info(i, &p) <= 0) continue;
+        ++found;
+        print_u32(p.number); print("          ");
+        print_u64((u64)p.start_high << 32 | p.start_low); print("  ");
+        print_u64((((u64)p.sectors_high << 32) | p.sectors_low) / 2048);
+        print(" MiB  ");
+        print((p.flags & NV_PART_LEGACY) ? "legacy Nuvora" :
+              (p.flags & NV_PART_NUVORA) ? "Nuvora" : "other");
+        print("  ");
+        if (p.flags & NV_PART_MOUNTED) {
+            char letter[3] = {(char)p.letter, ':', 0};
+            print(letter);
+        } else print("unmounted");
+        print("\n");
+    }
+    if (!found) println("No validated GPT partition table found.");
+}
 static int show_file(const char *path) {
     int fd = open_file(path, NV_READ);
     if (fd < 0)
@@ -149,6 +187,8 @@ static int dispatch(int n, char **v) {
         status();
         return 0;
     }
+    if (!strcmp(cmd, "volumes") && n == 1) { list_volumes(); return 0; }
+    if (!strcmp(cmd, "partitions") && n == 1) { list_partitions(); return 0; }
     if (!strcmp(cmd, "where") && n == 1) {
         char cwd[NV_PATH_MAX];
         int r = getcwd_path(cwd, sizeof(cwd));
@@ -238,8 +278,11 @@ static int dispatch(int n, char **v) {
     }
     if (!strcmp(cmd, "anchor") && n == 1) {
         int r = control(NV_CTL_SYNC, 0);
-        if (!r)
+        if (!r) {
             println("Saved /home.");
+            struct nv_volume_info next;
+            if (volume_info(1, &next) > 0) println("Other mounted drives saved.");
+        }
         return r;
     }
     if (!strcmp(cmd, "scrub") && n == 1)

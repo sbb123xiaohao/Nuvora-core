@@ -96,7 +96,7 @@ $(BUILD)/boot.elf: $(BUILD)/nuvora.elf
 	$(OBJCOPY) -O elf32-i386 $< $@
 	$(PYTHON) scripts/check_image.py $@
 disk:
-	$(PYTHON) scripts/mkdisk.py $(BUILD)/nuvora-store.img --if-missing
+	$(PYTHON) scripts/mkgptdisk.py $(BUILD)/nuvora-store.img --if-missing
 run: all disk
 	$(PYTHON) scripts/run.py
 window: all disk

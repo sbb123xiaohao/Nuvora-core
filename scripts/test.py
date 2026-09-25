@@ -13,6 +13,7 @@ import time
 import zlib
 from qemu import ROOT, BUILD, ARCH, command, find_uefi_firmware, firmware_arguments
 from mkdisk import create, SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS
+from mkgptdisk import create as create_gpt_disk
 
 REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
@@ -53,7 +54,7 @@ class VM:
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.proc.stdout, selectors.EVENT_READ)
         try:
-            self.wait_for(b'/home :: ', timeout=boot_timeout)
+            self.wait_for(b'C:/ :: ', timeout=boot_timeout)
         except BaseException:
             self.close(normal=False)
             raise
@@ -476,7 +477,7 @@ def unrecognized_disk():
 
 def command_help_tests():
     vm = VM('command-help', new_image('command-help.img'))
-    names = set('help atlas origin silicon firmament prism horizon ports where step glance nest weave stitch unfold folio mirror shift prune sparks forge scatter gather quench tempo doze anchor trial scrub rest renew'.split())
+    names = set('help atlas origin silicon firmament prism horizon volumes partitions ports where step glance nest weave stitch unfold folio mirror shift prune sparks forge scatter gather quench tempo doze anchor trial scrub rest renew'.split())
     try:
         vm.send('weave /home/--help "keep this file"')
         guide = vm.send('help')
@@ -492,11 +493,11 @@ def command_help_tests():
         vm.send('does-not-exist --help', 'Unknown command.')
         vm.send('help does-not-exist', 'Unknown command.')
         vm.send('unfold /home/--help', '\nkeep this file\n')
-        vm.send('where', '\n/home\n')
+        vm.send('where', '\nC:/\n')
         vm.send('horizon', 'committed generation: 0')
         vm.send('weave /home/literal.txt --help')
         vm.send('unfold /home/literal.txt', '\n--help\n')
-        record('Command catalog and help', 'all 31 commands have purpose, usage and examples; help aliases, unknown commands and literal --help text checked; file and disk generation preserved')
+        record('Command catalog and help', 'all 33 commands have purpose, usage and examples; help aliases, unknown commands and literal --help text checked; file and disk generation preserved')
         for app in ['loom', 'folio', 'pulse', 'spin', 'fault', 'probe', 'relay', 'vector']:
             out = vm.send('forge ' + app + ' --help', 'exited 0')
             assert 'Usage: ' in out and 'Example: ' in out, out
@@ -629,6 +630,33 @@ def usb_tests():
         vm.close()
 
 
+def gpt_volume_roundtrip():
+    """Two real GPT partitions keep distinct snapshots across a guest reboot."""
+    disk = REPORT / 'two-gpt-volumes.img'
+    disk.unlink(missing_ok=True)
+    create_gpt_disk(disk, size_mib=128, partitions=2)
+    vm = VM('gpt-two-volumes', disk, memory=64)
+    try:
+        vm.send('partitions', 'GPT entry')
+        vm.send('volumes', 'D:/')
+        vm.send('weave C:/alpha from-C')
+        vm.send('weave D:/beta from-D')
+        vm.send('shift C:/alpha D:/stolen', 'invalid argument')
+        vm.send('anchor', 'Other mounted drives saved.')
+    finally:
+        vm.close()
+    vm = VM('gpt-two-volumes-restore', disk, memory=64)
+    try:
+        vm.send('unfold C:/alpha', 'from-C')
+        vm.send('unfold D:/beta', 'from-D')
+        vm.send('step D:/')
+        vm.send('where', 'D:/')
+        vm.send('volumes', 'Saved generation')
+    finally:
+        vm.close()
+    record('GPT dual partition round-trip', 'two formatted GPT partitions discovered as C:/D:/; '
+           'independent snapshot restore; cross-volume rename rejected')
+
 def large_storage():
     """A 4 TiB sparse image exercises the u64 sector count and LBA48 transfers."""
     disk = new_image('persistence-big.img', size_mib=4 * 1024 * 1024)
@@ -725,6 +753,7 @@ def main():
         restored_file_growth()
     if args.phase in ['all', 'storage']:
         persistence()
+        gpt_volume_roundtrip()
         large_storage()
         folio_editor()
         unrecognized_disk()

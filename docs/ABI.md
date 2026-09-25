@@ -37,6 +37,13 @@ x64 使用 `int 0x81`。调用号在 EAX，前三个参数在 EBX / ECX / EDX，
 | 26 | USB | 子操作（1 控制器、2 设备、3 重扫） | 索引 | 输出结构指针 | USB 信息或 0/1 |
 | 27 | HARDWARE | 子操作（1 CPU、2 GPU、3 PLATFORM） | 索引 | 输出结构指针 | 有条目 1，无条目 0 |
 | 28 | DEVCTL | 子系统编号 | 子系统操作 | 固定大小输入/输出缓冲区 | 按操作返回结果 |
+| 29 | VOLUME | 卷索引 0–3 | `nv_volume_info*` | 0 | 有挂载卷为 1，否则 0 |
+| 30 | PARTITION | 列表索引 0–31 | `nv_partition_info*` | 0 | 有分区记录为 1，否则 0 |
+
+`VOLUME` 和 `PARTITION` 仅由 x64 内核实现，所有输出指针先验证整个可写结构体。
+`PARTITION` 报告经过 GPT CRC、范围和重叠检查的记录，格式未知的记录不会挂载。
+数据镜像默认一个 GPT C: 分区，旧 NVSTORE 整盘镜像继续兼容为 C:；
+每卷快照独立，但 `anchor` 不是跨卷事务。接口仍为 ABI 1 的末尾追加调用号。
 
 打开标志：READ=1、WRITE=2、CREATE=4、TRUNC=8、APPEND=16、EXCL=32。CREATE/TRUNC/APPEND 要求 WRITE，EXCL 要求 CREATE。追加总是使用当时文件结尾，即使此前调用 SEEK。
 

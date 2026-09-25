@@ -113,6 +113,7 @@ void kernel_start(const struct boot_info *bi) {
     fs_unpack(archive_start, (usize)(archive_end - archive_start));
     kprintf("[ok] ramfs, devfs, proc views, embedded ELF programs\n");
     disk_init();
+    fs_mount_volumes(disk_volume_count());
     store_init();
     gpu_init();
     usb_init();

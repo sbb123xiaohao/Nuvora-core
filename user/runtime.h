@@ -49,6 +49,12 @@ static inline int platform_info(struct nv_platform_info *out) {
 static inline int devctl(u32 subsystem, u32 op, void *request) {
     return call(NV_DEVCTL, subsystem, op, (uptr)request);
 }
+static inline int volume_info(u32 index, struct nv_volume_info *out) {
+    return call(NV_VOLUME, index, (uptr)out, 0);
+}
+static inline int partition_info(u32 index, struct nv_partition_info *out) {
+    return call(NV_PARTITION, index, (uptr)out, 0);
+}
 /* Prepare a supervisor-only first-page mapping, not a user GPU mapping. */
 static inline int gpu_prepare_bar(u32 index, u32 bar, struct nv_gpu_map_bar_res *out) {
     if (!out)
@@ -122,6 +128,7 @@ void print(const char *);
 bool app_help(const char *, const char *);
 void println(const char *);
 void print_u32(u32);
+void print_u64(u64);
 void print_hex(u32);
 void report_error(const char *, int);
 const char *error_name(int);

@@ -102,7 +102,7 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = -NV_EFAULT;
             break;
         }
-        result = fs_path(current->cwd, path, sizeof(path));
+        result = fs_display_path(current->cwd, path, sizeof(path));
         if (result == 0) {
             if (strlen(path) + 1 > b)
                 result = -NV_E2BIG;
@@ -184,6 +184,35 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = task_info(a, &info);
             if (result > 0)
                 memcpy((void *)(uptr)b, &info, sizeof(info));
+        }
+        break;
+    case NV_VOLUME:
+        if (c || a >= NV_VOLUME_MAX) { result = -NV_EINVAL; break; }
+        if (!user_range(current->pd, b, sizeof(struct nv_volume_info), true)) {
+            result = -NV_EFAULT; break;
+        }
+        if (a >= disk_volume_count()) { result = 0; break; }
+        {
+            struct store_layout l;
+            u64 size = disk_volume_sectors(a);
+            disk_volume_layout(a, &l);
+            struct nv_volume_info item = {
+                .letter = 'C' + a, .partition_index = disk_volume_partition_number(a),
+                .snapshot_limit = l.snap_cap, .generation = store_volume_generation(a),
+                .sectors_low = (u32)size, .sectors_high = (u32)(size >> 32)};
+            memcpy((void *)(uptr)b, &item, sizeof(item));
+            result = 1;
+        }
+        break;
+    case NV_PARTITION:
+        if (c || a >= NV_PARTITION_MAX) { result = -NV_EINVAL; break; }
+        if (!user_range(current->pd, b, sizeof(struct nv_partition_info), true)) {
+            result = -NV_EFAULT; break;
+        }
+        {
+            struct nv_partition_info item;
+            result = disk_partition_info(a, &item) ? 1 : 0;
+            if (result) memcpy((void *)(uptr)b, &item, sizeof(item));
         }
         break;
     case NV_STOP:

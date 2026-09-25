@@ -1,5 +1,12 @@
 # 测试与复现
 
+**GPT 分区源码扩展的验证边界：**本轮 `make -j4` 与 `make test-host`
+已在当前宿主执行，新增第 9 组测试使用真实 `mkgptdisk.py` 生成的双分区
+GPT 镜像和实际 `kernel/disk.c` 的 ATA 端口模拟器，检查扫描、几何及写入
+范围；RAM 文件夹具另外覆盖 C:/D:/ 路径和快照隔离。下方原版 0.9.0
+的 QEMU、OVMF、ARM64 运行数字是以前版本的记录，**不能当成本扩展的
+虚拟机启动结果**；当前环境缺少 QEMU/ARM64 交叉编译器，需复验。
+
 x64 与 ARM64 在 QEMU 8.2.2 TCG 模拟器中实际执行；编译器为 GCC 13.3.0，链接器为 GNU ld 2.42。虚拟硬件覆盖 PC 与 q35、单 CPU、VGA、COM1、PS/2、PIT/PIC，存储测试连接 IDE primary master 数据镜像；q35 额外挂载 ISA IDE 桥，以保持内核传统 ATA PIO 端口与 q35 的 AHCI 默认设备隔离。本轮 UEFI 检查使用 Ubuntu OVMF 的 `OVMF_CODE_4M.fd` 与配套 VARS，通过 pflash 加载（可用 `NV_OVMF` 指定固件），数据镜像与 ESP 分别挂在 IDE primary master 和 slave。
 
 ## 结果范围
@@ -50,7 +57,7 @@ x64 包含 14 项设备控制断言：操作路由、保留接口的 ENOSYS、�
 - UEFI（x64，需 OVMF/edk2 固件与 mtools 生成的 ESP）：stub 完成启动（携带 .reloc 基址重定位表、多卷回退）、内核到达 Ring 3，`horizon`/`origin` 可用；anchor 后重启从数据盘恢复 `/home`，并运行完整 `trial`；UEFI El Torito ISO 光驱启动同样进入用户态。
 - 使用流程：在 Loom 中执行 `trial` 并回到提示符；模拟 PS/2 键盘输入成功；保存真实 VGA 截图。
 - USB：PCI 控制器分类、xHCI 描述符与字符串、键盘 Boot Protocol、鼠标/存储只读识别、两级 Hub、66 次根端口热插拔、拔除后的 DMA 页回收和事件/命令环回绕。`--phase usb` 单独执行这组检查。
-- 帮助：逐一查询 31 个命令的 `--help`、`help`/`atlas` 别名、错误参数和字面量 `--help` 文件内容；8 个用户程序以 `forge APP --help` 正常退出。`--phase help` 单独执行这组检查。
+- 帮助：逐一查询 33 个命令的 `--help`、`help`/`atlas` 别名、错误参数和字面量 `--help` 文件内容；8 个用户程序以 `forge APP --help` 正常退出。`--phase help` 单独执行这组检查。
 - Folio：创建 `.nvd`，输入并选择文本，应用粗体和一级标题，关闭后重新打开校验，导出 `.rtf` 并检查标题字号和粗体控制字。
 - 启动介质：从 GRUB BIOS ISO 的虚拟光驱进入用户态，成功运行一个独立 ELF 子进程；x64 另从 UEFI ISO（OVMF）进入用户态。
 
