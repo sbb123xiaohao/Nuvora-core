@@ -40,11 +40,10 @@ static void devctl_tests(void) {
         struct nv_display_present rect = {0, 0, 1, 1, 4, (u32)(uptr)&pixel};
         check(nv_display_present(&rect) == -NV_EACCESS &&
                   nv_display_acquire() == 0, "pixel display requires an exclusive lease");
-        check(nv_display_present(&rect) == 0, "leased pixel can be presented");
         int polled = nv_pointer_poll(&pointer);
-        check((polled == 0 || polled == 1) &&
+        check(nv_display_present(&rect) == 0 && (polled == 0 || polled == 1) &&
                   (polled != 1 || (pointer.buttons & ~7u) == 0),
-              "pixel-screen owner may poll bounded pointer reports");
+              "leased pixel and bounded pointer reports are available");
         rect.width = screen_mode.width + 1;
         check(nv_display_present(&rect) == -NV_EINVAL &&
                   nv_display_release() == 0 &&
