@@ -14,6 +14,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `volumes` | 查看已挂载 Nuvora 分区、盘符和快照容量 | `volumes` |
 | `partitions` | 查看检测到的 GPT 分区（包括未挂载的格式） | `partitions` |
 | `ports [--scan]` | 查看 PCI USB 控制器、设备描述符、Hub 和键盘状态 | `ports --scan` |
+| `net [wifi ... | dhcp ... | static ... | send ... | recv ...]` | 查看实体网卡、用 USB 桥接设备连接 Wi-Fi 并配置 IPv4/UDP | `net wifi scan` |
 | `where` | 查看当前目录 | `where` |
 | `step PATH` | 切换目录 | `step /home` |
 | `glance [PATH]` | 列出目录 | `glance /apps` |
@@ -40,7 +41,9 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 `forge` 和 `scatter` 接收不带 `/` 的名称时，在 `/apps/` 查找。内置程序同样支持 `forge APP --help`：`loom` 是命令行，`folio` 是全文与格式编辑器，`pulse` 输出五次时间，`spin` 是抢占测试死循环，`fault` 故意触发 CPU 异常，`probe` 执行集成检查，`relay` 是内核回归辅助程序。
 
-`ports` 会列出 PCI 控制器的总线地址、厂商/产品 ID、xHCI/UHCI/OHCI/EHCI 状态，以及真实 USB 设备的速度、VID/PID、USB 类、Hub 父子关系、厂商、产品和序列号。xHCI 设备枚举读取标准描述符；Hub 会递归扫描，USB Boot Protocol 键盘输入进入 Loom 和 Folio。USB 鼠标、U 盘等设备会被识别并标注为“identification only”，本版本没有鼠标指针、USB 大容量存储块读写或文件系统挂载。
+`ports` 会列出 PCI 控制器的总线地址、厂商/产品 ID、xHCI/UHCI/OHCI/EHCI 状态，以及真实 USB 设备的速度、VID/PID、USB 类、Hub 父子关系、厂商、产品和序列号。xHCI 设备枚举读取标准描述符；Hub 会递归扫描，USB Boot Protocol 键盘输入进入 Loom 和 Folio，CDC-ECM 网卡会显示 `Ethernet=active`。USB 鼠标、U 盘等设备会被识别并标注为“identification only”，本版本没有鼠标指针、USB 大容量存储块读写或文件系统挂载。
+
+`net` 的具体网卡支持清单、Wi-Fi 命令、密码输入和限制见 [NETWORK.md](NETWORK.md)。
 
 `ports --scan` 立即重试端口并处理拔插；后台还会定期扫描。xHCI 控制器发生不可恢复错误时会停止并显示 `failed`，不会把损坏 DMA 页重新交给用户进程。UHCI/OHCI/EHCI 控制器目前只报告 `unsupported`，不会伪造设备列表。
 
@@ -73,4 +76,4 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 `prism` 只读输出显卡启动快照，并在 ECAM 可用时解析 AER、ACS、ATS、SR-IOV、Resizable BAR、PASID 与 DPC 标记；这些标记不表示对应功能已经启用，也不会加载 NVIDIA 驱动。所有 33 个命令支持 `--help`，8 个内置程序支持 `forge APP --help`。硬件边界见 [CPU-GPU.md](CPU-GPU.md)。
 
-`forge probe devctl` 定向验证设备控制接口，`forge probe --help` 查看说明；`trial` 继续执行包含它在内的完整用户态回归。DEVCTL 本身是程序接口；0.6.0 新增的 Loom 命令只有 `firmament`，当时的命令总数为 31；本扩展加入 volumes 和 partitions 后为 33。
+`forge probe devctl` 定向验证设备控制接口，`forge probe --help` 查看说明；`trial` 继续执行包含它在内的完整用户态回归。DEVCTL 本身是程序接口；0.6.0 新增的 Loom 命令只有 `firmament`，当时的命令总数为 31；本开发版加入 volumes、partitions 和 net 后为 34。

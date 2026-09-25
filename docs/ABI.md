@@ -79,4 +79,4 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 
 ## DEVCTL 扩展分发
 
-`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络子系统分别为 1/2/3；当前 CPU/网络控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)。
+`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络子系统分别为 1/2/3；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)。

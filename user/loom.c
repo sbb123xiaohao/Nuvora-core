@@ -2,6 +2,7 @@
 #include "commands.h"
 #include "ports.h"
 #include "hardware.h"
+#include "network.h"
 static void status(void) {
     struct nv_info i;
     if (info(&i) < 0)
@@ -167,6 +168,8 @@ static int dispatch(int n, char **v) {
         return show_platform();
     if (!strcmp(cmd, "prism") && n == 1)
         return show_gpu();
+    if (!strcmp(cmd, "net"))
+        return network_command(n, v);
     if (!strcmp(cmd, "ports") && (n == 1 || (n == 2 && !strcmp(v[1], "--scan")))) {
         int r = n == 2 ? usb_scan() : 0;
         return r < 0 ? r : show_ports();

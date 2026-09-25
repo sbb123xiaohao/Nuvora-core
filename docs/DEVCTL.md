@@ -1,6 +1,6 @@
 # 设备控制扩展接口（0.5.1 引入，0.6.0 保持兼容）
 
-本版整合 `files.zip` 提供的五个文件：`abi.h`、`kernel.h`、`cpu.c`、`gpu.c`、`syscall.c`。保留其中的 `NV_DEVCTL` 通用入口、CPU/GPU 分发、网络子系统预留和 GPU 操作编号，并修正 BAR 准备路径的缓冲区校验、重复映射及失败响应。
+0.5.1 版整合 `files.zip` 提供的五个文件：`abi.h`、`kernel.h`、`cpu.c`、`gpu.c`、`syscall.c`，引入 `NV_DEVCTL` 通用入口。当前开发版在原有 CPU/GPU 分发上增加了 `NV_SUB_NET` 网络功能；GPU BAR 请求约定见下文。
 
 这是静态编译进内核的扩展分发接口，还不是可加载模块机制。
 
@@ -22,7 +22,7 @@ ABI 版本保持 1，原有 0–27 号系统调用不变，追加 `NV_DEVCTL=28`
 | `NV_SUB_CPU=1` | 暂无控制操作 | `-NV_ENOSYS`；CPU 查询仍用 `NV_HARDWARE` |
 | `NV_SUB_GPU=2` | `MAP_BAR=1` | 准备内核专用的一页 BAR 映射 |
 | `NV_SUB_GPU=2` | `SET_MODE=2`、`PRESENT=3`、`SUBMIT=4` | `-NV_ENOSYS`，不读写请求缓冲区 |
-| `NV_SUB_NET=3` | 预留 | `-NV_ENOSYS`；没有网络栈 |
+| `NV_SUB_NET=3` | INFO、DHCP、STATIC、UDP_SEND、UDP_RECV、SELECT、WIFI_COMMAND、WIFI_READ | 见 [实体网络说明](NETWORK.md)；具体缓冲区见 `include/nv/abi.h` |
 | 未知子系统或未知 GPU 操作 | — | `-NV_EINVAL` |
 
 ## MAP_BAR 缓冲区

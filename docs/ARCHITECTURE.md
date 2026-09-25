@@ -65,7 +65,7 @@ USB 设备接口通过 `NV_USB` 系统调用提供有界的控制器和设备结
 
 ## 设备控制扩展
 
-0.5.1 整合 `NV_DEVCTL` 通用分发和 `cpu_ioctl` / `gpu_ioctl`。GPU MAP_BAR 先验证完整 16 字节读写缓冲区，再准备首个对齐页面的 supervisor 映射；每个 BAR 缓存一份，跨进程复用，失败响应清零。映射大小不等于真实 BAR 大小，没有 GPU 寄存器访问或用户态 GPU 读写。CPU 控制、网络和 GPU 模式/提交接口尚未实现，详见 [DEVCTL.md](DEVCTL.md)。
+0.5.1 整合 `NV_DEVCTL` 通用分发和 `cpu_ioctl` / `gpu_ioctl`。GPU MAP_BAR 先验证完整 16 字节读写缓冲区，再准备首个对齐页面的 supervisor 映射；每个 BAR 缓存一份，跨进程复用，失败响应清零。映射大小不等于真实 BAR 大小，没有 GPU 寄存器访问或用户态 GPU 读写。CPU 控制和 GPU 模式/提交接口尚未实现；当前开发版增加小范围实体网络支持，详见 [DEVCTL.md](DEVCTL.md) 和 [NETWORK.md](NETWORK.md)。
 
 ## ELF 与 ABI
 

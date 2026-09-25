@@ -17,6 +17,7 @@ struct frame *syscall_dispatch(struct frame *f) {
     current->frame = f;
     task_reap();
     usb_poll();
+    net_poll();
     u32 a = f->ebx, b = f->ecx, c = f->edx;
     int result = -NV_ENOSYS;
     char path[NV_PATH_MAX], other[NV_ARG_MAX];
@@ -307,7 +308,7 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = gpu_ioctl(b, c);
             break;
         case NV_SUB_NET:
-            result = -NV_ENOSYS; /* Known reserved subsystem, not an unknown ID. */
+            result = net_ioctl(b, c);
             break;
         default:
             result = -NV_EINVAL;

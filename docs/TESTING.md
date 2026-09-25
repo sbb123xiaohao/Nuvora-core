@@ -1,5 +1,13 @@
 # 测试与复现
 
+**实体网络扩展的验证边界：**本轮 `make -j4` 通过，`make test-host`
+现为 10 组 UBSan 宿主测试。新增 `tests/network_test.c` 将实际
+`kernel/net.c` 接入模拟的物理 NIC，覆盖 PCI 型号识别、DHCP
+Discover/Offer/Request/Ack、ARP 邻居缓存、UDP 收包、IPv4 校验和错误与
+链路断开清理。USB CDC-ECM/CDC 控制和 I225/I226 DMA 寄存器路径仅通过
+编译和代码检查；没有实体网卡或 QEMU，因此尚无 Wi-Fi 入网或实体有线
+收发的运行记录。之前记录的 QEMU 结果不能替代本轮网络验证。
+
 **GPT 分区源码扩展的验证边界：**本轮 `make -j4` 与 `make test-host`
 已在当前宿主执行，新增第 9 组测试使用真实 `mkgptdisk.py` 生成的双分区
 GPT 镜像和实际 `kernel/disk.c` 的 ATA 端口模拟器，检查扫描、几何及写入

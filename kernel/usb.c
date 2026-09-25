@@ -33,6 +33,15 @@ struct device {
     u32 slot, root_port, route, depth, tt, max_packet;
     u32 input, output, buffer, report_page;
     struct ring control, interrupt;
+    struct ring ecm_in, ecm_out;
+    struct ring cdc_in, cdc_out;
+    u32 ecm_in_buf, ecm_out_buf, ecm_in_ep, ecm_out_ep;
+    u32 ecm_in_packet, ecm_out_packet, ecm_interface, ecm_control;
+    u32 ecm_in_wait, ecm_out_wait;
+    u32 cdc_in_buf, cdc_out_buf, cdc_in_ep, cdc_out_ep;
+    u32 cdc_in_packet, cdc_out_packet, cdc_interface, cdc_control;
+    u32 cdc_in_wait, cdc_out_wait;
+    u8 ecm_mac[6];
     u32 keyboard_ep, keyboard_interface, keyboard_packet, keyboard_interval;
     u32 interrupt_wait, repeat_at, hub_ports, hub_ttt;
     u32 attempted[15];
@@ -41,6 +50,9 @@ struct device {
 };
 static struct host hosts[NV_USB_CONTROLLER_MAX];
 static struct device devices[NV_USB_DEVICE_MAX];
+static struct device *ecm_device;
+static char wifi_response[2048];
+static u32 wifi_response_size;
 static u32 host_count, last_scan;
 static bool initialized, busy;
 
@@ -123,6 +135,20 @@ static void keyboard_arm(struct device *d) {
     barrier();
     write32(d->host, d->host->doorbell + d->slot * 4, d->keyboard_ep);
 }
+static void ecm_arm(struct device *d) {
+    if (d->dead || !d->ecm_in_ep || d->host->info.state != NV_USB_RUNNING) return;
+    d->ecm_in_wait = ring_put(&d->ecm_in, d->ecm_in_buf, 0, 2048,
+                              TYPE(1) | (1u << 5));
+    barrier();
+    write32(d->host, d->host->doorbell + d->slot * 4, d->ecm_in_ep);
+}
+static void cdc_arm(struct device *d) {
+    if (d->dead || !d->cdc_in_ep || d->host->info.state != NV_USB_RUNNING) return;
+    d->cdc_in_wait = ring_put(&d->cdc_in, d->cdc_in_buf, 0, 512,
+                              TYPE(1) | (1u << 5));
+    barrier();
+    write32(d->host, d->host->doorbell + d->slot * 4, d->cdc_in_ep);
+}
 static void keyboard_report(struct device *d, u32 remaining) {
     if (remaining > 0)
         return; /* A boot-keyboard report is exactly eight bytes. */
@@ -189,6 +215,38 @@ static void events(struct host *h) {
                     d->repeat_key = 0;
                     d->dead = true;
                     h->changed = true;
+                }
+            }
+            struct device *d = ecm_device;
+            if (d && d->host == h && d->slot == slot && !d->dead) {
+                if (endpoint == d->ecm_in_ep && low == d->ecm_in_wait) {
+                    d->ecm_in_wait = 0;
+                    if (code == 1 || code == 13) {
+                        u32 length = 2048 - MIN(status & 0xffffffu, 2048u);
+                        if (length >= 14 && length <= 1514)
+                            net_usb_receive(phys_ptr(d->ecm_in_buf), length);
+                        ecm_arm(d);
+                    } else { d->dead = true; h->changed = true; }
+                }
+                if (endpoint == d->ecm_out_ep && low == d->ecm_out_wait) {
+                    d->ecm_out_wait = 0;
+                    if (code != 1 && code != 13) { d->dead = true; h->changed = true; }
+                }
+                if (d->cdc_in_ep && endpoint == d->cdc_in_ep && low == d->cdc_in_wait) {
+                    d->cdc_in_wait = 0;
+                    if (code == 1 || code == 13) {
+                        u32 got = 512 - MIN(status & 0xffffffu, 512u);
+                        const u8 *s = phys_ptr(d->cdc_in_buf);
+                        for (u32 j = 0; j < got && wifi_response_size < sizeof(wifi_response); ++j)
+                            if (s[j] == '\n' || s[j] == '\r' || (s[j] >= 32 && s[j] < 127))
+                                wifi_response[wifi_response_size++] = (char)s[j];
+                        cdc_arm(d);
+                    } else { d->dead = true; h->changed = true; }
+                }
+                if (d->cdc_out_ep && endpoint == d->cdc_out_ep && low == d->cdc_out_wait) {
+                    d->cdc_out_wait = 0;
+                    memset(phys_ptr(d->cdc_out_buf), 0, PAGE);
+                    if (code != 1 && code != 13) { d->dead = true; h->changed = true; }
                 }
             }
         } else if (type == 34)
@@ -331,6 +389,63 @@ static int configure_keyboard(struct device *d) {
     keyboard_arm(d);
     return 0;
 }
+static int configure_ecm(struct device *d) {
+    if (!d->ecm_in_ep || !d->ecm_out_ep || ecm_device) return 0;
+    if (!ring_init(&d->ecm_in) || !ring_init(&d->ecm_out) ||
+        !(d->ecm_in_buf = page_alloc_below(USB_DMA_LIMIT)) ||
+        !(d->ecm_out_buf = page_alloc_below(USB_DMA_LIMIT))) return -NV_ENOMEM;
+    memset(phys_ptr(d->input), 0, PAGE);
+    u32 highest = MAX(d->ecm_in_ep, d->ecm_out_ep);
+    input_context(d, 0)[1] = 1u | (1u << d->ecm_in_ep) | (1u << d->ecm_out_ep);
+    if (d->cdc_in_ep && d->cdc_out_ep && d->info.vendor == 0x303a) {
+        if (!ring_init(&d->cdc_in) || !ring_init(&d->cdc_out) ||
+            !(d->cdc_in_buf = page_alloc_below(USB_DMA_LIMIT)) ||
+            !(d->cdc_out_buf = page_alloc_below(USB_DMA_LIMIT))) return -NV_ENOMEM;
+        highest = MAX(highest, MAX(d->cdc_in_ep, d->cdc_out_ep));
+        input_context(d, 0)[1] |= (1u << d->cdc_in_ep) | (1u << d->cdc_out_ep);
+        u32 *ci = input_context(d, d->cdc_in_ep + 1);
+        ci[1] = (3u << 1) | (6u << 3) | (d->cdc_in_packet << 16);
+        ci[2] = d->cdc_in.page | 1u;
+        ci[4] = 512;
+        u32 *co = input_context(d, d->cdc_out_ep + 1);
+        co[1] = (3u << 1) | (2u << 3) | (d->cdc_out_packet << 16);
+        co[2] = d->cdc_out.page | 1u;
+        co[4] = 512;
+    } else d->cdc_in_ep = d->cdc_out_ep = 0;
+    slot_context(d, highest);
+    u32 *in = input_context(d, d->ecm_in_ep + 1);
+    in[1] = (3u << 1) | (6u << 3) | (d->ecm_in_packet << 16);
+    in[2] = d->ecm_in.page | 1u;
+    in[4] = 2048u;
+    u32 *out = input_context(d, d->ecm_out_ep + 1);
+    out[1] = (3u << 1) | (2u << 3) | (d->ecm_out_packet << 16);
+    out[2] = d->ecm_out.page | 1u;
+    out[4] = 2048u;
+    if (command(d->host, 12, d->input, d->slot << 24) < 0 ||
+        control(d, 1, 11, 1, (u16)d->ecm_interface, 0) < 0 ||
+        control(d, 0x21, 0x43, 3, (u16)d->ecm_control, 0) < 0)
+        return -NV_EIO;
+    if (d->cdc_in_ep) {
+        u8 *line = phys_ptr(d->buffer);
+        line[0] = 0; line[1] = 0xc2; line[2] = 1; line[3] = 0; /* 115200 */
+        line[4] = 0; line[5] = 0; line[6] = 8;
+        if (control(d, 0x21, 0x20, 0, (u16)d->cdc_control, 7) < 0 ||
+            control(d, 0x21, 0x22, 3, (u16)d->cdc_control, 0) < 0)
+            d->cdc_in_ep = d->cdc_out_ep = 0;
+    }
+    d->info.state = NV_USB_ETHERNET;
+    ecm_device = d;
+    net_usb_attach(d->info.vendor, d->info.product, d->ecm_mac);
+    ecm_arm(d);
+    if (d->cdc_in_ep) cdc_arm(d);
+    return 0;
+}
+static int nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
 static int configure_hub(struct device *d) {
     if (d->depth >= 5)
         return 0;
@@ -400,6 +515,8 @@ static int identify(struct device *d) {
     u8 config_value = cfg[5];
     d->info.interfaces = cfg[4];
     bool keyboard_interface = false, first_interface = true;
+    bool ecm_control = false, ecm_data = false, cdc_control = false, cdc_data = false;
+    u8 ecm_mac_string = 0;
     u32 interface_number = 0;
     for (u32 off = 0; off < length;) {
         u32 len = cfg[off];
@@ -411,12 +528,25 @@ static int identify(struct device *d) {
             keyboard_interface =
                 cfg[off + 3] == 0 && cfg[off + 5] == 3 && cfg[off + 6] == 1 && cfg[off + 7] == 1;
             interface_number = cfg[off + 2];
+            if (cfg[off + 5] == 2 && cfg[off + 6] == 6 && cfg[off + 3] == 0) {
+                ecm_control = true; d->ecm_control = interface_number;
+            }
+            if (cfg[off + 5] == 2 && cfg[off + 6] == 2 && cfg[off + 3] == 0) {
+                cdc_control = true; d->cdc_control = interface_number;
+            }
+            ecm_data = ecm_control && cfg[off + 5] == 10 && cfg[off + 3] == 1;
+            cdc_data = cdc_control && cfg[off + 5] == 10 && cfg[off + 3] == 0;
+            if (ecm_data) d->ecm_interface = interface_number;
+            if (cdc_data) d->cdc_interface = interface_number;
             if (first_interface && !d->info.class_code) {
                 d->info.class_code = cfg[off + 5];
                 d->info.subclass = cfg[off + 6];
                 d->info.protocol = cfg[off + 7];
             }
             first_interface = false;
+        } else if (cfg[off + 1] == 0x24 && ecm_control &&
+                   !ecm_data && len >= 13 && cfg[off + 2] == 0x0f) {
+            ecm_mac_string = cfg[off + 3];
         } else if (cfg[off + 1] == 5) {
             if (len < 7)
                 return -NV_EINVAL;
@@ -427,6 +557,26 @@ static int identify(struct device *d) {
                 d->keyboard_interface = interface_number;
                 d->keyboard_packet = size;
                 d->keyboard_interval = cfg[off + 6];
+            }
+            if (ecm_data && (ep & 15) && !(ep & 0x70) && (cfg[off + 3] & 3) == 2 &&
+                (size == 64 || size == 512 || size == 1024)) {
+                if ((ep & 0x80) && !d->ecm_in_ep) {
+                    d->ecm_in_ep = (ep & 15) * 2 + 1;
+                    d->ecm_in_packet = size;
+                } else if (!(ep & 0x80) && !d->ecm_out_ep) {
+                    d->ecm_out_ep = (ep & 15) * 2;
+                    d->ecm_out_packet = size;
+                }
+            }
+            if (cdc_data && (ep & 15) && !(ep & 0x70) && (cfg[off + 3] & 3) == 2 &&
+                (size == 64 || size == 512 || size == 1024)) {
+                if ((ep & 0x80) && !d->cdc_in_ep) {
+                    d->cdc_in_ep = (ep & 15) * 2 + 1;
+                    d->cdc_in_packet = size;
+                } else if (!(ep & 0x80) && !d->cdc_out_ep) {
+                    d->cdc_out_ep = (ep & 15) * 2;
+                    d->cdc_out_packet = size;
+                }
             }
         }
         off += len;
@@ -440,17 +590,33 @@ static int identify(struct device *d) {
     string_descriptor(d, desc[14], language, d->info.manufacturer, sizeof(d->info.manufacturer));
     string_descriptor(d, desc[15], language, d->info.product_name, sizeof(d->info.product_name));
     string_descriptor(d, desc[16], language, d->info.serial, sizeof(d->info.serial));
+    if (ecm_control && ecm_mac_string && d->ecm_in_ep && d->ecm_out_ep) {
+        char value[16];
+        string_descriptor(d, ecm_mac_string, language, value, sizeof(value));
+        if (strlen(value) == 12) {
+            bool valid = true;
+            for (u32 i = 0; i < 6; ++i) {
+                int a = nibble(value[i * 2]), b = nibble(value[i * 2 + 1]);
+                if (a < 0 || b < 0) { valid = false; break; }
+                d->ecm_mac[i] = (u8)((a << 4) | b);
+            }
+            if (!valid || (d->ecm_mac[0] & 1)) d->ecm_in_ep = 0;
+        } else d->ecm_in_ep = 0;
+    } else d->ecm_in_ep = 0;
     if (control(d, 0, 9, config_value, 0, 0) < 0)
         return -NV_EIO;
     d->info.state = NV_USB_CONFIGURED;
     if (d->info.class_code == 9)
         return configure_hub(d);
+    if (d->ecm_in_ep)
+        return configure_ecm(d);
     return configure_keyboard(d);
 }
 static bool remove_device(struct device *d) {
     if (!d->slot)
         return true;
     d->dead = true; /* Completion events must not re-arm an endpoint being removed. */
+    if (d == ecm_device) { net_usb_detach(); ecm_device = NULL; }
     d->repeat_key = 0;
     for (u32 i = 0; i < ARRAY_LEN(devices); ++i)
         if (devices[i].slot && devices[i].info.parent == (u32)(d - devices) + 1)
@@ -461,8 +627,10 @@ static bool remove_device(struct device *d) {
         return false;
     }
     ((u64 *)phys_ptr(d->host->dcbaa))[d->slot] = 0;
-    u32 pages[] = {d->input,        d->output,         d->buffer,
-                   d->control.page, d->interrupt.page, d->report_page};
+    u32 pages[] = {d->input, d->output, d->buffer, d->control.page,
+                   d->interrupt.page, d->report_page, d->ecm_in.page,
+                   d->ecm_out.page, d->ecm_in_buf, d->ecm_out_buf,
+                   d->cdc_in.page, d->cdc_out.page, d->cdc_in_buf, d->cdc_out_buf};
     for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
         if (pages[i])
             page_free(pages[i]);
@@ -829,4 +997,48 @@ int usb_device_info(u32 index, struct nv_usb_device *out) {
         return 0;
     *out = devices[index].info;
     return 1;
+}
+bool usb_ecm_link(void) {
+    return ecm_device && !ecm_device->dead && ecm_device->info.state == NV_USB_ETHERNET &&
+           ecm_device->host->info.state == NV_USB_RUNNING;
+}
+int usb_ecm_send(const void *packet, u32 length) {
+    if (!usb_ecm_link()) return -NV_ENODEV;
+    if (length < 14 || length > 1514) return -NV_EINVAL;
+    struct device *d = ecm_device;
+    if (d->ecm_out_wait) return -NV_EAGAIN;
+    memcpy(phys_ptr(d->ecm_out_buf), packet, length);
+    bool zlp = length % d->ecm_out_packet == 0;
+    u32 first = ring_put(&d->ecm_out, d->ecm_out_buf, 0, length,
+                         TYPE(1) | (zlp ? 1u << 4 : 1u << 5));
+    d->ecm_out_wait = zlp ? ring_put(&d->ecm_out, d->ecm_out_buf, 0, 0,
+                                     TYPE(1) | (1u << 5)) : first;
+    barrier();
+    write32(d->host, d->host->doorbell + d->slot * 4, d->ecm_out_ep);
+    return 0;
+}
+int usb_wifi_command(const char *command, u32 length) {
+    if (!usb_ecm_link() || ecm_device->info.vendor != 0x303a ||
+        !ecm_device->cdc_out_ep) return -NV_ENODEV;
+    if (!length || length > 200 || command[length - 1] != '\n') return -NV_EINVAL;
+    for (u32 i = 0; i + 1 < length; ++i)
+        if ((u8)command[i] < 32 || (u8)command[i] > 126) return -NV_EINVAL;
+    struct device *d = ecm_device;
+    if (d->cdc_out_wait) return -NV_EAGAIN;
+    wifi_response_size = 0;
+    memcpy(phys_ptr(d->cdc_out_buf), command, length);
+    d->cdc_out_wait = ring_put(&d->cdc_out, d->cdc_out_buf, 0, length,
+                               TYPE(1) | (1u << 5));
+    barrier();
+    write32(d->host, d->host->doorbell + d->slot * 4, d->cdc_out_ep);
+    return 0;
+}
+int usb_wifi_read(char *out, u32 capacity) {
+    if (!usb_ecm_link() || ecm_device->info.vendor != 0x303a ||
+        !ecm_device->cdc_in_ep) return -NV_ENODEV;
+    u32 size = MIN(wifi_response_size, capacity);
+    memcpy(out, wifi_response, size);
+    memmove(wifi_response, wifi_response + size, wifi_response_size - size);
+    wifi_response_size -= size;
+    return (int)size;
 }

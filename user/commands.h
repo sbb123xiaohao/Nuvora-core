@@ -31,6 +31,11 @@ static const struct command_help commands[] = {
      "xHCI: device descriptors, hubs and boot-keyboard input.\n"
      "Other classes are identified; USB disk files and mouse input are not implemented.\n"
      "UHCI/OHCI/EHCI controllers are listed as unsupported."},
+    {"net", "net [wifi scan|status|join SSID [--open] | use INDEX | dhcp [INDEX] | static INDEX IP MASK GATEWAY [DNS] | send IP PORT TEXT | recv PORT]",
+     "List physical network adapters; configure IPv4 and send or receive UDP.", "net dhcp",
+     "Intel I225/I226 PCIe Ethernet and USB CDC-ECM bridges have packet drivers.\n"
+     "ESP USB Wi-Fi Dongle with CDC control: scan or join; password entry is hidden.\n"
+     "PCI Wi-Fi cards are listed without a working driver. Only IPv4/UDP is exposed."},
     {"where", "where", "Show the current directory.", "where", ""},
     {"step", "step PATH", "Change the current directory.", "step /home",
      "Paths accept /, . and .. ."},

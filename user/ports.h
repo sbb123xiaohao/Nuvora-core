@@ -71,7 +71,9 @@ static int show_ports(void) {
         print("    class="); usb_hex16(d.class_code); print(" interfaces="); print_u32(d.interfaces);
         if (d.state == NV_USB_KEYBOARD) {
             print(" input=active reports="); print_u32(d.reports);
-        } else if (d.state == NV_USB_HUB)
+        } else if (d.state == NV_USB_ETHERNET)
+            print(" Ethernet=active");
+        else if (d.state == NV_USB_HUB)
             print(" hub=active");
         else
             print(" identification only");

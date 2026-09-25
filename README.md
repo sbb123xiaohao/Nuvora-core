@@ -1,5 +1,14 @@
 # Nuvora Core 0.9.0
 
+## 实体网络开发版
+
+x86-64 新增 Intel I225/I226 PCIe 实体有线卡与 USB CDC-ECM 收发驱动，
+以及 ARP、IPv4、DHCP、UDP 和 ICMP 应答。接入刷入 Espressif USB Dongle
+固件的 ESP32-S2/S3 设备时，可用 `net wifi scan`、`net wifi join SSID`
+经 USB CDC 命令口配置 Wi-Fi，并通过 USB ECM 网卡获得地址。
+笔记本内置 PCI Wi-Fi 仍仅识别，实体设备尚未上机验证。
+支持清单、操作方式及限制见 [实体网络说明](docs/NETWORK.md)。
+
 ## GPT 分区开发版
 
 新建 x64 数据镜像现在使用真正的 GPT 分区表，**默认一个 C: 数据分区**。
@@ -16,7 +25,7 @@
 
 用 C 和汇编从零编写的实验操作系统内核。x86-64 版本有 BIOS/GRUB 与 UEFI 启动、Loom 用户环境及文件和磁盘快照；ARM64 版本是独立的 QEMU `virt` 引导、内存与 EL0/NEON 运行基线。两种构建均为 64 位；不再构建 x86 32 位版本。
 
-这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前目标是 QEMU 的单核 PC / ARM `virt` 虚拟机；联网、多核与 AI 加速器驱动等缺口在本文末尾列出。
+这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前验证目标仍是 QEMU 的单核 PC / ARM `virt` 虚拟机；实体网络尚未上机测试，多核与 AI 加速器驱动等缺口在本文末尾列出。
 
 ## 0.9.0 物理页与小对象分配
 
@@ -121,14 +130,14 @@ rest
 
 **Loom 命令修改的文件需要执行 `anchor`，才能把 C:（`/home`）及其他已挂载分区保存到数据镜像。Folio 的保存和导出会调用同一提交操作。** `/tmp` 在重启后清空；上一次 `anchor` 之后未保存的修改也会丢弃。`rest` 关机，`renew` 重启，二者不会自动保存。
 
-完整的 33 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
+完整的 34 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
 
 ## 构建、测试和 ISO
 
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 9 组源码边界夹具，使用 UBSan
+make test-host      # 10 组源码边界夹具，使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -179,11 +188,12 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 文件系统 | 分层内存文件树、目录、相对路径、文件句柄、读写、移动和删除 |
 | 虚拟节点 | `/dev/null`、`/dev/zero`、`/dev/console`，`/sys` 动态状态 |
 | 磁盘 | IDE 主盘 ATA PIO、GPT 分区识别；C: 及其他 Nuvora 分区各有独立双槽 CRC32 快照，上限每分区 16 MiB |
-| 命令环境 | 33 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
+| 命令环境 | 34 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
 | 文档 | Folio 全屏编辑器；`.nvd` 原生格式；RTF/Word 可读导出 |
 | 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
 | 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |
-| USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘；鼠标和存储设备只识别 |
+| USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘、CDC-ECM 和 ESP USB Dongle CDC 控制；鼠标和存储设备只识别 |
+| 网络 | x64 Intel I225/I226 PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
 | 验证 | x64 每次 131 项用户态检查（含 1 GiB / 5 GiB 配置）；ARM64 在 64/256/1024/5120 MiB 配置下各 15 项；另有 ACPI/PCI 合成坏表、q35 ECAM 与 OVMF 回归 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
@@ -193,7 +203,7 @@ x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回
 - 单核、单用户研究环境；内核执行期间不被抢占，没有 SMP 锁、用户账户或完整权限模型。
 - 两个内核目前最多各管理 64 GiB 物理内存。x64 ABI v1 仍使用 1–2 GiB 用户地址窗口及 512 MiB 用户堆；USB DMA 固定使用 4 GiB 以下页。ARM64 只有单工作负载的移植基线，尚无 Loom、磁盘与完整 ABI。
 - UEFI 仅支持 x64、BIOS 启动的 ISO 之外另有纯 UEFI El Torito ISO；都没有 Secure Boot。UEFI stub 已携带基址重定位表并在启动介质上提供多卷回退，在 QEMU OVMF/edk2 验证，未在实体主板固件认证。
-- 暂无 ACPI AML/电源管理、网络栈、NVMe、AHCI、音频、GPU 加速、桌面和 Unicode 终端；USB 目前支持 xHCI 枚举、Hub、键盘输入和设备描述符，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
+- 暂无 ACPI AML/电源管理、原生 PCI Wi-Fi、TCP/IPv6、NVMe、AHCI、音频、GPU 加速、桌面和 Unicode 终端；USB 支持 xHCI、Hub、键盘和 CDC-ECM，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
 - 暂无 `fork`、管道、套接字、动态链接、POSIX/Linux ABI 或通用文件系统格式支持。
 - x87/MMX/SSE 状态已经隔离；AVX/XSAVE、AVX-512/AMX、多核与微码更新尚未实现。SSE #XM 递交受 QEMU TCG 限制而明确跳过，尚未通过实机验证。
 - x64 文件系统共 128 个节点，普通文件最大 128 KiB；内核堆 8 MiB、每进程用户堆 512 MiB。单份快照最多 16 MiB，缓冲还受可用 RAM 约束。扩大数据镜像不会同步扩大这些容量。文件系统与快照采用本项目的简化格式。

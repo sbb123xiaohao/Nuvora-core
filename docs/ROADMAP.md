@@ -7,7 +7,7 @@
 3. **并发**：x64 APIC/ARM64 GIC 与 PSCI 多核启动、每 CPU 数据、锁、原子操作、可扩展调度和压力测试；ARM64 先补齐 ELF 装载、进程切换和 NEON/FP 状态保存。
 4. **现代硬件启动**：0.6.0 已加入 ACPI 根表/MCFG 校验和 segment 0 PCIe ECAM；0.7.0 加入 x64 UEFI 启动（GOP 帧缓冲移交、OVMF/edk2 验证）。下一步是 ACPI AML 资源/中断路由、多 segment 与 PCI 资源分配、USB 存储与更多主机控制器、AHCI/NVMe，以及实体 UEFI 固件验证矩阵。
 5. **可靠存储**：块设备层、请求队列、缓存与写回、通用文件系统、完整错误恢复、写入中断故障注入。
-6. **网络**：虚拟网卡驱动、以太网、ARP、IPv4/IPv6、UDP/TCP、套接字与访问控制。
+6. **网络**：已加入小范围实体网卡驱动和以太网、ARP、IPv4、DHCP、UDP；下一步是 Intel/Realtek 内置 Wi-Fi 固件与驱动、其他常见有线芯片、实机测试、IPv6、TCP、套接字与访问控制。已实现范围见 [NETWORK.md](NETWORK.md)。
 7. **用户环境**：Unicode 终端、成熟运行库、动态链接、用户/组权限、配额、程序安装工具，以及是否实现 POSIX 兼容层的明确决策。
 8. **CPU 扩展与 NVIDIA**：按 CPU 能力实现 XSAVE/AVX 状态；先完成 framebuffer/GOP 与 PCI/DMA/中断基础，再选择实体 NVIDIA 型号实现驱动，详见 [CPU-GPU.md](CPU-GPU.md)。
 9. **AI 运行架构**：大规模张量缓冲与流式训练数据、DMA/IOMMU、GPU/NPU 设备驱动和运行时、失败恢复与真正模型基准；目前的 NEON 计算自检与 x64 大缓冲测试只是可测基线，详见 [ARM64-AI.md](ARM64-AI.md)。

@@ -57,8 +57,35 @@ enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
 enum nv_subsystem {
     NV_SUB_CPU = 1,
     NV_SUB_GPU = 2,
-    NV_SUB_NET = 3 /* reserved: no network stack yet (see ROADMAP.md #6) */
+    NV_SUB_NET = 3
 };
+/* Network buffers are fixed-size and copied across the user/kernel boundary.
+ * Address fields hold four IPv4 octets in network order (e.g. 0xc0a80101). */
+#define NV_NET_MAX 8u
+#define NV_NET_DATA_MAX 1024u
+enum { NV_NET_INFO = 1, NV_NET_DHCP = 2, NV_NET_STATIC = 3,
+       NV_NET_UDP_SEND = 4, NV_NET_UDP_RECV = 5, NV_NET_SELECT = 6,
+       NV_NET_WIFI_COMMAND = 7, NV_NET_WIFI_READ = 8 };
+enum { NV_NET_WIRED = 1, NV_NET_WIFI = 2, NV_NET_USB_BRIDGE = 3 };
+enum { NV_NET_UNSUPPORTED = 1, NV_NET_DOWN = 2, NV_NET_LINK = 3,
+       NV_NET_CONFIGURING = 4, NV_NET_ONLINE = 5 };
+struct nv_net_info {
+    u32 index, type, state, vendor, product, bus, device, function;
+    u32 ip, mask, gateway, dns, rx_packets, tx_packets;
+    u8 mac[6], reserved[2];
+};
+struct nv_net_static {
+    u32 index, ip, mask, gateway, dns;
+};
+struct nv_net_udp {
+    u32 index, address, port, local_port, length;
+    u8 data[NV_NET_DATA_MAX];
+};
+struct nv_net_wifi_command {
+    u32 length;
+    char text[252]; /* command or partial response; password never persisted */
+};
+_Static_assert(sizeof(struct nv_net_info) == 64, "network info ABI");
 enum nv_gpu_op {
     NV_GPU_OP_MAP_BAR = 1,
     NV_GPU_OP_SET_MODE, /* not implemented: needs a display mode-setting path first */
@@ -146,7 +173,8 @@ enum { NV_USB_CONTROLLERS = 1, NV_USB_DEVICES = 2, NV_USB_RESCAN = 3 };
 #define NV_USB_CONTROLLER_MAX 8u
 #define NV_USB_DEVICE_MAX 32u
 enum { NV_USB_UNSUPPORTED = 1, NV_USB_RUNNING = 2, NV_USB_FAILED = 3 };
-enum { NV_USB_IDENTIFIED = 1, NV_USB_CONFIGURED = 2, NV_USB_KEYBOARD = 3, NV_USB_HUB = 4 };
+enum { NV_USB_IDENTIFIED = 1, NV_USB_CONFIGURED = 2, NV_USB_KEYBOARD = 3,
+       NV_USB_HUB = 4, NV_USB_ETHERNET = 5 };
 struct nv_usb_controller {
     u32 bus, device, function, vendor, product, interface, ports, state;
 };

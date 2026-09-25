@@ -97,6 +97,22 @@ void pci_write16(u32 address, u32 offset, u16 value) {
     irq_restore(flags);
 }
 
+void pci_write32(u32 address, u32 offset, u32 value) {
+    if (address & ~0x00ffff00u || offset > 4092 || (offset & 3))
+        return;
+    uptr flags = irq_save();
+    const struct nv_mcfg_region *region = region_for(address);
+    if (region) {
+        volatile u8 *device = ecam_device(region, address);
+        if (device)
+            *(volatile u32 *)(device + offset) = value;
+    } else if (offset <= 252) {
+        outl(0xcf8, 0x80000000u | address | offset);
+        outl(0xcfc, value);
+    }
+    irq_restore(flags);
+}
+
 void pci_visit(void (*visit)(u32, u32, u32)) {
     for (u32 bus = 0; bus < 256; ++bus)
         for (u32 dev = 0; dev < 32; ++dev) {

@@ -1,5 +1,14 @@
 # Nuvora Core 0.9.0
 
+## 0.9.0 实体网络源码扩展（待设备验证）
+
+- x64 新增 Intel I225-V/LM、I226-V/LM PCIe DMA 轮询驱动；xHCI 新增
+  USB CDC-ECM 数据口和 ESP USB Dongle 示例固件的 CDC 控制口。
+- 新增 ARP/IPv4、DHCP 地址申请、ICMP echo 应答、UDP 收发与 `net` 命令；
+  ESP USB Dongle 可使用 `net wifi scan` / `net wifi join SSID` 配置设备无线侧。
+- 10 组 UBSan 宿主回归通过；无 QEMU、实体硬件验证。普通笔记本内置 Wi-Fi
+  不具备驱动；具体支持和配置限制见 [NETWORK.md](NETWORK.md)。
+
 ## 0.9.0 GPT 分区源码扩展（尚未完成 QEMU 复验）
 
 - 新数据盘默认 protective MBR + 主/备 GPT + 一个 C: Nuvora 分区；首次建盘可指定 2–4 个分区。

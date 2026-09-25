@@ -10,8 +10,13 @@ static void devctl_tests(void) {
               devctl(NV_SUB_GPU, 0, &io) == -NV_EINVAL &&
               devctl(NV_SUB_GPU, 0xffffffffu, &io) == -NV_EINVAL,
           "DEVCTL rejects unknown subsystems and GPU operations");
-    check(devctl(NV_SUB_CPU, 0, NULL) == -NV_ENOSYS && devctl(NV_SUB_NET, 1, NULL) == -NV_ENOSYS,
-          "reserved CPU and network control return ENOSYS");
+    check(devctl(NV_SUB_CPU, 0, NULL) == -NV_ENOSYS &&
+              devctl(NV_SUB_NET, NV_NET_INFO, NULL) == -NV_EFAULT &&
+              devctl(NV_SUB_NET, 0, NULL) == -NV_EINVAL,
+          "CPU reservation and network request validation");
+    struct nv_net_info network = {.index = NV_NET_MAX};
+    check(devctl(NV_SUB_NET, NV_NET_INFO, &network) == -NV_EINVAL,
+          "network enumeration bounds are enforced");
     bool unsupported = true;
     for (u32 op = NV_GPU_OP_SET_MODE; op <= NV_GPU_OP_SUBMIT; ++op)
         unsupported &= devctl(NV_SUB_GPU, op, &io) == -NV_ENOSYS;

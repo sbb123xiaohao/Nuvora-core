@@ -116,6 +116,7 @@ void kernel_start(const struct boot_info *bi) {
     fs_mount_volumes(disk_volume_count());
     store_init();
     gpu_init();
+    net_init();
     usb_init();
     kprintf("[ok] %u MiB managed RAM, %u free pages\n", pages_total() / 256, pages_free());
     const char *program = test_mode ? "/apps/probe" : "/apps/loom";
