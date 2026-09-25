@@ -8,6 +8,8 @@ struct desktop_view {
     u32 count, selected, scroll;
     bool help;
     u32 volumes;
+    bool pointer;
+    u32 pointer_x, pointer_y;
 };
 static u32 desktop_scale(u32 width, u32 height) {
     return width >= 2560 && height >= 1000 ? 4 :
@@ -15,6 +17,32 @@ static u32 desktop_scale(u32 width, u32 height) {
 }
 static u32 desktop_visible(u32 height, u32 scale) {
     return height > 128 * scale ? MAX(1u, (height - 128 * scale) / (14 * scale)) : 1;
+}
+enum { DESKTOP_HIT_NONE, DESKTOP_HIT_PLACE, DESKTOP_HIT_FILE };
+struct desktop_hit { u32 kind, index; };
+static struct desktop_hit desktop_hit(u32 width, u32 height,
+                                      const struct desktop_view *v, u32 x, u32 y) {
+    u32 s = desktop_scale(width, height), margin = 12 * s, nav = 74 * s;
+    u32 main_x = 2 * margin + nav, main_y = 38 * s;
+    if (x >= margin && x < margin + nav) {
+        for (u32 i = 0; i < v->volumes + 3; ++i) {
+            u32 top = main_y + (28 + i * 18) * s - 4 * s;
+            if (y >= top && y < top + 16 * s)
+                return (struct desktop_hit){DESKTOP_HIT_PLACE,
+                    i < v->volumes ? i : NV_VOLUME_MAX + i - v->volumes};
+        }
+    }
+    u32 first = main_y + 49 * s;
+    if (x >= main_x + 4 * s && x < width - margin - 4 * s && y >= first) {
+        u32 row = (y - first) / (14 * s), inside = (y - first) % (14 * s);
+        u32 index = v->scroll + row;
+        u32 drawn_y = main_y + (52 + row * 14) * s;
+        u32 main_h = height - main_y - 26 * s;
+        if (inside < 13 * s && row < desktop_visible(height, s) &&
+            drawn_y + 10 * s <= main_y + main_h - 12 * s && index < v->count)
+            return (struct desktop_hit){DESKTOP_HIT_FILE, index};
+    }
+    return (struct desktop_hit){DESKTOP_HIT_NONE, 0};
 }
 static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop_view *v) {
     u32 s = desktop_scale(c->width, height), margin = 12 * s, nav = 74 * s;
@@ -86,7 +114,7 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
     if (v->help) {
         u32 x = main_x + 10 * s, y = main_y + 59 * s;
         nv_gfx_fill(c, x, y, main_w - 20 * s, 105 * s, 0x17364a);
-        const char *help[] = {"Arrow keys  Select", "Enter       Open / edit",
+        const char *help[] = {"Arrow / mouse Select", "Enter / double click Open",
                               "Backspace   Parent folder", "F1          Close help",
                               "F2          New document", "F5          Refresh",
                               "F6          Save disk", "1-4 Drives   5 Root",
@@ -99,6 +127,16 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
                            "Enter Open   F1 Help   F2 New   F5 Refresh   F6 Save   Esc Exit";
         nv_gfx_label(c, main_x + 10 * s, main_y + main_h - 13 * s,
                      keys, (main_w / s - 20) / 6, s, 0x375769);
+    }
+    if (v->pointer) {
+        for (u32 i = 0; i < 9; ++i) {
+            u32 width = (i < 7 ? i + 1 : i == 7 ? 4 : 3) * s;
+            nv_gfx_fill(c, v->pointer_x, v->pointer_y + i * s,
+                        width, s, 0x071724);
+            if (i > 1 && i < 7)
+                nv_gfx_fill(c, v->pointer_x + s, v->pointer_y + i * s,
+                            (i - 1) * s, s, 0xffffff);
+        }
     }
 }
 #endif

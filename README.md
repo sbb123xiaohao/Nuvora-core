@@ -18,20 +18,22 @@ x86-64 新增 Intel I225/I226 PCIe 实体有线卡与 USB CDC-ECM 收发驱动�
 `anchor` 依次提交各盘的独立快照。旧 NVSTORE1/2 整盘镜像仍作为 C: 使用，
 不会自动转换或重写分区表。
 
-当前仅扫描 IDE primary master；最多列出 32 个 GPT 条目，最多挂载 4 个
+优先扫描 IDE primary master；无有效 Nuvora 数据卷时扫描首个 PCIe NVMe 控制器
+的 512 字节 NVM namespace。最多列出 32 个 GPT 条目，最多挂载 4 个
 带有效 Nuvora 格式头的分区。其他格式只列出，不挂载或写入。项目尚无安装器，
 也不支持给已有磁盘在线缩容、分盘或挂载 NTFS/FAT。`--partitions` 仅对
-**新镜像**生效。详见 [GPT 分区说明](docs/PARTITIONS.md)。
+**新镜像**生效。详见 [GPT 分区说明](docs/PARTITIONS.md)和
+[设备支持范围](docs/DEVICES.md)。
 
 用 C 和汇编从零编写的实验操作系统内核。x86-64 版本有 BIOS/GRUB 与 UEFI 启动、Loom 用户环境及文件和磁盘快照；ARM64 版本是独立的 QEMU `virt` 引导、内存与 EL0/NEON 运行基线。两种构建均为 64 位；不再构建 x86 32 位版本。
 
-这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前验证目标仍是 QEMU 的单核 PC / ARM `virt` 虚拟机；实体网络、像素桌面尚未上机测试，多核与 AI 加速器驱动等缺口在本文末尾列出。
+这是可运行、可继续开发的内核初版，**尚未达到 Linux 的完整程度**。它不能运行 Linux 应用，也不能替代日用系统。当前验证目标仍是 QEMU 的单核 PC / ARM `virt` 虚拟机；实体网络、NVMe、USB 鼠标和像素桌面尚未上机测试，多核与 AI 加速器驱动等缺口在本文末尾列出。
 
 ## 开放应用接口与图形桌面（x86-64 开发版）
 
-- 公开 `include/nv/abi.h`、`include/nv/sdk.h` 和 `include/nv/gfx.h`：保留旧 ABI 1 调用号和结构，新 `NV_SUB_DISPLAY` 子系统允许应用查询 UEFI GOP 像素模式、独占显示、分块提交矩形并释放。固件帧缓冲使用独立的最多 64 MiB supervisor 映射，用户程序只能提交自己的缓冲区。
-- Loom 输入 `desktop` 打开键盘操作的像素文件浏览器：方向键和 Enter 浏览目录及编辑文档，数字 1–4 浏览已挂载的 C:–F: 盘，5–7 进入系统目录；F1 查看按键，F2 新建、F5 刷新、F6 保存、Esc 退出。桌面在调用 Folio 时归还屏幕租约，结束后重新获取。
-- 该桌面目前没有鼠标、触控、多窗口合成、Unicode 字体或 GPU 加速；BIOS 文本模式不提供像素屏。开发程序的构建要求、API 数据结构和示例见 [应用 SDK](docs/SDK.md)。
+- 公开 `include/nv/abi.h`、`include/nv/sdk.h` 和 `include/nv/gfx.h`：保留 ABI 1 原有调用号和结构。`NV_SUB_DISPLAY` 管理 UEFI GOP 像素租约和矩形提交，`NV_SUB_INPUT` 提供有版本号的相对鼠标事件；用户程序不能直接映射固件显存。
+- Loom 输入 `desktop` 打开文件浏览器：USB Boot 鼠标单击选择、双击打开，也可用方向键和 Enter；1–4 进入 C:–F:，5–7 进入系统目录；F1 帮助，F2 新建，F5 刷新，F6 保存，Esc 退出。桌面在调用 Folio 时归还屏幕租约。
+- 该桌面目前没有触控、多窗口合成、Unicode 字体或 GPU 加速；BIOS 文本模式不提供像素屏。接口与构建方式见 [应用 SDK](docs/SDK.md)。
 
 ## 0.9.0 物理页与小对象分配
 
@@ -85,6 +87,7 @@ python3 start.py --window               # VGA/GOP 窗口
 python3 start.py --memory 5120          # 5 GiB 虚拟机内存
 python3 start.py --disk-size 1024       # 新建 1 GiB 数据镜像
 python3 start.py --disk-size 128 --partitions 2  # 首次建盘创建 C:、D:
+python3 start.py --uefi --window --disk-bus nvme  # 以 PCIe NVMe 接入同一 GPT 镜像
 python3 start.py --cpu core2duo
 python3 start.py --machine q35
 python3 start.py --machine q35 --no-ecam
@@ -193,14 +196,14 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 系统调用 | x64 原创 ABI 及 DEVCTL；ARM64 仅有测试用的计算结果/退出 SVC |
 | 文件系统 | 分层内存文件树、目录、相对路径、文件句柄、读写、移动和删除 |
 | 虚拟节点 | `/dev/null`、`/dev/zero`、`/dev/console`，`/sys` 动态状态 |
-| 磁盘 | IDE 主盘 ATA PIO、GPT 分区识别；C: 及其他 Nuvora 分区各有独立双槽 CRC32 快照，上限每分区 16 MiB |
+| 磁盘 | IDE 主盘 ATA PIO，或首个 PCIe NVMe 控制器的 512B namespace；GPT 分区识别；Nuvora 卷各有独立双槽 CRC32 快照，上限每分区 16 MiB |
 | 命令环境 | 34 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
 | 文档 | Folio 全屏编辑器；`.nvd` 原生格式；RTF/Word 可读导出 |
 | 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
 | 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |
-| USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘、CDC-ECM 和 ESP USB Dongle CDC 控制；鼠标和存储设备只识别 |
+| USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘与鼠标、CDC-ECM 和 ESP USB Dongle CDC 控制；USB 存储仍只识别 |
 | 网络 | x64 Intel I225/I226 PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
-| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；此版新增显示断言后为 135 项待复验。ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项；另有 ACPI/PCI 合成坏表、q35 ECAM 与 OVMF 旧版回归 |
+| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码显示和鼠标扩展后预期 137 项待复验。13 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 
@@ -209,7 +212,7 @@ x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回
 - 单核、单用户研究环境；内核执行期间不被抢占，没有 SMP 锁、用户账户或完整权限模型。
 - 两个内核目前最多各管理 64 GiB 物理内存。x64 ABI v1 仍使用 1–2 GiB 用户地址窗口及 512 MiB 用户堆；USB DMA 固定使用 4 GiB 以下页。ARM64 只有单工作负载的移植基线，尚无 Loom、磁盘与完整 ABI。
 - UEFI 仅支持 x64、BIOS 启动的 ISO 之外另有纯 UEFI El Torito ISO；都没有 Secure Boot。UEFI stub 已携带基址重定位表并在启动介质上提供多卷回退，在 QEMU OVMF/edk2 验证，未在实体主板固件认证。
-- 暂无 ACPI AML/电源管理、原生 PCI Wi-Fi、TCP/IPv6、NVMe、AHCI、音频、GPU 加速、桌面和 Unicode 终端；USB 支持 xHCI、Hub、键盘和 CDC-ECM，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
+- 暂无 ACPI AML/电源管理、原生 PCI Wi-Fi、TCP/IPv6、AHCI、音频、GPU 加速、多窗口桌面和 Unicode 终端；NVMe 仅支持一个 512B namespace，USB 鼠标仅支持 Boot Protocol，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
 - 暂无 `fork`、管道、套接字、动态链接、POSIX/Linux ABI 或通用文件系统格式支持。
 - x87/MMX/SSE 状态已经隔离；AVX/XSAVE、AVX-512/AMX、多核与微码更新尚未实现。SSE #XM 递交受 QEMU TCG 限制而明确跳过，尚未通过实机验证。
 - x64 文件系统共 128 个节点，普通文件最大 128 KiB；内核堆 8 MiB、每进程用户堆 512 MiB。单份快照最多 16 MiB，缓冲还受可用 RAM 约束。扩大数据镜像不会同步扩大这些容量。文件系统与快照采用本项目的简化格式。

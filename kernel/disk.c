@@ -3,7 +3,7 @@
  * data images beyond 128 GiB work; LBA28 remains the fallback. The store
  * layout lives in sector 0 and describes its own slot geometry, so images can
  * be larger than the historical fixed 8 MiB. */
-static bool identified, owned, lba48;
+static bool identified, owned, lba48, nvme_disk;
 static u64 sectors;
 static struct store_layout layout;
 /* Primary and backup GPT entry arrays have at most 128 entries of 128 bytes.
@@ -84,7 +84,7 @@ static int transfer(u64 lba, void *buf, bool write) {
     return wait_ready(false);
 }
 int disk_read(u64 lba, void *buf) {
-    return transfer(lba, buf, false);
+    return nvme_disk ? nvme_read(lba, buf) : transfer(lba, buf, false);
 }
 static bool writable(u64 lba) {
     if (!volume_count || lba < volumes[0].start ||
@@ -98,11 +98,12 @@ int disk_write(u64 lba, const void *buf) {
         return -NV_EACCESS;
     if (!writable(lba))
         return -NV_EINVAL;
-    return transfer(lba, (void *)buf, true);
+    return nvme_disk ? nvme_write(lba, buf) : transfer(lba, (void *)buf, true);
 }
 int disk_flush(void) {
     if (!owned)
         return -NV_ENODEV;
+    if (nvme_disk) return nvme_flush();
     if (wait_ready(false) < 0)
         return -NV_EIO;
     outb(0x1f7, lba48 ? 0xea : 0xe7);
@@ -110,10 +111,10 @@ int disk_flush(void) {
     return wait_ready(false);
 }
 bool disk_ready(void) {
-    return owned;
+    return owned && (!nvme_disk || nvme_ready());
 }
 bool disk_store_layout(struct store_layout *out) {
-    if (!owned)
+    if (!disk_ready())
         return false;
     *out = layout;
     return true;
@@ -148,7 +149,8 @@ int disk_volume_write(u32 index, u64 relative, const void *buf) {
     if (!((relative >= l->slot_lba[0] && relative - l->slot_lba[0] < l->slot_sectors) ||
           (relative >= l->slot_lba[1] && relative - l->slot_lba[1] < l->slot_sectors)))
         return -NV_EACCESS;
-    return transfer(volumes[index].start + relative, (void *)buf, true);
+    return nvme_disk ? nvme_write(volumes[index].start + relative, buf) :
+                       transfer(volumes[index].start + relative, (void *)buf, true);
 }
 static bool parse_header_size(const u8 *header, u64 capacity, struct store_layout *out) {
     u32 fields[5], crc_stored;
@@ -250,7 +252,7 @@ static bool scan_gpt_at(u64 header_lba) {
     }
     return true;
 }
-bool disk_init(void) {
+static bool ata_identify(void) {
     outb(0x3f6, 2);
     outb(0x1f6, 0xa0);
     delay400();
@@ -278,6 +280,11 @@ bool disk_init(void) {
     if (sectors < 8192 || sectors > (lba48 ? (1ull << 48) : (1ull << 28)))
         return false;
     identified = true;
+    return true;
+}
+static bool scan_storage(void) {
+    volume_count = partition_count = 0;
+    owned = false;
     u8 header[512];
     if (disk_read(0, header) < 0)
         return false;
@@ -299,4 +306,20 @@ bool disk_init(void) {
     owned = volume_count != 0;
     if (owned) layout = volumes[0].geometry;
     return owned;
+}
+bool disk_init(void) {
+    nvme_disk = false;
+    if (ata_identify() && scan_storage()) return true;
+    /* Only a disk with a validated Nuvora layout is selected. A foreign IDE
+     * disk must not prevent discovery of a valid NVMe data namespace. */
+    if (nvme_init(&sectors)) {
+        nvme_disk = true;
+        identified = true;
+        if (scan_storage()) return true;
+        /* Leave an unrecognized or foreign namespace untouched and stop its
+         * controller before giving the queued DMA pages back to RAM. */
+        nvme_shutdown();
+    }
+    owned = false;
+    return false;
 }

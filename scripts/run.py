@@ -4,12 +4,14 @@ import subprocess
 from qemu import BUILD, ARCH, find_uefi_firmware, firmware_arguments, command
 
 parser = argparse.ArgumentParser(description='Boot Nuvora Core in QEMU.')
-parser.add_argument('--window', action='store_true', help='Use a VGA window and USB keyboard')
+parser.add_argument('--window', action='store_true', help='Use a graphics window with virtual USB keyboard and mouse')
 parser.add_argument('--memory', type=int, default=64, metavar='MIB', help='Guest memory in MiB (default: 64)')
 parser.add_argument('--uefi', action='store_true', help='Boot via the UEFI stub (OVMF firmware required)')
 parser.add_argument('--no-usb', action='store_true', help='Boot without the virtual xHCI controller and USB devices')
 parser.add_argument('--cpu', help='QEMU CPU model (for example: core2duo, phenom, max)')
 parser.add_argument('--machine', choices=['pc', 'q35'], default='pc', help='QEMU machine model')
+parser.add_argument('--disk-bus', choices=['ide', 'nvme'], default='ide',
+                    help='Attach the existing Nuvora GPT image to IDE or NVMe (default: ide)')
 parser.add_argument('--no-ecam', action='store_true', help='Disable PCIe ECAM and use CF8/CFC fallback')
 args = parser.parse_args()
 if ARCH != 'x86_64':
@@ -32,7 +34,7 @@ if args.uefi:
     if not esp.is_file():
         raise SystemExit(f'Missing {esp}. Build it with: make esp (needs mtools).')
 cmd = command(memory=args.memory, disk=BUILD / 'nuvora-store.img', cpu=args.cpu, machine=args.machine,
-              kernel=not args.uefi, esp=esp if args.uefi else None)
+              kernel=not args.uefi, esp=esp if args.uefi else None, disk_bus=args.disk_bus)
 if firmware:
     cmd += firmware_arguments(firmware)
 if args.no_ecam:

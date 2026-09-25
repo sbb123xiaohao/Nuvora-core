@@ -26,12 +26,25 @@ static void devctl_tests(void) {
               devctl(NV_SUB_DISPLAY, NV_DISPLAY_INFO, NULL) == -NV_EFAULT &&
               devctl(NV_SUB_DISPLAY, 0, NULL) == -NV_EINVAL,
           "optional framebuffer mode and display request validation");
+    struct nv_input_info input = {0};
+    struct nv_pointer_event pointer = {0};
+    check(nv_input_info(&input) == 0 && input.api_version == NV_INPUT_API_VERSION &&
+              input.pointer_devices <= 1 && input.flags == 1 && !input.reserved &&
+              devctl(NV_SUB_INPUT, NV_INPUT_INFO, NULL) == -NV_EFAULT &&
+              devctl(NV_SUB_INPUT, 0, &input) == -NV_EINVAL,
+          "input version, physical pointer enumeration and request validation");
+    check(nv_pointer_poll(&pointer) == -NV_EACCESS,
+          "pointer reports require exclusive pixel-screen ownership");
     if (display == 0) {
         u32 pixel = nv_display_rgb(screen_mode.format, 0x123456);
         struct nv_display_present rect = {0, 0, 1, 1, 4, (u32)(uptr)&pixel};
         check(nv_display_present(&rect) == -NV_EACCESS &&
                   nv_display_acquire() == 0, "pixel display requires an exclusive lease");
         check(nv_display_present(&rect) == 0, "leased pixel can be presented");
+        int polled = nv_pointer_poll(&pointer);
+        check((polled == 0 || polled == 1) &&
+                  (polled != 1 || (pointer.buttons & ~7u) == 0),
+              "pixel-screen owner may poll bounded pointer reports");
         rect.width = screen_mode.width + 1;
         check(nv_display_present(&rect) == -NV_EINVAL &&
                   nv_display_release() == 0 &&

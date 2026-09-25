@@ -19,7 +19,7 @@ REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
 results = []
 VERSION = '0.9.0'
-EXPECTED_ASSERTIONS = 135
+EXPECTED_ASSERTIONS = 137
 if ARCH != 'x86_64':
     raise SystemExit('Use scripts/arm64.py test for ARM64; 32-bit x86 is retired')
 

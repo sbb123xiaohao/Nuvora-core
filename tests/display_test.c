@@ -22,7 +22,8 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     }
     struct desktop_view view = {
         "/drives/D/notes/reports/2026/a-very-long-path", "Select a file or press F1 for help",
-        "4 drives", files, ARRAY_LEN(files), 16, 12, help, 4};
+        "4 drives", files, ARRAY_LEN(files), 16, 12, help, 4,
+        true, width / 2, height / 2};
     u32 n = width * height;
     u32 *full = guarded(n), *tiled = guarded(n);
     struct nv_canvas all = {full + 1, width, 0, height, format};
@@ -43,6 +44,12 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     u32 drive_y = 38 * scale + (28 + 18) * scale - 4 * scale;
     assert(full[1 + drive_y * width + 17 * scale] ==
            nv_display_rgb(format, 0x276078));
+    struct desktop_hit nav = desktop_hit(width, height, &view, 17 * scale, drive_y);
+    struct desktop_hit row = desktop_hit(width, height, &view, selected_x, selected_y);
+    assert(nav.kind == DESKTOP_HIT_PLACE && nav.index == 1);
+    assert(row.kind == DESKTOP_HIT_FILE && row.index == 16);
+    assert(full[1 + view.pointer_y * width + view.pointer_x] ==
+           nv_display_rgb(format, 0x071724));
     free(full);
     free(tiled);
 }

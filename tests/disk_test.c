@@ -12,6 +12,12 @@ static u8 inb(u16 p) { (void)p; return 0x48; }
 static u16 inw(u16 p) { (void)p; return 0; }
 static void outb(u16 p, u8 v) { assert(nwrites < 64); writes[nwrites].port=p; writes[nwrites++].byte=v; }
 static void outw(u16 p, u16 v) { (void)p; (void)v; }
+static bool nvme_init(u64 *capacity) { (void)capacity; return false; }
+static int nvme_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
+static int nvme_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
+static int nvme_flush(void) { return -NV_ENODEV; }
+static bool nvme_ready(void) { return false; }
+static void nvme_shutdown(void) {}
 #include "../kernel/disk.c"
 static void header(u8 *h, const char *magic, u32 version, u32 slot1, u32 count, u64 total) {
     memset(h, 0, 512); memcpy(h, magic, 8);

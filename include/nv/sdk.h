@@ -25,6 +25,12 @@ static inline int nv_display_present(const struct nv_display_present *rect) {
 static inline int nv_display_release(void) {
     return nv_syscall(NV_DEVCTL, NV_SUB_DISPLAY, NV_DISPLAY_RELEASE, 0);
 }
+static inline int nv_input_info(struct nv_input_info *out) {
+    return nv_syscall(NV_DEVCTL, NV_SUB_INPUT, NV_INPUT_INFO, (u32)(uptr)out);
+}
+static inline int nv_pointer_poll(struct nv_pointer_event *out) {
+    return nv_syscall(NV_DEVCTL, NV_SUB_INPUT, NV_INPUT_POINTER_POLL, (u32)(uptr)out);
+}
 /* Pixel words have a fixed meaning irrespective of the firmware's channel
  * order; applications convert once when writing their own buffer. */
 static inline u32 nv_display_rgb(u32 format, u32 rgb) {

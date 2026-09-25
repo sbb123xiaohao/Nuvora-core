@@ -6,6 +6,8 @@ static struct nv_display_info mode;
 static char directory[NV_PATH_MAX], message[160], drive[32];
 static u32 count, selected, scroll, volumes;
 static bool help;
+static u32 pointer_x, pointer_y, pointer_buttons;
+static bool pointer_visible;
 
 static void note(const char *s) { strlcpy(message, s, sizeof(message)); }
 static int refresh(void) {
@@ -36,7 +38,8 @@ static void scroll_to_selection(void) {
 }
 static int draw(u32 *tile, u32 rows) {
     struct desktop_view view = {directory, message, drive, entries,
-                                count, selected, scroll, help, volumes};
+                                count, selected, scroll, help, volumes,
+                                pointer_visible, pointer_x, pointer_y};
     for (u32 y = 0; y < mode.height; y += rows) {
         struct nv_canvas canvas = {tile, mode.width, y, MIN(rows, mode.height - y), mode.format};
         desktop_render(&canvas, mode.height, &view);
@@ -61,6 +64,7 @@ static int edit(const char *path) {
     else r = pid;
     int acquired = nv_display_acquire();
     if (acquired < 0) return acquired;
+    pointer_buttons = 0;
     if (r < 0) return r;
     return refresh();
 }
@@ -87,6 +91,14 @@ static int open_selected(void) {
         return -NV_E2BIG;
     return edit(full);
 }
+static int go_place(u32 index) {
+    static const char *const places[] = {"/home", "/drives/D", "/drives/E",
+                                        "/drives/F", "/", "/apps", "/tmp"};
+    if (index >= ARRAY_LEN(places) || (index < NV_VOLUME_MAX && index >= volumes)) return 0;
+    int r = chdir_path(places[index]);
+    if (r >= 0) { selected = scroll = 0; r = refresh(); }
+    return r;
+}
 int user_main(const char *args) {
     if (app_help("desktop", args)) return 0;
     if (*args) { println("Usage: desktop"); return 1; }
@@ -108,13 +120,47 @@ int user_main(const char *args) {
     if (r < 0) { report_error("Desktop: files", r); return 1; }
     r = nv_display_acquire();
     if (r < 0) { report_error("Desktop: display", r); return 1; }
+    pointer_x = mode.width / 2;
+    pointer_y = mode.height / 2;
     note("Select a folder or document. F1 shows keyboard controls.");
     bool dirty = true;
+    u32 last_click = 0xffffffffu, last_click_tick = 0;
     for (;;) {
         if (dirty) {
             r = draw(tile, rows);
             if (r < 0) break;
             dirty = false;
+        }
+        struct nv_pointer_event event;
+        int mouse = nv_pointer_poll(&event);
+        if (mouse < 0) { r = mouse; break; }
+        if (mouse == 1) {
+            pointer_visible = true;
+            i32 x = (i32)pointer_x + event.dx, y = (i32)pointer_y + event.dy;
+            pointer_x = (u32)MAX(0, MIN(x, (i32)mode.width - 1));
+            pointer_y = (u32)MAX(0, MIN(y, (i32)mode.height - 1));
+            if ((event.buttons & NV_POINTER_LEFT) && !(pointer_buttons & NV_POINTER_LEFT)) {
+                struct desktop_view view = {directory, message, drive, entries,
+                    count, selected, scroll, help, volumes, true, pointer_x, pointer_y};
+                struct desktop_hit hit = desktop_hit(mode.width, mode.height,
+                                                      &view, pointer_x, pointer_y);
+                if (help) help = false;
+                else if (hit.kind == DESKTOP_HIT_PLACE) {
+                    last_click = 0xffffffffu;
+                    r = go_place(hit.index);
+                } else if (hit.kind == DESKTOP_HIT_FILE) {
+                    u32 tick = (u32)call(NV_CLOCK, 0, 0, 0);
+                    bool open = last_click == hit.index && tick - last_click_tick <= 40;
+                    selected = hit.index;
+                    last_click = hit.index;
+                    last_click_tick = tick;
+                    scroll_to_selection();
+                    if (open) { r = open_selected(); last_click = 0xffffffffu; }
+                }
+            }
+            pointer_buttons = event.buttons;
+            if (r < 0) { note(error_name(r)); r = 0; }
+            dirty = true;
         }
         int key = key_event();
         if (key == -NV_EAGAIN) { nap(25); continue; }
@@ -136,11 +182,8 @@ int user_main(const char *args) {
             r = control(NV_CTL_SYNC, 0);
             if (r >= 0) note("Changes saved to all mounted data drives.");
         } else if (k >= '1' && k <= '7') {
-            static const char *const places[] = {"/home", "/drives/D", "/drives/E",
-                                                "/drives/F", "/", "/apps", "/tmp"};
-            if (k <= '4' && (u32)(k - '1') >= volumes) continue;
-            r = chdir_path(places[k - '1']);
-            if (r >= 0) { selected = scroll = 0; r = refresh(); }
+            last_click = 0xffffffffu;
+            r = go_place(k - '1');
         }
         if (r < 0) { note(error_name(r)); r = 0; }
         scroll_to_selection();

@@ -49,6 +49,12 @@ static void outb(u16 port, u8 value) {
     }
 }
 static void outw(u16 port, u16 value) { (void)port; (void)value; }
+static bool nvme_init(u64 *capacity) { (void)capacity; return false; }
+static int nvme_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
+static int nvme_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
+static int nvme_flush(void) { return -NV_ENODEV; }
+static bool nvme_ready(void) { return false; }
+static void nvme_shutdown(void) {}
 #include "../kernel/disk.c"
 int main(int argc, char **argv) {
     assert(argc == 3);

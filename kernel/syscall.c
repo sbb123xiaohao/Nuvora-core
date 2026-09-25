@@ -313,6 +313,9 @@ struct frame *syscall_dispatch(struct frame *f) {
         case NV_SUB_DISPLAY:
             result = display_ioctl(b, c);
             break;
+        case NV_SUB_INPUT:
+            result = input_ioctl(b, c);
+            break;
         default:
             result = -NV_EINVAL;
             break;

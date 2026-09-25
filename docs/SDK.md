@@ -2,14 +2,15 @@
 
 Nuvora 的 x64 应用接口现在有公开头文件 `include/nv/abi.h`、
 `include/nv/sdk.h` 和 `include/nv/gfx.h`。外部程序可以编译为独立的
-ELF64，使用文件/进程调用、`NV_KEY` 键盘事件和 `NV_SUB_DISPLAY` 像素绘制。
+ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像素绘制
+和 `NV_SUB_INPUT` 鼠标事件。
 `user/desktop.c` 是实际使用这些接口的桌面程序。它是文件浏览器的第一版，
 不是多窗口合成器，也不能运行 Linux、Windows 或 Qt/KDE 应用。
 
 ## 兼容约定
 
 - ABI 仍为 `NV_ABI_VERSION=1`；0–30 号调用及旧结构布局不变。新增
-  `NV_DEVCTL` 子系统 4，不改变旧程序调用行为。新增功能以子系统和操作号
+  `NV_DEVCTL` 子系统 4（显示）和 5（输入），不改变旧程序调用行为。新增功能以子系统和操作号
   扩展；结构改变时应新增操作或提高对应子系统的 `api_version`，不能覆盖
   旧字段。`NV_INFO.abi` 与 `NV_DISPLAY_INFO.api_version` 分别查询核心 ABI
   和显示协议，应用必须查询后使用。
@@ -56,6 +57,17 @@ UEFI GOP 在内核中以 supervisor-only 映射，最长 64 MiB；该映射
 帧缓冲页。BIOS 没有有效像素帧缓冲时 `desktop` 返回到 Loom；
 固件给出过大画面、未知像素格式或不可映射地址时同样不开放显示接口。
 
+## 鼠标输入
+
+USB xHCI 上的 Boot Protocol 鼠标通过 `NV_SUB_INPUT=5` 提供相对坐标。
+`nv_input_info(&info)` 返回 16 字节，`api_version=1`，`pointer_devices`
+为当前可用设备数（现为 0 或 1）。`nv_pointer_poll(&event)` 也写入
+16 字节：有事件返回 1，无事件返回 0；只有像素屏租约持有者可读取，
+否则返回 `-NV_EACCESS`。`dx`、`dy` 为有符号相对移动，`wheel` 目前为 0；
+`buttons` 的低三位分别是左/右/中键。按下、释放和移动均保留为独立事件；
+缓冲满时丢弃最旧事件。获取或释放显示租约会清空待处理事件。
+接口号与结构定义见 `include/nv/abi.h`，包装函数见 `include/nv/sdk.h`。
+
 ## 应用示例
 
 `examples/pixel_demo.c` 演示查询、获取、绘制和释放。使用项目的
@@ -76,14 +88,15 @@ ld -m elf_x86_64 --gc-sections -z max-page-size=4096 -T user/linker64.ld \
 
 ## 桌面入口和后续边界
 
-在 Loom 输入 `desktop`。方向键选择文件，Enter 进入文件夹或以 Folio
+在 Loom 输入 `desktop`。USB Boot 鼠标可单击选中文件、双击进入文件夹
+或打开 `.txt`/`.nvd` 文档；也可以用方向键选择文件，Enter 进入文件夹或以 Folio
 打开 `.txt`/`.nvd` 文档，Backspace 返回上级；1–4 进入已挂载的 C:–F:，
 5–7 分别进入系统根目录、应用和临时目录；
 F1 显示操作说明，F2 创建空白文档，F5 刷新目录，F6 将数据盘快照保存，
 Esc 返回 Loom。桌面在启动 Folio 前归还像素屏，Folio 退出后重新获取；
 不同程序始终不能同时直接写屏幕。
 
-当前没有鼠标事件、触控、多个应用窗口、合成服务、Unicode 字体、
+当前没有触控、多个应用窗口、合成服务、Unicode 字体、
 剪贴板协议或音频 API。多窗口的下一步是定义用户态窗口消息和进程间
 通信，由桌面进程统一合成；不应把任意应用的 GPU/MMIO 写权限放入
 这个 ABI。实机 GOP、不同显卡固件和高分辨率显示尚未验证。

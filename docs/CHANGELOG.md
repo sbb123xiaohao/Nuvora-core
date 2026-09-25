@@ -1,5 +1,14 @@
 # Nuvora Core 0.9.0
 
+## 0.9.0 NVMe 数据盘与鼠标桌面扩展（宿主夹具验证）
+
+- 首个 PCIe NVMe 控制器的 512B NVM namespace 支持单扇区读/写与 Flush；
+  沿用 GPT/NVSTORE 分区校验和仅限快照槽的写入策略；I/O 出错后停止使用。
+- xHCI Boot Mouse 三字节输入与受屏幕租约保护的 `NV_SUB_INPUT` ABI；
+  桌面单击选中、双击打开，保留已有键盘操作。
+- `make -j4` 和 13 组 UBSan 宿主回归通过；guest 预期 137 项未在本环境运行。
+  尚无 QEMU NVMe/xHCI 启动或实体设备验证。范围见 [DEVICES.md](DEVICES.md)。
+
 ## 0.9.0 应用接口与像素桌面扩展（待 UEFI 运行验证）
 
 - 在兼容 ABI 1 基础上公开 x64 SDK 头文件；新增 `NV_SUB_DISPLAY=4` 模式查询、独占租约、按矩形提交用户像素缓冲和释放。拒绝越界/无效用户缓冲，进程退出时恢复字符屏。

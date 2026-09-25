@@ -59,8 +59,19 @@ enum nv_subsystem {
     NV_SUB_CPU = 1,
     NV_SUB_GPU = 2,
     NV_SUB_NET = 3,
-    NV_SUB_DISPLAY = 4
+    NV_SUB_DISPLAY = 4,
+    NV_SUB_INPUT = 5
 };
+/* Pointer events are relative to the caller's display coordinates. Only the
+ * current pixel-screen owner may consume them; the queue is reset on acquire.
+ * A zero return from POINTER_POLL means there is no pending event. */
+#define NV_INPUT_API_VERSION 1u
+enum { NV_INPUT_INFO = 1, NV_INPUT_POINTER_POLL = 2 };
+enum { NV_POINTER_LEFT = 1, NV_POINTER_RIGHT = 2, NV_POINTER_MIDDLE = 4 };
+struct nv_input_info { u32 api_version, pointer_devices, flags, reserved; };
+struct nv_pointer_event { i32 dx, dy, wheel; u32 buttons; };
+_Static_assert(sizeof(struct nv_input_info) == 16, "input info ABI");
+_Static_assert(sizeof(struct nv_pointer_event) == 16, "pointer event ABI");
 /* Display is an optional, unaccelerated firmware framebuffer. A successful
  * INFO reports the mode; applications must still acquire exclusive ownership
  * before presenting. Pixels are 32-bit little-endian words: BGRX8 accepts
@@ -193,7 +204,8 @@ enum { NV_USB_CONTROLLERS = 1, NV_USB_DEVICES = 2, NV_USB_RESCAN = 3 };
 #define NV_USB_DEVICE_MAX 32u
 enum { NV_USB_UNSUPPORTED = 1, NV_USB_RUNNING = 2, NV_USB_FAILED = 3 };
 enum { NV_USB_IDENTIFIED = 1, NV_USB_CONFIGURED = 2, NV_USB_KEYBOARD = 3,
-       NV_USB_HUB = 4, NV_USB_ETHERNET = 5 };
+       NV_USB_HUB = 4, NV_USB_ETHERNET = 5, NV_USB_MOUSE = 6,
+       NV_USB_COMPOSITE_INPUT = 7 };
 struct nv_usb_controller {
     u32 bus, device, function, vendor, product, interface, ports, state;
 };

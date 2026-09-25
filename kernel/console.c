@@ -512,6 +512,7 @@ void console_release(u32 pid) {
         return;
     screen_owner = 0;
     graphics_owner = false;
+    pointer_reset();
     for (u32 i = 0; i < 2000; ++i)
         screen[i] = saved_screen[i];
     row = saved_row;
@@ -625,9 +626,29 @@ int console_display_acquire(u32 pid) {
     int r = console_surface(pid, NV_SCREEN_ACQUIRE, NULL);
     if (!r) {
         graphics_owner = true;
+        pointer_reset();
         fb_cursor_erase();
     }
     return r;
+}
+void console_pointer_report(i32 dx, i32 dy, u32 buttons) {
+    if (graphics_owner) pointer_push(dx, dy, buttons);
+}
+int input_ioctl(u32 op, u32 pointer) {
+    if (op != NV_INPUT_INFO && op != NV_INPUT_POINTER_POLL) return -NV_EINVAL;
+    u32 size = op == NV_INPUT_INFO ? sizeof(struct nv_input_info) :
+                                     sizeof(struct nv_pointer_event);
+    if (!user_range(current->pd, pointer, size, true)) return -NV_EFAULT;
+    if (op == NV_INPUT_INFO) {
+        struct nv_input_info info = {NV_INPUT_API_VERSION, usb_pointer_count(), 1, 0};
+        memcpy((void *)(uptr)pointer, &info, sizeof(info));
+        return 0;
+    }
+    if (screen_owner != current->pid || !graphics_owner) return -NV_EACCESS;
+    struct nv_pointer_event event;
+    if (!pointer_next(&event)) return 0;
+    memcpy((void *)(uptr)pointer, &event, sizeof(event));
+    return 1;
 }
 int console_display_present(u32 pid, const struct nv_display_present *r) {
     if (!fb_ready) return -NV_ENODEV;

@@ -11,7 +11,9 @@ python3 scripts/mkgptdisk.py /tmp/new-disk.img --size 128 --partitions 2
 python3 start.py --disk-size 128 --partitions 2
 ```
 
-启动会扫描 IDE primary master 的 protective MBR、GPT 主头/备份头和全部
+启动优先扫描 IDE primary master 上的有效 Nuvora 数据卷；找不到时扫描
+首个 PCIe NVMe 控制器的首个受支持 namespace。读取 protective MBR、
+GPT 主头/备份头和全部
 128 条分区项，核验 CRC、LBA 边界与重叠。`partitions` 最多显示前 32 条有效
 记录（含不支持的类型）；匹配 Nuvora 类型 GUID 且分区首扇区具有有效
 NVSTORE2 签名和几何信息的分区，按 GPT 顺序最多挂载 4 个盘符。其他 GPT
@@ -28,7 +30,9 @@ C: 使用，不进行原地转换。类型 GUID 为
 快照实现限制。
 
 GPT 是物理分区表，盘符和快照格式属于 Nuvora。它不包含 Windows 的
-NTFS、卷管理器或在线分区管理；没有新盘的图形磁盘管理器，也不扫描 NVMe、
-USB 存储或第二块 IDE 磁盘。每个文件最多 128 KiB，每份快照最多
-16 MiB，所有卷共用 128 个内存文件节点。当前仅在源码夹具中验证过
-GPT 扫描、分区边界和卷快照隔离；虚拟机/实体硬件验证需另行执行。
+NTFS、卷管理器或在线分区管理；没有新盘的图形磁盘管理器，也不扫描
+USB 存储或第二块 IDE 磁盘。NVMe 当前仅识别 512 字节扇区且无额外
+metadata/protection 的 NVM namespace；4K 原生盘不挂载。每个文件最多
+128 KiB，每份快照最多 16 MiB，所有卷共用 128 个内存文件节点。
+当前仅在源码夹具中验证过 ATA/NVMe GPT 扫描、分区边界和卷快照隔离；
+虚拟机/实体硬件验证需另行执行。

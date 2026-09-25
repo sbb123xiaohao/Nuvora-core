@@ -62,7 +62,10 @@ def firmware_arguments(firmware):
     raise RuntimeError(f'Matching UEFI VARS image missing for {firmware}')
 
 
-def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None):
+def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,
+            disk_bus='ide'):
+    if disk_bus not in ('ide', 'nvme'):
+        raise ValueError(f'Unsupported data-disk bus: {disk_bus}')
     binary = qemu_binary()
     if not binary:
         raise RuntimeError('Install qemu-system-x86 (Debian/Ubuntu) or qemu-system-x86 (Arch).')
@@ -74,7 +77,7 @@ def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None)
         cmd += ['-L', os.environ['NV_QEMU_DATA']]
     if kernel and os.environ.get('NV_QEMU_BIOS'):
         cmd += ['-bios', os.environ['NV_QEMU_BIOS']]
-    if machine == 'q35' and (disk or esp):
+    if machine == 'q35' and (esp or (disk and disk_bus == 'ide')):
         cmd += ['-device', 'isa-ide,id=legacyide']
     if disk:
         disk_path = pathlib.Path(disk).resolve()
@@ -82,7 +85,10 @@ def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None)
             raise RuntimeError(f'Data image must be an existing regular file: {disk_path}')
         # QEMU key-value syntax uses doubled commas for literal commas in a path.
         disk_spec = str(disk_path).replace(",", ",,")
-        if machine == 'q35':
+        if disk_bus == 'nvme':
+            cmd += ['-drive', f'file={disk_spec},format=raw,if=none,id=nuvora_disk',
+                    '-device', 'nvme,drive=nuvora_disk,serial=nuvora-data']
+        elif machine == 'q35':
             # q35 normally exposes only its AHCI controller.  Nuvora's small
             # ATA PIO driver intentionally talks to the legacy 0x1f0/0x3f6
             # ports, so provide an ISA IDE bridge and attach the image to its

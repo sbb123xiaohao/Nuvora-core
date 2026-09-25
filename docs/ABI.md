@@ -49,7 +49,7 @@ x64 使用 `int 0x81`。调用号在 EAX，前三个参数在 EBX / ECX / EDX，
 
 CONTROL：1 保存 `/home`，2 关机，3 重启，4 清空 VGA，5 测试退出。除清屏外通常仅 PID 1 可以调用；持有屏幕租约的进程也可执行保存（Folio 使用此能力）；测试退出还要求启动参数 `nv.test=1`，通过 QEMU `isa-debug-exit` 返回宿主状态。正常测试成功宿主退出码 33，失败为 35。
 
-`USB` 的 `CONTROLLERS` 子操作使用 `ECX` 索引（0–7）和 `EDX` 的 `struct nv_usb_controller*`；`DEVICES` 使用 0–31 索引和 `struct nv_usb_device*`。返回 1 表示条目存在，0 表示该索引当前为空。`RESCAN` 要求 `ECX=EDX=0`，处理根端口和 Hub 的连接变化。所有输出结构在写入前进行完整用户可写页检查，越界或只读指针返回 `-NV_EFAULT`，索引越界返回 `-NV_EINVAL`。控制器状态为 `unsupported`、`running` 或 `failed`；xHCI 驱动读取标准 USB 描述符并配置 Hub 和 USB Boot Protocol 键盘。鼠标、U 盘等其他设备只记录识别信息，本版没有 USB 存储文件系统挂载或鼠标指针接口。
+`USB` 的 `CONTROLLERS` 子操作使用 `ECX` 索引（0–7）和 `EDX` 的 `struct nv_usb_controller*`；`DEVICES` 使用 0–31 索引和 `struct nv_usb_device*`。返回 1 表示条目存在，0 表示该索引当前为空。`RESCAN` 要求 `ECX=EDX=0`，处理根端口和 Hub 的连接变化。所有输出结构在写入前进行完整用户可写页检查，越界或只读指针返回 `-NV_EFAULT`，索引越界返回 `-NV_EINVAL`。控制器状态为 `unsupported`、`running` 或 `failed`；xHCI 驱动读取标准 USB 描述符并配置 Hub、USB Boot 键盘与鼠标。鼠标指针事件使用 `NV_SUB_INPUT`；U 盘只记录识别信息，本版没有 USB 存储文件系统挂载。
 
 STOP 允许 PID 1 管理其他进程；普通进程只能终止自己的子进程；任何进程均不能通过 STOP 终止 PID 1 或自己。WAIT 对退出状态只允许领取一次。未领取状态的进程会保留 zombie 元数据，但它的用户页、页表和内核栈在安全切换后释放。主动终止状态为 143；CPU 异常状态为 `128 + vector`。
 
@@ -79,4 +79,4 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 
 ## DEVCTL 扩展分发
 
-`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络/显示子系统分别为 1/2/3/4；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。`NV_SUB_DISPLAY` 有独立的固件帧缓冲像素路径，**不代表 GPU modesetting 已启用**。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)，显示契约见 [SDK.md](SDK.md)。
+`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络/显示/输入子系统分别为 1/2/3/4/5；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。`NV_SUB_DISPLAY` 有独立的固件帧缓冲像素路径，**不代表 GPU modesetting 已启用**。`NV_SUB_INPUT` 查询输入版本和设备计数，像素屏持有者可获取相对鼠标事件。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)，显示及输入契约见 [SDK.md](SDK.md)。

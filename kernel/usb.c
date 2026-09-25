@@ -31,8 +31,8 @@ struct device {
     struct nv_usb_device info;
     struct host *host;
     u32 slot, root_port, route, depth, tt, max_packet;
-    u32 input, output, buffer, report_page;
-    struct ring control, interrupt;
+    u32 input, output, buffer, report_page, mouse_page;
+    struct ring control, interrupt, mouse_ring;
     struct ring ecm_in, ecm_out;
     struct ring cdc_in, cdc_out;
     u32 ecm_in_buf, ecm_out_buf, ecm_in_ep, ecm_out_ep;
@@ -43,6 +43,7 @@ struct device {
     u32 cdc_in_wait, cdc_out_wait;
     u8 ecm_mac[6];
     u32 keyboard_ep, keyboard_interface, keyboard_packet, keyboard_interval;
+    u32 mouse_ep, mouse_interface, mouse_packet, mouse_interval, mouse_wait;
     u32 interrupt_wait, repeat_at, hub_ports, hub_ttt;
     u32 attempted[15];
     u8 previous[8], repeat_key;
@@ -51,6 +52,7 @@ struct device {
 static struct host hosts[NV_USB_CONTROLLER_MAX];
 static struct device devices[NV_USB_DEVICE_MAX];
 static struct device *ecm_device;
+static struct device *mouse_device;
 static char wifi_response[2048];
 static u32 wifi_response_size;
 static u32 host_count, last_scan;
@@ -97,6 +99,10 @@ static void host_failed(struct host *h) {
             devices[i].dead = true;
             devices[i].repeat_key = 0;
         }
+    if (mouse_device && mouse_device->host == h) {
+        console_pointer_report(0, 0, 0);
+        mouse_device = NULL;
+    }
     kprintf("[usb] controller %u stopped after an error\n", (u32)(h - hosts));
 }
 static bool ring_init(struct ring *r) {
@@ -134,6 +140,24 @@ static void keyboard_arm(struct device *d) {
     d->interrupt_wait = ring_put(&d->interrupt, d->report_page, 0, 8, TYPE(1) | (1u << 5));
     barrier();
     write32(d->host, d->host->doorbell + d->slot * 4, d->keyboard_ep);
+}
+static void mouse_arm(struct device *d) {
+    if (d->dead || !d->mouse_ep || d->host->info.state != NV_USB_RUNNING) return;
+    memset(phys_ptr(d->mouse_page), 0, 3);
+    d->mouse_wait = ring_put(&d->mouse_ring, d->mouse_page, 0, 3, TYPE(1) | (1u << 5));
+    barrier();
+    write32(d->host, d->host->doorbell + d->slot * 4, d->mouse_ep);
+}
+/* HID boot protocol: three bytes of buttons, signed X and signed Y. Other
+ * HID report layouts require descriptor parsing and must not reach here. */
+static void mouse_report(struct device *d, u32 remaining) {
+    if (remaining) return;
+    barrier();
+    const u8 *report = phys_ptr(d->mouse_page);
+    struct nv_pointer_event event;
+    if (!pointer_boot_report(report, 3, &event)) return;
+    console_pointer_report(event.dx, event.dy, event.buttons);
+    ++d->info.reports;
 }
 static void ecm_arm(struct device *d) {
     if (d->dead || !d->ecm_in_ep || d->host->info.state != NV_USB_RUNNING) return;
@@ -214,6 +238,19 @@ static void events(struct host *h) {
                 } else {
                     d->repeat_key = 0;
                     d->dead = true;
+                    h->changed = true;
+                }
+            }
+            struct device *mouse = mouse_device;
+            if (mouse && !mouse->dead && mouse->host == h && mouse->slot == slot &&
+                endpoint == mouse->mouse_ep && low == mouse->mouse_wait) {
+                mouse->mouse_wait = 0;
+                if (code == 1 || code == 13) {
+                    mouse_report(mouse, status & 0xffffff);
+                    mouse_arm(mouse);
+                } else {
+                    mouse->dead = true;
+                    console_pointer_report(0, 0, 0);
                     h->changed = true;
                 }
             }
@@ -389,6 +426,35 @@ static int configure_keyboard(struct device *d) {
     keyboard_arm(d);
     return 0;
 }
+static int configure_mouse(struct device *d) {
+    if (!d->mouse_ep || mouse_device) return 0;
+    if (!ring_init(&d->mouse_ring) ||
+        !(d->mouse_page = page_alloc_below(USB_DMA_LIMIT))) return -NV_ENOMEM;
+    memset(phys_ptr(d->input), 0, PAGE);
+    input_context(d, 0)[1] = 1u | (1u << d->mouse_ep);
+    slot_context(d, MAX(d->keyboard_ep, d->mouse_ep));
+    u32 *ep = input_context(d, d->mouse_ep + 1);
+    u32 interval = d->mouse_interval;
+    if (d->info.speed >= 3) interval = MAX(1u, MIN(interval, 16u)) - 1;
+    else {
+        u32 value = MAX(1u, interval), shift = 0;
+        while (value >>= 1) ++shift;
+        interval = MIN(shift + 3, 10u);
+    }
+    ep[0] = interval << 16;
+    ep[1] = (3u << 1) | (7u << 3) | (d->mouse_packet << 16);
+    ep[2] = d->mouse_ring.page | 1u;
+    ep[4] = 3u | (d->mouse_packet << 16);
+    if (command(d->host, 12, d->input, d->slot << 24) < 0 ||
+        control(d, 0x21, 11, 0, (u16)d->mouse_interface, 0) < 0)
+        return -NV_EIO;
+    control(d, 0x21, 10, 0, (u16)d->mouse_interface, 0);
+    if (d->dead) return -NV_EIO;
+    d->info.state = d->keyboard_ep ? NV_USB_COMPOSITE_INPUT : NV_USB_MOUSE;
+    mouse_device = d;
+    mouse_arm(d);
+    return 0;
+}
 static int configure_ecm(struct device *d) {
     if (!d->ecm_in_ep || !d->ecm_out_ep || ecm_device) return 0;
     if (!ring_init(&d->ecm_in) || !ring_init(&d->ecm_out) ||
@@ -514,7 +580,7 @@ static int identify(struct device *d) {
         return -NV_EINVAL;
     u8 config_value = cfg[5];
     d->info.interfaces = cfg[4];
-    bool keyboard_interface = false, first_interface = true;
+    bool keyboard_interface = false, mouse_interface = false, first_interface = true;
     bool ecm_control = false, ecm_data = false, cdc_control = false, cdc_data = false;
     u8 ecm_mac_string = 0;
     u32 interface_number = 0;
@@ -527,6 +593,8 @@ static int identify(struct device *d) {
                 return -NV_EINVAL;
             keyboard_interface =
                 cfg[off + 3] == 0 && cfg[off + 5] == 3 && cfg[off + 6] == 1 && cfg[off + 7] == 1;
+            mouse_interface =
+                cfg[off + 3] == 0 && cfg[off + 5] == 3 && cfg[off + 6] == 1 && cfg[off + 7] == 2;
             interface_number = cfg[off + 2];
             if (cfg[off + 5] == 2 && cfg[off + 6] == 6 && cfg[off + 3] == 0) {
                 ecm_control = true; d->ecm_control = interface_number;
@@ -557,6 +625,13 @@ static int identify(struct device *d) {
                 d->keyboard_interface = interface_number;
                 d->keyboard_packet = size;
                 d->keyboard_interval = cfg[off + 6];
+            }
+            if (mouse_interface && !d->mouse_ep && (ep & 0x80) && (ep & 15) && !(ep & 0x70) &&
+                (cfg[off + 3] & 3) == 3 && size >= 3 && size <= 64) {
+                d->mouse_ep = (ep & 15) * 2 + 1;
+                d->mouse_interface = interface_number;
+                d->mouse_packet = size;
+                d->mouse_interval = cfg[off + 6];
             }
             if (ecm_data && (ep & 15) && !(ep & 0x70) && (cfg[off + 3] & 3) == 2 &&
                 (size == 64 || size == 512 || size == 1024)) {
@@ -610,13 +685,15 @@ static int identify(struct device *d) {
         return configure_hub(d);
     if (d->ecm_in_ep)
         return configure_ecm(d);
-    return configure_keyboard(d);
+    int result = configure_keyboard(d);
+    return result < 0 ? result : configure_mouse(d);
 }
 static bool remove_device(struct device *d) {
     if (!d->slot)
         return true;
     d->dead = true; /* Completion events must not re-arm an endpoint being removed. */
     if (d == ecm_device) { net_usb_detach(); ecm_device = NULL; }
+    if (d == mouse_device) { console_pointer_report(0, 0, 0); mouse_device = NULL; }
     d->repeat_key = 0;
     for (u32 i = 0; i < ARRAY_LEN(devices); ++i)
         if (devices[i].slot && devices[i].info.parent == (u32)(d - devices) + 1)
@@ -628,7 +705,8 @@ static bool remove_device(struct device *d) {
     }
     ((u64 *)phys_ptr(d->host->dcbaa))[d->slot] = 0;
     u32 pages[] = {d->input, d->output, d->buffer, d->control.page,
-                   d->interrupt.page, d->report_page, d->ecm_in.page,
+                   d->interrupt.page, d->report_page, d->mouse_ring.page, d->mouse_page,
+                   d->ecm_in.page,
                    d->ecm_out.page, d->ecm_in_buf, d->ecm_out_buf,
                    d->cdc_in.page, d->cdc_out.page, d->cdc_in_buf, d->cdc_out_buf};
     for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
@@ -969,6 +1047,10 @@ void usb_poll(void) {
     if (changed || ticks - last_scan >= 50)
         scan();
     busy = false;
+}
+u32 usb_pointer_count(void) {
+    return mouse_device && mouse_device->slot && !mouse_device->dead &&
+           mouse_device->host->info.state == NV_USB_RUNNING ? 1u : 0u;
 }
 int usb_rescan(void) {
     if (!initialized || busy)
