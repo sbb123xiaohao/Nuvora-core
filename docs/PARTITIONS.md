@@ -14,7 +14,8 @@ python3 start.py --disk-size 128 --partitions 2
 ```
 
 启动优先扫描 IDE primary master 上的有效 Nuvora 数据卷；找不到时扫描
-首个 PCIe NVMe 控制器的首个受支持 namespace。读取 protective MBR、
+首个 AHCI 控制器的 SATA 端口，再依序扫描可见的 PCIe NVMe 控制器与
+每个控制器前 16 个受支持 namespace。读取 protective MBR、
 GPT 主头/备份头和全部
 128 条分区项，核验 CRC、LBA 边界与重叠。`partitions` 最多显示前 32 条有效
 记录（含不支持的类型）；匹配 Nuvora 类型 GUID 且分区首扇区具有有效

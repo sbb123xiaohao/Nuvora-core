@@ -12,12 +12,16 @@ static u8 inb(u16 p) { (void)p; return 0x48; }
 static u16 inw(u16 p) { (void)p; return 0; }
 static void outb(u16 p, u8 v) { assert(nwrites < 64); writes[nwrites].port=p; writes[nwrites++].byte=v; }
 static void outw(u16 p, u16 v) { (void)p; (void)v; }
-static bool nvme_init(u64 *capacity) { (void)capacity; return false; }
+static bool nvme_init(u64 *capacity, u32 first_pci, u32 first_nsid,
+                      u32 *selected_pci, u32 *selected_nsid) {
+    (void)capacity; (void)first_pci; (void)first_nsid;
+    (void)selected_pci; (void)selected_nsid; return false;
+}
 static int nvme_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
 static int nvme_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
 static int nvme_flush(void) { return -NV_ENODEV; }
 static bool nvme_ready(void) { return false; }
-static void nvme_shutdown(void) {}
+static bool nvme_shutdown(void) { return true; }
 static bool ahci_init(u64 *capacity, u32 first, u32 *selected) {
     (void)capacity; (void)first; (void)selected; return false;
 }

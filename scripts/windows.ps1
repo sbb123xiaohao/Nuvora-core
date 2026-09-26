@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('doctor', 'build', 'iso', 'run', 'vmware')]
+    [ValidateSet('doctor', 'build', 'iso', 'media', 'run')]
     [string]$Action = 'doctor',
     [switch]$Native,
     [switch]$Uefi,
@@ -11,8 +11,6 @@ param(
     [switch]$NoEcam,
     [ValidateSet('ide', 'ahci', 'nvme')]
     [string]$DiskBus = 'ide',
-    [ValidateSet('ide', 'ahci', 'nvme')]
-    [string]$DiskController = 'ide',
     [ValidateRange(32, 1048576)]
     [int]$Memory = 256,
     [ValidateRange(64, 137438953472)]
@@ -21,8 +19,6 @@ param(
     [int]$Partitions = 1,
     [ValidateRange(0, 128)]
     [int]$Jobs = 0,
-    [string]$VmName = 'NuvoraCore',
-    [switch]$Force,
     [switch]$Network
 )
 
@@ -118,28 +114,6 @@ function Invoke-BackendStart([hashtable]$Backend, [string[]]$StartArguments) {
     if ($LASTEXITCODE -ne 0) { throw "Nuvora start failed with exit code $LASTEXITCODE" }
 }
 
-function Invoke-BackendPython([hashtable]$Backend, [string[]]$Arguments) {
-    if ($Backend.Kind -eq 'native') {
-        $Python = Find-Tool @('python', 'py')
-        Push-Location $Root
-        try {
-            if ($Python.Name -eq 'py.exe' -or $Python.Name -eq 'py') {
-                & $Python.Source '-3' @Arguments
-            } else {
-                & $Python.Source @Arguments
-            }
-            if ($LASTEXITCODE -ne 0) { throw "Python disk creation failed with exit code $LASTEXITCODE" }
-        } finally {
-            Pop-Location
-        }
-    } else {
-        $Wsl = Find-Tool @('wsl.exe', 'wsl')
-        $ArgumentText = ($Arguments | ForEach-Object { Bash-Quote $_ }) -join ' '
-        & $Wsl.Source bash -lc "cd $(Bash-Quote $Backend.Root) && python3 $ArgumentText"
-        if ($LASTEXITCODE -ne 0) { throw "Python disk creation failed with exit code $LASTEXITCODE" }
-    }
-}
-
 function Show-Check([string]$Name, [bool]$Ok, [string]$Note) {
     $Mark = if ($Ok) { 'OK  ' } else { 'MISS' }
     $Color = if ($Ok) { 'Green' } else { 'Yellow' }
@@ -157,7 +131,6 @@ function Invoke-Doctor {
     Show-Check 'QEMU x86_64' ($null -ne (Find-Tool @('qemu-system-x86_64'))) 'needed by run; WSL2 may provide it'
     Show-Check 'mtools' ($null -ne (Find-Tool @('mcopy'))) 'needed by UEFI ESP build'
     Show-Check 'xorriso' ($null -ne (Find-Tool @('xorriso'))) 'needed by ISO build'
-    Show-Check 'qemu-img' ($null -ne (Find-Tool @('qemu-img'))) 'needed to make a VMware VMDK'
     if ($OnWindows) {
         $LinuxRoot = Wsl-Root
         Show-Check 'WSL2' ($null -ne $LinuxRoot) ($(if ($null -ne $LinuxRoot) { $LinuxRoot } else { 'install with: wsl --install' }))
@@ -165,7 +138,7 @@ function Invoke-Doctor {
     $Backend = $null
     try { $Backend = Select-Backend } catch { Write-Host $_.Exception.Message -ForegroundColor Yellow }
     if ($null -ne $Backend) { Write-Host "Build backend: $($Backend.Kind)" -ForegroundColor Green }
-    Write-Host 'Next: .\start.ps1 build; .\start.ps1 iso -Uefi; .\start.ps1 run -Uefi -Window' -ForegroundColor Cyan
+    Write-Host 'Next: .\start.ps1 build; .\start.ps1 iso -Uefi; .\start.ps1 media; .\start.ps1 run -Uefi -Window' -ForegroundColor Cyan
 }
 
 try {
@@ -182,6 +155,11 @@ try {
             else { Invoke-BackendMake $Backend @('iso') }
             break
         }
+        'media' {
+            $Backend = Select-Backend
+            Invoke-BackendMake $Backend @('media')
+            break
+        }
         'run' {
             $Backend = Select-Backend
             $Arguments = @('--memory', "$Memory", '--disk-size', "$DiskSize", '--partitions', "$Partitions", '--disk-bus', $DiskBus)
@@ -196,19 +174,6 @@ try {
             $Targets = if ($Uefi) { @('all', 'esp') } else { @('all') }
             Invoke-BackendMake $Backend $Targets
             Invoke-BackendStart $Backend $Arguments
-            break
-        }
-        'vmware' {
-            $Backend = Select-Backend
-            Invoke-BackendMake $Backend @('all', 'esp', 'iso-uefi')
-            $DiskArgs = @('scripts/mkgptdisk.py', 'build/x86_64/nuvora-store.img',
-                          '--if-missing', '--size', "$DiskSize", '--partitions', "$Partitions")
-            Invoke-BackendPython $Backend $DiskArgs
-            $Vmware = Join-Path $PSScriptRoot 'vmware.ps1'
-            $VmwareArgs = @{ Name = $VmName; DiskController = $DiskController }
-            if ($PSBoundParameters.ContainsKey('Memory')) { $VmwareArgs.Memory = $Memory }
-            if ($Force) { $VmwareArgs.Force = $true }
-            & $Vmware @VmwareArgs
             break
         }
     }

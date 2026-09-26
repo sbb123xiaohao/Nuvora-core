@@ -2,14 +2,16 @@
 
 ## 0.10.0 当前结果
 
-`make -j4 all` 及 `make test-host` 的 **24 组**通过（所有 C 夹具 UBSan）。
+`make -j4 all` 及 `make test-host` 的 **25 组**通过（所有 C 夹具 UBSan）。
+新增 GPT/ESP 可移动启动镜像的主备 GPT CRC、分区位置和 FAT 镜像字节比对；
+NVMe 夹具新增同控制器后续 namespace、第二控制器的外来盘隔离。
 新增双 SATA 端口的真实 AHCI/卷识别代码夹具：前盘是外来格式、
 不支持 LBA48 或 4Kn 时，后盘仍可挂载，写入不会落到前盘。
 新增 OVMF 成对固件与 QEMU IDE/AHCI/NVMe 参数的宿主回归；在 Ubuntu
 上仍需运行 QEMU 客户机测试，不能把参数检查当成 UEFI 实际启动。
 本轮新增 AHCI 命令 FIS/高位 LBA、DMA 读写/Flush/错误停用夹具，以及
-e1000e 网卡选择和真实驱动收发环夹具。Windows/VMware 配置脚本未在
-Windows 或 VMware 上执行；当前环境没有 QEMU、qemu-img 或 PowerShell。
+e1000e 网卡选择和真实驱动收发环夹具。通用 Windows PowerShell 入口未在
+Windows 上执行；当前环境没有 QEMU、mtools、xorriso 或 PowerShell。
 新增真实 fs/store 的 10 GiB 稀疏长度和 >4 GiB 物理地址读写、160 MiB
 连续数据且索引内存不随内容增长、180 次碎片覆盖/OOM 回滚、磁盘满、
 不确定最终 Flush 阻止继续写入；ATA/NVMe 各跑旧格式与 NVSTORE3 GPT。

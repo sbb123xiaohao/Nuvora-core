@@ -9,6 +9,7 @@ sudo apt install build-essential binutils python3 qemu-system-x86 ovmf mtools xo
 make -j"$(nproc)" all
 make test-host
 make esp
+make iso-uefi media
 python3 start.py --uefi --window --audio --network --disk-bus ahci --memory 1024
 ```
 
@@ -22,9 +23,9 @@ python3 start.py --uefi --window --audio --network --disk-bus ahci --memory 1024
 固件写入只发生在此副本。换用不同容量的 OVMF 时先备份并移走这个
 副本，脚本不会默默覆盖已有 UEFI 启动变量。
 
-构建 BIOS/GRUB ISO 还需 `grub-pc-bin grub-common`；生成 VMware VMDK
-还需 `qemu-utils`，提供 `qemu-img`。`make test` 是更长的 QEMU 客户机回归，
+构建 BIOS/GRUB ISO 还需 `grub-pc-bin grub-common`。`make test` 是更长的 QEMU 客户机回归，
 需要额外时间；成功时结果写入 `build/x86_64/test-results/`。
 
-当前代码的硬件范围见 [设备说明](DEVICES.md)。Ubuntu 宿主的 QEMU 启动
-通过，也不能代替 VMware 17 或实体机器的实测。
+ISO、通用 GPT/ESP 镜像和 U 盘首次上机步骤见 [启动介质指南](BOOT-MEDIA.md)。
+当前代码的硬件范围见 [设备说明](DEVICES.md)。宿主回归不能代替虚拟机或
+实体机器的实际启动验证。

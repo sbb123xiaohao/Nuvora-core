@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('doctor', 'build', 'iso', 'run', 'vmware')]
+    [ValidateSet('doctor', 'build', 'iso', 'media', 'run')]
     [string]$Action = 'doctor',
     [switch]$Native,
     [switch]$Uefi,
@@ -12,8 +12,6 @@ param(
     [switch]$Network,
     [ValidateSet('ide', 'ahci', 'nvme')]
     [string]$DiskBus = 'ide',
-    [ValidateSet('ide', 'ahci', 'nvme')]
-    [string]$DiskController = 'ide',
     [ValidateRange(32, 1048576)]
     [int]$Memory = 256,
     [ValidateRange(64, 137438953472)]
@@ -21,9 +19,7 @@ param(
     [ValidateRange(1, 4)]
     [int]$Partitions = 1,
     [ValidateRange(0, 128)]
-    [int]$Jobs = 0,
-    [string]$VmName = 'NuvoraCore',
-    [switch]$Force
+    [int]$Jobs = 0
 )
 
 $Script = Join-Path $PSScriptRoot 'scripts/windows.ps1'

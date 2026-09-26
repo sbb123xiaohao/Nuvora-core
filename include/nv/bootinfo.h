@@ -4,7 +4,9 @@
 /* Neutral boot handover shared by the Multiboot path (arch boot.S entries)
  * and the x64 UEFI stub (arch/x86_64/uefi.c). The kernel consumes this via
  * kernel_start() and never talks to a bootloader protocol directly. */
-#define NV_BOOT_MEM_MAX 128
+/* Real firmware commonly splits the memory map into many small descriptors.
+ * The loader folds adjacent ranges, but must still preserve fragmented maps. */
+#define NV_BOOT_MEM_MAX 512
 #define NV_BOOT_RES_MAX 16
 #define NV_BOOT_CMDLINE_MAX 512
 /* Framebuffer pixel formats. 0 means "no framebuffer". */

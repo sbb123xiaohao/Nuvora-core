@@ -1,5 +1,5 @@
 #include "kernel.h"
-/* NVMe PCI transport, one controller and one 512-byte NVM namespace. Poll one
+/* NVMe PCI transport, one active controller and 512-byte NVM namespace. Poll one
  * command at a time; data crosses a private DMA page, never an arbitrary
  * kernel/user address. See NVM Express 1.0e, sections 3, 4, 5 and 6. */
 #define NVME_DMA_LIMIT 0x100000000ull
@@ -23,7 +23,7 @@ struct nvme_queue {
 };
 static struct {
     volatile u8 *regs;
-    u32 pci, nsid, stride;
+    u32 pci, nsid, stride, scan_min_pci;
     u64 sectors;
     uptr data_page;
     struct nvme_queue admin, io;
@@ -50,7 +50,7 @@ static bool nvme_wait_ready(bool ready, u32 timeout) {
     return false;
 }
 
-static void nvme_release(bool stop) {
+static bool nvme_release(bool stop) {
     if (stop && nvme.regs) {
         nw32(0x14, 0);
         /* A controller which fails to quiesce may still DMA. Leave its pages
@@ -58,7 +58,7 @@ static void nvme_release(bool stop) {
         if (!nvme_wait_ready(false, 1)) {
             pci_write16(nvme.pci, 4, (u16)(pci_read(nvme.pci, 4) & ~4u));
             nvme.online = false;
-            return;
+            return false;
         }
         pci_write16(nvme.pci, 4, (u16)(pci_read(nvme.pci, 4) & ~4u));
     }
@@ -67,6 +67,7 @@ static void nvme_release(bool stop) {
     for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
         if (pages[i]) page_free(pages[i]);
     memset(&nvme, 0, sizeof(nvme));
+    return true;
 }
 
 static int nvme_submit(struct nvme_queue *queue, u32 qid,
@@ -118,7 +119,8 @@ static bool nvme_namespace(const u8 *id, u64 *size) {
 
 static void nvme_discover(u32 address, u32 id, u32 class_code) {
     (void)id;
-    if (nvme.regs || (class_code >> 8) != 0x010802u) return;
+    if (nvme.regs || address < nvme.scan_min_pci ||
+        (class_code >> 8) != 0x010802u) return;
     u32 bar = pci_read(address, 0x10);
     if ((bar & 1u) || ((bar & 6u) != 0 && (bar & 6u) != 4u)) return;
     u64 physical = bar & ~15u;
@@ -128,10 +130,7 @@ static void nvme_discover(u32 address, u32 id, u32 class_code) {
     if (nvme.regs) nvme.pci = address;
 }
 
-bool nvme_init(u64 *capacity) {
-    memset(&nvme, 0, sizeof(nvme));
-    pci_visit(nvme_discover);
-    if (!nvme.regs) return false;
+static bool nvme_open(u64 *capacity, u32 first_nsid, u32 *selected_nsid) {
     u64 cap = nr64(0);
     u32 max_entries = (u32)(cap & 0xffffu) + 1u;
     u32 timeout = (u32)(cap >> 24) & 255u;
@@ -139,7 +138,10 @@ bool nvme_init(u64 *capacity) {
     u32 css = (u32)(cap >> 37) & 255u;
     /* Four doorbells (admin and one I/O pair) must fit into the mapped BAR. */
     if (max_entries < 2 || ((cap >> 48) & 15u) || stride_shift > 8 ||
-        (css && !(css & 1u))) return false;
+        (css && !(css & 1u))) {
+        nvme_release(false);
+        return false;
+    }
     nvme.stride = 4u << stride_shift;
     nvme.admin.depth = nvme.io.depth = (u16)MIN(max_entries, NVME_DEPTH);
     nvme.admin.phase = nvme.io.phase = 1;
@@ -184,7 +186,7 @@ bool nvme_init(u64 *capacity) {
     u32 namespaces;
     memcpy(&namespaces, id + 516, sizeof(namespaces));
     namespaces = MIN(namespaces, 16u);
-    for (u32 nsid = 1; nsid <= namespaces; ++nsid) {
+    for (u32 nsid = first_nsid; nsid <= namespaces; ++nsid) {
         memset(id, 0, PAGE);
         command = (struct nvme_command){.cdw0 = 0x06, .nsid = nsid,
                                         .prp1 = nvme.data_page};
@@ -193,9 +195,33 @@ bool nvme_init(u64 *capacity) {
         nvme.nsid = nsid;
         nvme.online = true;
         *capacity = nvme.sectors;
+        *selected_nsid = nsid;
         return true;
     }
     nvme_release(true);
+    return false;
+}
+
+bool nvme_init(u64 *capacity, u32 first_pci, u32 first_nsid,
+               u32 *selected_pci, u32 *selected_nsid) {
+    if (!capacity || !selected_pci || !selected_nsid || !first_nsid ||
+        first_pci > 0x00ffff00u) return false;
+    while (first_pci <= 0x00ffff00u) {
+        memset(&nvme, 0, sizeof(nvme));
+        nvme.scan_min_pci = first_pci;
+        pci_visit(nvme_discover);
+        if (!nvme.regs) return false;
+        u32 address = nvme.pci;
+        u32 start = address == first_pci ? first_nsid : 1;
+        if (nvme_open(capacity, start, selected_nsid)) {
+            *selected_pci = address;
+            return true;
+        }
+        /* Unsupported or empty controllers do not hide later controllers.
+         * A controller that could not stop keeps its DMA pages quarantined. */
+        first_pci = address + 0x100u;
+        first_nsid = 1;
+    }
     return false;
 }
 
@@ -221,4 +247,4 @@ int nvme_flush(void) {
     return r;
 }
 bool nvme_ready(void) { return nvme.online; }
-void nvme_shutdown(void) { nvme_release(true); }
+bool nvme_shutdown(void) { return nvme_release(true); }

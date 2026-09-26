@@ -267,12 +267,13 @@ u32 fs_node_count(void);
 int fs_export_home(u8 *, u32, u32 *);
 int fs_import_home(const u8 *, u32);
 bool disk_init(void);
-bool nvme_init(u64 *sectors);
+bool nvme_init(u64 *sectors, u32 first_pci, u32 first_nsid,
+               u32 *selected_pci, u32 *selected_nsid);
 int nvme_read(u64 lba, void *sector);
 int nvme_write(u64 lba, const void *sector);
 int nvme_flush(void);
 bool nvme_ready(void);
-void nvme_shutdown(void);
+bool nvme_shutdown(void);
 bool ahci_init(u64 *sectors, u32 first_port, u32 *selected_port);
 int ahci_read(u64 lba, void *sector);
 int ahci_write(u64 lba, const void *sector);

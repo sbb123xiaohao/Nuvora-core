@@ -1,5 +1,17 @@
 # Nuvora Core 0.10.0
 
+## 通用启动介质与实体机测试准备
+
+- UEFI 内存图可保留 512 个条目，并合并相邻同类区域；优先从当前控制台
+  获取 GOP，再回退到可用的 GOP。启动失败信息同时输出至固件屏幕和
+  串口，为固件内存碎片和多显卡输出增加余量。
+- 新增 `make media`：把现有 FAT ESP 包装为主备 GPT 的可移动启动镜像，
+  仅在构建目录写普通镜像文件，不触碰宿主盘。Windows PowerShell 入口
+  统一使用 `build`、`iso`、`media`、`run`；撤除虚拟机品牌专用命令。
+- NVMe 按 PCI 地址顺序寻找控制器，并逐一核对前 16 个 512B namespace
+  的 Nuvora 卷。前盘无效时继续寻找，使用同一时间只启用一个数据盘的模型。
+  25 组宿主回归通过；U 盘启动、实体主板和第三方虚拟机仍需实测。
+
 ## SATA 多盘与逻辑扇区兼容性
 
 - 首个 AHCI 控制器从低到高检查 SATA 端口；前端口是外来格式或不支持的
@@ -22,15 +34,16 @@
 - 增加 `start.ps1` 和 `scripts/windows.ps1`：Windows PowerShell 的 doctor、
   WSL2/native 构建、UEFI ISO、QEMU 启动和 VMware 配置入口；默认优先使用
   WSL2，工具缺失时直接报告可执行安装动作。
-- 增加 `scripts/vmware.ps1`、Windows/VMware 文档和安全的 VMDK 转换流程；
+- 当时增加 `scripts/vmware.ps1`、Windows/VMware 文档和 VMDK 转换流程；
+  品牌专用入口已在后续通用介质改动中移除。
   模板固定 UEFI、关闭未签名 loader 不能使用的 Secure Boot，启用 USB 3.x、
   HDAudio、GOP 和 e1000e。
 - 内核增加 Intel e1000/e1000e legacy descriptor 驱动和单端口 AHCI/SATA
   轮询存储驱动；现有 IDE/NVMe 路径和写入隔离继续保留。
 - QEMU 增加 `--disk-bus ahci` 和 `--network` 路径；新增实际 AHCI FIS
   和 e1000 DMA 环的宿主夹具，当前共 22 组 UBSan 回归通过。
-- 这轮仍未把 VMware/实体硬件测试冒充为宿主回归；实际启动需按 WINDOWS.md
-  和 VMWARE.md 在对应机器复验。
+- 这轮仍未把 VMware/实体硬件测试冒充为宿主回归；当前的实际启动步骤见
+  [BOOT-MEDIA.md](BOOT-MEDIA.md)。
 
 ## 0.10.0 磁盘块存储与流式媒体
 

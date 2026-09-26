@@ -207,12 +207,39 @@ static void serial_text(const char *s) {
         serial_putc(*s++);
     }
 }
-static void serial_status(const char *prefix, efi_status s) {
+/* Keep early failures visible on machines without a wired serial port. The
+ * firmware console is used only before ExitBootServices. */
+static struct efi_simple_text_output *early_console;
+static void console_text(const char *s) {
+    if (!early_console || !early_console->output_string) return;
+    char16 line[96];
+    u32 count = 0;
+    for (; *s; ++s) {
+        if (count >= ARRAY_LEN(line) - 3) {
+            line[count] = 0;
+            early_console->output_string(early_console, line);
+            count = 0;
+        }
+        if (*s == '\n') line[count++] = '\r';
+        line[count++] = (u8)*s;
+    }
+    if (count) {
+        line[count] = 0;
+        early_console->output_string(early_console, line);
+    }
+}
+static void loader_text(const char *s) {
+    serial_text(s);
+    console_text(s);
+}
+static void loader_status(const char *prefix, efi_status s) {
     static const char hex[] = "0123456789abcdef";
-    serial_text(prefix);
-    for (int i = 60; i >= 0; i -= 4)
-        serial_putc(hex[(s >> i) & 15]);
-    serial_text("\n");
+    char value[18];
+    for (u32 i = 0; i < 16; ++i)
+        value[i] = hex[(s >> (60 - 4 * i)) & 15];
+    value[16] = '\n'; value[17] = 0;
+    loader_text(prefix);
+    loader_text(value);
 }
 static void enable_nx(void) {
     u32 lo, hi;
@@ -223,9 +250,10 @@ static void enable_nx(void) {
 static bool add_mem(u64 base, u64 length, u32 type) {
     if (!length)
         return true;
-    if (bi.mem_count && type == 1) {
+    if (bi.mem_count) {
         struct boot_mem_entry *last = &bi.mem[bi.mem_count - 1];
-        if (last->type == 1 && last->base + last->length == base) {
+        if (last->type == type && last->base <= ~0ull - last->length &&
+            last->base + last->length == base && length <= ~0ull - last->length) {
             last->length += length;
             return true;
         }
@@ -528,9 +556,10 @@ static bool cpu_supported(void) {
 }
 __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_table *st) {
     memset(&bi, 0, sizeof(bi));
-    serial_text("\nNuvora Core UEFI stub\n");
+    early_console = st->con_out;
+    loader_text("\nNuvora Core UEFI stub\n");
     if (!cpu_supported()) {
-        serial_text("CPU UNSUPPORTED: need x64 FPU CMOV MSR PAE FXSR SSE2 NX.\n");
+        loader_text("CPU UNSUPPORTED: need x64 FPU CMOV MSR PAE FXSR SSE2 NX.\n");
         return EFI_UNSUPPORTED;
     }
     struct efi_boot_services *bs = st->boot_services;
@@ -538,13 +567,20 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
     void *loaded = NULL;
     efi_status s = bs->handle_protocol(image, &loaded_image_guid, &loaded);
     if (EFI_ERROR(s) || !loaded) {
-        serial_status("no loaded image protocol: ", s);
+        loader_status("no loaded image protocol: ", s);
         return EFI_UNSUPPORTED;
     }
     struct efi_loaded_image *li = loaded;
     u64 stub_base = (u64)(uptr)li->image_base, stub_size = li->image_size;
     void *gop = NULL;
-    if (!EFI_ERROR(bs->locate_protocol(&gop_guid, NULL, &gop)) && gop)
+    /* Prefer the active console when a machine exposes several GOP devices. */
+    if (st->console_out_handle &&
+        EFI_ERROR(bs->handle_protocol(st->console_out_handle, &gop_guid, &gop)))
+        gop = NULL;
+    if (gop)
+        fill_framebuffer(gop);
+    if (bi.fb.format == NV_FB_NONE &&
+        !EFI_ERROR(bs->locate_protocol(&gop_guid, NULL, &gop)) && gop)
         fill_framebuffer(gop);
     u8 *kernel = NULL;
     uptr kernel_size = 0;
@@ -575,7 +611,7 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
         }
     }
     if (!kernel) {
-        serial_status("kernel ELF not found on any ESP volume: ", s);
+        loader_status("kernel ELF not found on any ESP volume: ", s);
         return EFI_NOT_FOUND;
     }
     u8 *cmdline = NULL;
@@ -592,7 +628,7 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
     }
     u64 entry = 0;
     if (!load_kernel(bs, kernel, kernel_size, stub_base, stub_size, &entry)) {
-        serial_status("kernel ELF validation/allocation failed: ", kernel_load_status);
+        loader_status("kernel ELF validation/allocation failed: ", kernel_load_status);
         bs->free_pool(kernel);
         return EFI_LOAD_ERROR;
     }
@@ -623,11 +659,11 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
         if (EFI_ERROR(s))
             return s;
         if (!convert_memory_map(map, map_size, descriptor_size)) {
-            serial_text("invalid or overly complex EFI memory map\n");
+            loader_text("invalid or overly complex EFI memory map\n");
             return EFI_DEVICE_ERROR;
         }
         if (!kernel_destination_ready()) {
-            serial_text("kernel load address intersects reserved firmware memory\n");
+            loader_text("kernel load address intersects reserved firmware memory\n");
             return EFI_LOAD_ERROR;
         }
         /* Reconvert every retry: only the map matching the successful exit

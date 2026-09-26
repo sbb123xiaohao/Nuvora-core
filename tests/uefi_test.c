@@ -7,6 +7,16 @@
 
 static uptr position, file_length, reads, closes, allocations, mapped_length;
 static u8 *file_bytes;
+static char16 printed[256];
+static u32 print_length;
+static efi_status MSABI mock_output(struct efi_simple_text_output *out, const char16 *line) {
+    (void)out;
+    while (*line) {
+        assert(print_length < ARRAY_LEN(printed) - 1);
+        printed[print_length++] = *line++;
+    }
+    return EFI_SUCCESS;
+}
 static struct efi_file root_file, input_file;
 static bool deny_pages;
 static efi_status MSABI mock_pool(u32 type, uptr size, void **out) {
@@ -51,6 +61,11 @@ static efi_status MSABI mock_pages(u32 kind, u32 type, uptr pages, u64 *address)
 
 int main(int argc, char **argv) {
     assert(argc == 2);
+    struct efi_simple_text_output text_output = {.output_string = mock_output};
+    early_console = &text_output;
+    console_text("loader failure\n");
+    assert(print_length == 16 && printed[14] == '\r' && printed[15] == '\n');
+    early_console = NULL;
     struct efi_boot_services bs = {.allocate_pool = mock_pool, .free_pool = mock_free,
                                    .allocate_pages = mock_pages};
     struct efi_sfs volume = {.open_volume = mock_volume};
@@ -73,6 +88,18 @@ int main(int argc, char **argv) {
     map[0].type = EFI_RUNTIME_SERVICES_DATA;
     assert(convert_memory_map(map, sizeof(map), sizeof(map[0])));
     assert(bi.mem_count == 2 && bi.mem[0].type == 0); /* retry replaced the old map */
+    struct efi_memory_descriptor fragmented[256] = {0};
+    for (u32 i = 0; i < 256; ++i)
+        fragmented[i] = (struct efi_memory_descriptor){
+            .type = i & 1 ? EFI_RUNTIME_SERVICES_DATA : EFI_CONVENTIONAL,
+            .physical_start = 0x20000000ull + (u64)i * 4096,
+            .number_of_pages = 1};
+    assert(convert_memory_map(fragmented, sizeof(fragmented), sizeof(fragmented[0])));
+    assert(bi.mem_count == 256 && bi.mem[255].type == 0);
+    for (u32 i = 0; i < 256; ++i)
+        fragmented[i].type = EFI_RESERVED;
+    assert(convert_memory_map(fragmented, sizeof(fragmented), sizeof(fragmented[0])));
+    assert(bi.mem_count == 1 && bi.mem[0].type == 0 && bi.mem[0].length == 256 * 4096);
     assert(!convert_memory_map(map, sizeof(map), 8));
     map[0].physical_start = ~0ull - 4095;
     assert(!convert_memory_map(map, sizeof(map), sizeof(map[0])));

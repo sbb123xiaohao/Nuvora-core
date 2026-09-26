@@ -36,12 +36,16 @@ def main():
             subprocess.run(args, check=True)
             if name in ('gpt_disk', 'nvme'):
                 subprocess.run([str(output), str(extent_image), '128', 'extent'], check=True)
+            if name == 'nvme':
+                for scenario in ('multi', 'controller'):
+                    subprocess.run([str(output), str(extent_image), '128', scenario], check=True)
             if name == 'gpt_disk':
                 subprocess.run([str(output), str(raw_image), '64', 'raw'], check=True)
         subprocess.run(['python3', 'scripts/test_media_import.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'scripts/test_extent_import.py', str(pathlib.Path(directory) / 'extent')], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
-    print('ALL 24 HOST REGRESSION GROUPS PASSED (including AHCI multiport/4Kn isolation, OVMF flash pairing, e1000 DMA and media import; C fixtures use UBSan)')
+        subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
+    print('ALL 25 HOST REGRESSION GROUPS PASSED (including GPT UEFI media, AHCI multiport/4Kn, OVMF flash pairing, e1000 DMA and media import; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

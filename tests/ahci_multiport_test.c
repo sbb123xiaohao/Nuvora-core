@@ -38,12 +38,16 @@ static u8 inb(u16 port) { (void)port; return 0xff; }
 static u16 inw(u16 port) { (void)port; return 0; }
 static void outb(u16 port, u8 value) { (void)port; (void)value; }
 static void outw(u16 port, u16 value) { (void)port; (void)value; }
-static bool nvme_init(u64 *capacity) { (void)capacity; return false; }
+static bool nvme_init(u64 *capacity, u32 first_pci, u32 first_nsid,
+                      u32 *selected_pci, u32 *selected_nsid) {
+    (void)capacity; (void)first_pci; (void)first_nsid;
+    (void)selected_pci; (void)selected_nsid; return false;
+}
 static int nvme_read(u64 lba, void *buffer) { (void)lba; (void)buffer; return -NV_ENODEV; }
 static int nvme_write(u64 lba, const void *buffer) { (void)lba; (void)buffer; return -NV_ENODEV; }
 static int nvme_flush(void) { return -NV_ENODEV; }
 static bool nvme_ready(void) { return false; }
-static void nvme_shutdown(void) {}
+static bool nvme_shutdown(void) { return true; }
 static u32 sim_read(u32 offset);
 static void sim_write(u32 offset, u32 value);
 #define AHCI_REG_READ(offset) sim_read(offset)

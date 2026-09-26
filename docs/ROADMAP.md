@@ -5,7 +5,7 @@
 1. **完善 64 位内存模型**：x64 用户堆已扩大到 512 MiB，但 ABI 1 用户地址仍限制于 1–2 GiB；下一步需要完整 64 位用户指针、按需映射、文件映射、页缓存和资源配额/OOM 策略。ARM64 需要与之兼容的内存接口。
 2. **进程和 IPC**：fork 或另一种显式派生模型、管道、信号、会话、进程组、init 自动恢复与进程树监管。
 3. **并发**：x64 APIC/ARM64 GIC 与 PSCI 多核启动、每 CPU 数据、锁、原子操作、可扩展调度和压力测试；ARM64 先补齐 ELF 装载、进程切换和 NEON/FP 状态保存。
-4. **现代硬件启动**：已有 ACPI/PCIe、x64 UEFI GOP、IDE/AHCI/SATA 与仅支持 512B namespace 的 NVMe 单盘轮询 I/O。下一步是 ACPI AML 资源/中断路由、多 segment 与 PCI 资源分配、USB 存储与更多主机控制器、4K NVMe namespace、更多盘与实体 UEFI 固件验证矩阵。
+4. **现代硬件启动**：已有 ACPI/PCIe、x64 UEFI GOP、IDE/AHCI/SATA 与逐控制器扫描的 512B NVMe 单活动盘轮询 I/O、可移动 GPT/ESP 启动镜像。下一步是 ACPI AML 资源/中断路由、多 segment 与 PCI 资源分配、USB 存储与更多主机控制器、4K NVMe namespace、多活动盘与实体 UEFI 固件验证矩阵。
 5. **可靠存储**：块设备层、请求队列、缓存与写回、通用文件系统、完整错误恢复、写入中断故障注入。
 6. **网络**：已加入小范围实体网卡驱动和以太网、ARP、IPv4、DHCP、UDP；下一步是 Intel/Realtek 内置 Wi-Fi 固件与驱动、其他常见有线芯片、实机测试、IPv6、TCP、套接字与访问控制。已实现范围见 [NETWORK.md](NETWORK.md)。
 7. **用户环境与桌面**：x64 已有开放 SDK、UEFI 像素矩形接口、USB Boot 鼠标、文件管理器和 HDA 同步 PCM 短音频；下一步完成 HDA 长流/环形缓冲、混音与设备切换、实机声卡验证，以及 PS/2 鼠标、通用 HID/触控输入、用户态进程间通信、桌面合成服务和窗口协议，然后是 Unicode 字体、剪贴板、无障碍、成熟运行库、动态链接、用户/组权限、配额、程序安装工具，以及是否实现 POSIX 兼容层的明确决策。已实现范围见 [SDK.md](SDK.md)。

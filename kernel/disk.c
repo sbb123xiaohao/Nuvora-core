@@ -334,13 +334,19 @@ bool disk_init(void) {
     }
     /* Only a disk with a validated Nuvora layout is selected. A foreign IDE
      * disk must not prevent discovery of a valid NVMe data namespace. */
-    if (nvme_init(&sectors)) {
+    for (u32 next_pci = 0, next_nsid = 1, selected_pci, selected_nsid;
+         next_pci <= 0x00ffff00u;) {
+        if (!nvme_init(&sectors, next_pci, next_nsid,
+                       &selected_pci, &selected_nsid)) break;
         nvme_disk = true;
         identified = true;
         if (scan_storage()) return true;
         /* Leave an unrecognized or foreign namespace untouched and stop its
          * controller before giving the queued DMA pages back to RAM. */
-        nvme_shutdown();
+        bool stopped = nvme_shutdown();
+        nvme_disk = false;
+        next_pci = stopped && selected_nsid < 16 ? selected_pci : selected_pci + 0x100u;
+        next_nsid = stopped && selected_nsid < 16 ? selected_nsid + 1 : 1;
     }
     owned = false;
     return false;

@@ -2,11 +2,10 @@
 
 ## 数据盘
 
-x86-64 按 IDE primary master、首个 AHCI 控制器的 SATA 端口顺序、首个
-PCIe NVMe 控制器的顺序寻找有效 Nuvora 数据卷。AHCI 跳过外来格式或
+x86-64 按 IDE primary master、首个 AHCI 控制器的 SATA 端口顺序、所有
+可见 PCIe NVMe 控制器的顺序寻找有效 Nuvora 数据卷。AHCI 跳过外来格式或
 不支持 512 字节逻辑扇区的盘，继续检查后续端口，使用一个轮询命令槽；
-NVMe 枚举前 16 个
-namespace，选择首个 512 字节扇区、无 metadata
+NVMe 对每个控制器枚举前 16 个 namespace，跳过无效卷，选择 512 字节扇区、无 metadata
 和保护信息的 NVM namespace。控制器使用轮询管理队列和一个 I/O 队列；
 IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。
 当前一次只处理一个 512 字节扇区，命令超时或出错后停用该 namespace。
@@ -64,7 +63,7 @@ HDMI/DisplayPort 数字音频、USB 声卡、蓝牙、录音、混音和音量�
 ## 验证边界
 
 `make test-host` 的 NVMe 夹具将实际控制器队列代码接到模拟 PCI/MMIO、
-DMA 和 GPT 镜像，检查格式拒绝、队列回绕、分区边界、写入、Flush 和
+DMA 和 GPT 镜像，检查前置外来 namespace/控制器、格式拒绝、队列回绕、分区边界、写入、Flush 和
 I/O 故障。USB 输入夹具验证实际 Boot 报告解码、按键释放与队列溢出；
 桌面栅格夹具验证坐标命中和画面一致性；HDA 夹具把实际驱动接到模拟
 寄存器、codec verb 和 DMA，检查路由、格式、BDL、错误与用户缓冲边界。

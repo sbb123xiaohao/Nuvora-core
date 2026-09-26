@@ -57,7 +57,7 @@ APPS := loom pulse spin fault probe folio relay vector desktop wave media
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
-.PHONY: all clean run window test test-host iso iso-uefi esp disk check FORCE
+.PHONY: all clean run window test test-host iso iso-uefi esp media disk check FORCE
 all: $(BUILD)/boot.elf $(BUILD)/BOOTX64.EFI
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -79,6 +79,9 @@ $(BUILD)/BOOTX64.EFI: $(BUILD)/uefi.elf
 $(BUILD)/esp.img: $(BUILD)/BOOTX64.EFI $(BUILD)/nuvora.elf scripts/mkesp.py FORCE
 	$(PYTHON) scripts/mkesp.py $@
 esp: $(BUILD)/esp.img
+$(BUILD)/nuvora-uefi-media.img: $(BUILD)/esp.img scripts/mkmedia.py scripts/mkgptdisk.py
+	$(PYTHON) scripts/mkmedia.py $@
+media: $(BUILD)/nuvora-uefi-media.img
 $(BUILD)/apps/folio.elf: $(BUILD)/user/folio.o $(BUILD)/user/document.o $(UCOMMON) $(ULINK)
 $(BUILD)/apps/media.elf: $(BUILD)/user/media.o $(BUILD)/user/media_codecs.o $(UCOMMON) $(ULINK)
 $(BUILD)/user/media.o $(BUILD)/user/media_codecs.o: CFLAGS := $(filter-out -mgeneral-regs-only -msoft-float -mno-sse -mno-sse2,$(CFLAGS)) -msse2 -U_FORTIFY_SOURCE

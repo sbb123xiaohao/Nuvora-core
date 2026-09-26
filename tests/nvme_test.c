@@ -11,13 +11,14 @@
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static FILE *disk_file;
 static u64 disk_sectors;
-static u8 dma[8][PAGE];
-static u32 next_page, pci_command, completed, flushes, writes;
+static u8 dma[32][PAGE];
+static u32 next_page, pci_command[2], completed, flushes, writes;
+static bool multi_namespace, multi_controller;
 static bool fail_io;
 static u64 cap = 15u | 1ull << 37;
 static u32 ready;
 static uptr page_alloc_below(u64 limit) {
-    assert(limit >= 0x100000000ull && next_page < 7);
+    assert(limit >= 0x100000000ull && next_page + 1 < 32);
     ++next_page;
     memset(dma[next_page], 0, PAGE);
     return next_page * PAGE;
@@ -28,19 +29,22 @@ static void *phys_ptr(uptr physical) {
     return dma[physical / PAGE];
 }
 static void *vm_mmio_map(u64 physical, u32 size) {
-    assert(physical == 0x40000000u && size == 2 * PAGE);
+    assert((physical == 0x40000000u ||
+            (multi_controller && physical == 0x50000000u)) && size == 2 * PAGE);
     return dma[0];
 }
 static u32 pci_read(u32 address, u32 offset) {
-    assert(address == 0x1000);
-    return offset == 0x10 ? 0x40000000u : offset == 4 ? pci_command : 0;
+    assert(address == 0x1000 || (multi_controller && address == 0x2000));
+    return offset == 0x10 ? (address == 0x2000 ? 0x50000000u : 0x40000000u) :
+           offset == 4 ? pci_command[address == 0x2000] : 0;
 }
 static void pci_write16(u32 address, u32 offset, u16 value) {
-    assert(address == 0x1000 && offset == 4);
-    pci_command = value;
+    assert((address == 0x1000 || (multi_controller && address == 0x2000)) && offset == 4);
+    pci_command[address == 0x2000] = value;
 }
 static void pci_visit(void (*visit)(u32, u32, u32)) {
     visit(0x1000, 0x12348086, 0x01080200);
+    if (multi_controller) visit(0x2000, 0x12348086, 0x01080200);
 }
 static u8 inb(u16 port) { (void)port; return 0xff; }
 static u16 inw(u16 port) { (void)port; return 0; }
@@ -79,7 +83,7 @@ static void sim_write(u32 offset, u32 value) {
     if (!qid && (cmd->cdw0 & 255u) == 6) {
         u8 *id = phys_ptr((uptr)cmd->prp1);
         if (cmd->cdw10 == 1) {
-            u32 n = 1;
+            u32 n = multi_namespace && nvme.pci == 0x1000 ? 2 : 1;
             memcpy(id + 516, &n, 4);
         } else {
             memcpy(id, &disk_sectors, 8);
@@ -91,10 +95,16 @@ static void sim_write(u32 offset, u32 value) {
         if (!opcode) ++flushes;
         if (opcode == 1 || opcode == 2) {
             u64 lba = (u64)cmd->cdw10 | (u64)cmd->cdw11 << 32;
-            assert(lba < disk_sectors && cmd->nsid == 1);
+            assert(lba < disk_sectors);
             assert(cmd->prp1 == nvme.data_page && !cmd->prp2 && !cmd->cdw12);
             if (fail_io) done.status |= 2u;
+            else if ((multi_namespace && nvme.pci == 0x1000 && cmd->nsid == 1) ||
+                     (multi_controller && nvme.pci == 0x1000)) {
+                assert(opcode == 2 && lba == 0); /* foreign disk remains read-only */
+                memset(phys_ptr((uptr)cmd->prp1), 0, 512);
+            }
             else {
+                assert(cmd->nsid == (multi_namespace ? 2u : 1u));
                 assert(fseek(disk_file, (long)(lba * 512), SEEK_SET) == 0);
                 u8 *buffer = phys_ptr((uptr)cmd->prp1);
                 if (opcode == 1) {
@@ -111,6 +121,8 @@ static void sim_write(u32 offset, u32 value) {
 int main(int argc, char **argv) {
     assert(argc == 3 || argc == 4);
     bool modern = argc == 4;
+    multi_namespace = modern && !strcmp(argv[3], "multi");
+    multi_controller = modern && !strcmp(argv[3], "controller");
     disk_file = fopen(argv[1], "r+b");
     assert(disk_file);
     disk_sectors = (u64)strtoul(argv[2], NULL, 10) * 2048;
@@ -123,7 +135,9 @@ int main(int argc, char **argv) {
     id[130] = 12; assert(!nvme_namespace(id, &blocks));
     id[130] = 9; id[128] = 8; assert(!nvme_namespace(id, &blocks));
     id[128] = 0; id[29] = 1; assert(!nvme_namespace(id, &blocks));
-    assert(disk_init() && nvme_disk && (pci_command & 6u) == 6u);
+    assert(disk_init() && nvme_disk && (pci_command[nvme.pci == 0x2000] & 6u) == 6u);
+    assert(nvme.nsid == (multi_namespace ? 2u : 1u));
+    assert(nvme.pci == (multi_controller ? 0x2000u : 0x1000u));
     assert(disk_volume_count() == 2 && disk_partition_count() == 2);
     assert(completed > 30); /* repeated wraps of both phase and command ID */
     u8 sector[512];
@@ -146,8 +160,8 @@ int main(int argc, char **argv) {
     assert(disk_read(0, sector) == -NV_EIO);
     assert(disk_read(0, sector) == -NV_ENODEV);
     assert(!disk_ready());
-    nvme_shutdown();
-    assert(!(pci_command & 4u) && !nvme_ready());
+    assert(nvme_shutdown());
+    assert(!(pci_command[multi_controller] & 4u) && !nvme_ready());
     fclose(disk_file);
-    puts("PASS NVMe: PCI, admin/I-O queues, namespace format, GPT volumes, bounded writes, flush and I/O errors");
+    puts("PASS NVMe: PCI, namespace/controller selection, GPT volumes, bounded writes, flush and I/O errors");
 }
