@@ -64,7 +64,7 @@ def firmware_arguments(firmware):
 
 def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,
             disk_bus='ide'):
-    if disk_bus not in ('ide', 'nvme'):
+    if disk_bus not in ('ide', 'ahci', 'nvme'):
         raise ValueError(f'Unsupported data-disk bus: {disk_bus}')
     binary = qemu_binary()
     if not binary:
@@ -88,6 +88,10 @@ def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,
         if disk_bus == 'nvme':
             cmd += ['-drive', f'file={disk_spec},format=raw,if=none,id=nuvora_disk',
                     '-device', 'nvme,drive=nuvora_disk,serial=nuvora-data']
+        elif disk_bus == 'ahci':
+            cmd += ['-drive', f'file={disk_spec},format=raw,if=none,id=nuvora_disk',
+                    '-device', 'ich9-ahci,id=nuvora_sata',
+                    '-device', 'ide-hd,drive=nuvora_disk,bus=nuvora_sata.0']
         elif machine == 'q35':
             # q35 normally exposes only its AHCI controller.  Nuvora's small
             # ATA PIO driver intentionally talks to the legacy 0x1f0/0x3f6

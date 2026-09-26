@@ -8,7 +8,7 @@ import zipfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
 target = pathlib.Path(sys.argv[1]).resolve()
-VERSION = '0.9.0'
+VERSION = '0.10.0'
 selected = []
 for path in sorted(root.rglob('*')):
     if not path.is_file():

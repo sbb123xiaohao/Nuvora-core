@@ -30,6 +30,10 @@ static int net_igc_send(const void *p, u32 size) {
     return 0;
 }
 static void net_igc_poll(void (*receive)(const void *, u32)) { (void)receive; }
+static bool net_e1000_start(u32 address, u8 mac[6]) { (void)address; (void)mac; return false; }
+static bool net_e1000_link(void) { return false; }
+static int net_e1000_send(const void *p, u32 size) { (void)p; (void)size; return -NV_ENODEV; }
+static void net_e1000_poll(void (*receive)(const void *, u32)) { (void)receive; }
 static bool usb_ecm_link(void) { return bridge_up; }
 static int usb_ecm_send(const void *p, u32 size) {
     if (!bridge_up) return -NV_ENODEV;

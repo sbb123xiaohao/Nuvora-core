@@ -5,12 +5,17 @@
 | 硬件 | 路径 | 当前状态 |
 | --- | --- | --- |
 | Intel I225-V / I225-LM、I226-V / I226-LM | 真实 PCIe BAR、物理 DMA RX/TX 环、轮询 | 驱动已接入；需实机链路、DHCP 和收发验证 |
+| Intel PRO/1000、82574L/e1000e（含 VMware/QEMU 常见虚拟卡） | 兼容 legacy RX/TX 描述符、PCI BAR、轮询 | 驱动已接入；需 VMware/实体链路验证 |
 | 标准 USB CDC-ECM 网卡 | xHCI bulk IN/OUT、MAC 描述符、热插拔 | 驱动已接入；需实机验证；RNDIS/NCM 不支持 |
 | Espressif ESP32-S2/S3 USB Dongle 示例固件（USB ECM + CDC） | ECM 以太网帧；CDC 上的 `scan` / `sta` 命令配置设备的 Wi-Fi 射频 | 有专用 `net wifi` 控制入口；用户需自行准备支持 USB OTG 的开发板并烧录固件；需实机验证 |
 | Intel AX200/AX210/AX211/BE200 等 PCI Wi-Fi | 仅 PCI 识别 | 无原生固件加载、802.11 驱动和 WPA 认证，显示 `no driver` |
 | 其他有线 PCIe 网卡、USB RNDIS/NCM、手机 USB 共享 | 仅识别或未匹配 | 暂不可收发 |
 
 支持的协议：以太网、ARP、IPv4、DHCP（申请地址）、ICMP echo 应答、UDP 发送和单包接收。程序经 `NV_DEVCTL` 的 `NV_SUB_NET` 访问这些功能；不是 POSIX socket API。当前没有 TCP、DNS 名称查询、TLS、IPv6、VLAN、DHCP 租约续期、多个并发 UDP 接收队列，也没有通用网络管理服务。
+
+QEMU 可用 `python3 start.py --uefi --window --network` 加入 e1000e
+虚拟网卡和 user networking。Loom 启动后运行 `net dhcp`；虚拟网卡收发
+已通过宿主 MMIO/DMA 模拟，当前环境没有运行 QEMU/VMware 网卡实测。
 
 ## 操作
 
@@ -38,6 +43,6 @@ SSID 和密码当前限定为不含空格的 ASCII；密码长度 8–63。口�
 ## 设计边界与实机验证
 
 - x64 内核仅有 PIC/PIT，没有 ACPI AML 中断路由/APIC 和 IOMMU 映射，因而采用轮询和低于 4 GiB 的 DMA 页。实机网卡、电源管理和固件配置差异仍需测试；异常时驱动会停止或隔离 DMA 页。
-- 只有一块受支持的 PCIe I225/I226 有线卡和一块 ECM 网卡可同时活动；`net use` 选择其一。其他 PCIe 网卡仍会列出但不会接管设备。
+- 只有一块受支持的 PCIe 有线卡（I225/I226 或 e1000/e1000e）和一块 ECM 网卡可同时活动；`net use` 选择其一。其他 PCIe 网卡仍会列出但不会接管设备。
 - Wi-Fi 通过独立 ESP 射频芯片和官方固件，不代表内置无线卡可用。要覆盖现代笔记本内置 Wi-Fi，还需具体芯片驱动、固件分发/加载、802.11 与 WPA2/WPA3 链路管理；适配器支持列表必须逐型号实测。
 - UEFI 启动、xHCI 和 PCIe 资源、AHCI/NVMe 安装介质等同样决定整台现代电脑能否使用；本补丁未完成通用实机安装和日用系统支持。

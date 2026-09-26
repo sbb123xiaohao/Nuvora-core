@@ -1,4 +1,5 @@
 build/
+vmware/
 __pycache__/
 *.pyc
 SHA256SUMS

@@ -18,7 +18,7 @@ from mkgptdisk import create as create_gpt_disk
 REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
 results = []
-VERSION = '0.9.0'
+VERSION = '0.10.0'
 EXPECTED_ASSERTIONS = 139
 if ARCH != 'x86_64':
     raise SystemExit('Use scripts/arm64.py test for ARM64; 32-bit x86 is retired')

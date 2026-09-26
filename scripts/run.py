@@ -11,8 +11,9 @@ parser.add_argument('--uefi', action='store_true', help='Boot via the UEFI stub 
 parser.add_argument('--no-usb', action='store_true', help='Boot without the virtual xHCI controller and USB devices')
 parser.add_argument('--cpu', help='QEMU CPU model (for example: core2duo, phenom, max)')
 parser.add_argument('--machine', choices=['pc', 'q35'], default='pc', help='QEMU machine model')
-parser.add_argument('--disk-bus', choices=['ide', 'nvme'], default='ide',
-                    help='Attach the existing Nuvora GPT image to IDE or NVMe (default: ide)')
+parser.add_argument('--disk-bus', choices=['ide', 'ahci', 'nvme'], default='ide',
+                    help='Attach the existing Nuvora GPT image to IDE, AHCI/SATA or NVMe (default: ide)')
+parser.add_argument('--network', action='store_true', help='Attach an e1000e NIC with QEMU user networking')
 parser.add_argument('--no-ecam', action='store_true', help='Disable PCIe ECAM and use CF8/CFC fallback')
 args = parser.parse_args()
 if ARCH != 'x86_64':
@@ -38,6 +39,8 @@ cmd = command(memory=args.memory, disk=BUILD / 'nuvora-store.img', cpu=args.cpu,
               kernel=not args.uefi, esp=esp if args.uefi else None, disk_bus=args.disk_bus)
 if firmware:
     cmd += firmware_arguments(firmware)
+if args.network:
+    cmd += ['-netdev', 'user,id=nuvora_net', '-device', 'e1000e,netdev=nuvora_net']
 if args.no_ecam:
     cmd += ['-append', 'nv.no-ecam=1']
 if not args.no_usb:

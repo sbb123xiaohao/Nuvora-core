@@ -3,7 +3,7 @@
  * data images beyond 128 GiB work; LBA28 remains the fallback. The store
  * layout lives in sector 0 and describes its own slot geometry, so images can
  * be larger than the historical fixed 8 MiB. */
-static bool identified, owned, lba48, nvme_disk;
+static bool identified, owned, lba48, nvme_disk, ahci_disk;
 static u64 sectors;
 static struct store_layout layout;
 /* Primary and backup GPT entry arrays have at most 128 entries of 128 bytes.
@@ -84,7 +84,8 @@ static int transfer(u64 lba, void *buf, bool write) {
     return wait_ready(false);
 }
 int disk_read(u64 lba, void *buf) {
-    return nvme_disk ? nvme_read(lba, buf) : transfer(lba, buf, false);
+    return nvme_disk ? nvme_read(lba, buf) : ahci_disk ? ahci_read(lba, buf) :
+                       transfer(lba, buf, false);
 }
 static bool writable(u64 lba) {
     if (!volume_count || lba < volumes[0].start ||
@@ -98,12 +99,14 @@ int disk_write(u64 lba, const void *buf) {
         return -NV_EACCESS;
     if (!writable(lba))
         return -NV_EINVAL;
-    return nvme_disk ? nvme_write(lba, buf) : transfer(lba, (void *)buf, true);
+    return nvme_disk ? nvme_write(lba, buf) : ahci_disk ? ahci_write(lba, buf) :
+                       transfer(lba, (void *)buf, true);
 }
 int disk_flush(void) {
     if (!owned)
         return -NV_ENODEV;
     if (nvme_disk) return nvme_flush();
+    if (ahci_disk) return ahci_flush();
     if (wait_ready(false) < 0)
         return -NV_EIO;
     outb(0x1f7, lba48 ? 0xea : 0xe7);
@@ -111,7 +114,7 @@ int disk_flush(void) {
     return wait_ready(false);
 }
 bool disk_ready(void) {
-    return owned && (!nvme_disk || nvme_ready());
+    return owned && (!nvme_disk || nvme_ready()) && (!ahci_disk || ahci_ready());
 }
 bool disk_store_layout(struct store_layout *out) {
     if (!disk_ready())
@@ -151,6 +154,7 @@ int disk_volume_write(u32 index, u64 relative, const void *buf) {
           (relative >= l->slot_lba[1] && relative - l->slot_lba[1] < l->slot_sectors)))
         return -NV_EACCESS;
     return nvme_disk ? nvme_write(volumes[index].start + relative, buf) :
+           ahci_disk ? ahci_write(volumes[index].start + relative, buf) :
                        transfer(volumes[index].start + relative, (void *)buf, true);
 }
 static bool parse_header_size(const u8 *header, u64 capacity, struct store_layout *out) {
@@ -316,8 +320,15 @@ static bool scan_storage(void) {
     return owned;
 }
 bool disk_init(void) {
-    nvme_disk = false;
+    nvme_disk = ahci_disk = false;
     if (ata_identify() && scan_storage()) return true;
+    if (ahci_init(&sectors)) {
+        ahci_disk = true;
+        identified = true;
+        if (scan_storage()) return true;
+        ahci_shutdown();
+        ahci_disk = false;
+    }
     /* Only a disk with a validated Nuvora layout is selected. A foreign IDE
      * disk must not prevent discovery of a valid NVMe data namespace. */
     if (nvme_init(&sectors)) {

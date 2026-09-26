@@ -2,7 +2,10 @@
 
 ## 0.10.0 当前结果
 
-`make -j4 all` 及 `make test-host` 的 **19 组**通过（所有 C 夹具 UBSan）。
+`make -j4 all` 及 `make test-host` 的 **22 组**通过（所有 C 夹具 UBSan）。
+本轮新增 AHCI 命令 FIS/高位 LBA、DMA 读写/Flush/错误停用夹具，以及
+e1000e 网卡选择和真实驱动收发环夹具。Windows/VMware 配置脚本未在
+Windows 或 VMware 上执行；当前环境没有 QEMU、qemu-img 或 PowerShell。
 新增真实 fs/store 的 10 GiB 稀疏长度和 >4 GiB 物理地址读写、160 MiB
 连续数据且索引内存不随内容增长、180 次碎片覆盖/OOM 回滚、磁盘满、
 不确定最终 Flush 阻止继续写入；ATA/NVMe 各跑旧格式与 NVSTORE3 GPT。

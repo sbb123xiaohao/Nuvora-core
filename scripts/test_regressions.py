@@ -16,7 +16,7 @@ def main():
         create_gpt_disk(extent_image, size_mib=128, partitions=2)
         raw_image = pathlib.Path(directory) / 'raw-extent.img'
         create_raw_disk(raw_image, size_mib=64)
-        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'store', 'extent', 'uefi', 'network', 'audio', 'display', 'pointer', 'media', 'media_formats']:
+        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'store', 'extent', 'uefi', 'network', 'network_e1000', 'e1000', 'audio', 'display', 'pointer', 'media', 'media_formats']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -40,7 +40,7 @@ def main():
                 subprocess.run([str(output), str(raw_image), '64', 'raw'], check=True)
         subprocess.run(['python3', 'scripts/test_media_import.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'scripts/test_extent_import.py', str(pathlib.Path(directory) / 'extent')], cwd=ROOT, check=True)
-    print('ALL 19 HOST REGRESSION GROUPS PASSED (including MP3/MPEG decode, safe media import and graphical UI, UBSan enabled)')
+    print('ALL 22 HOST REGRESSION GROUPS PASSED (including AHCI/e1000 DMA, MP3/MPEG decode, safe media import and graphical UI, UBSan enabled)')
 
 if __name__ == '__main__':
     main()

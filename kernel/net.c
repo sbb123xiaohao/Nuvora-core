@@ -4,6 +4,8 @@
  * fields are written bytewise, so they do not depend on host endianness. */
 static struct nv_net_info adapters[NV_NET_MAX];
 static u32 count, active = NV_NET_MAX, wired = NV_NET_MAX, usb_index = NV_NET_MAX;
+enum { WIRED_NONE, WIRED_IGC, WIRED_E1000 };
+static u32 wired_driver;
 static u32 last_dhcp, dhcp_xid;
 static u8 lease_state; /* 0 idle; 1 discover; 2 request */
 static u32 offered, server;
@@ -43,6 +45,17 @@ static bool supported(u32 vendor, u32 product) {
     return vendor == 0x8086 && (product == 0x15f2 || product == 0x15f3 ||
                                  product == 0x125b || product == 0x125c);
 }
+static bool e1000_supported(u32 vendor, u32 product) {
+    if (vendor != 0x8086) return false;
+    switch (product) {
+    case 0x100e: case 0x100f: case 0x1010: case 0x1011:
+    case 0x10d3: case 0x10ea: case 0x10eb: case 0x10ef:
+    case 0x10f0: case 0x10f5: case 0x10f6: case 0x1503:
+        return true;
+    default:
+        return false;
+    }
+}
 static void discover(u32 address, u32 id, u32 cls) {
     if ((cls >> 16) != 0x0200 && (cls >> 16) != 0x0280) return;
     if (count == NV_NET_MAX) return;
@@ -59,6 +72,14 @@ static void discover(u32 address, u32 id, u32 cls) {
         supported(n->vendor, n->product)) {
         if (net_igc_start(address, n->mac)) {
             wired = active = n->index;
+            wired_driver = WIRED_IGC;
+            n->state = NV_NET_DOWN;
+        } else n->state = NV_NET_DOWN;
+    } else if (n->type == NV_NET_WIRED && wired == NV_NET_MAX &&
+               e1000_supported(n->vendor, n->product)) {
+        if (net_e1000_start(address, n->mac)) {
+            wired = active = n->index;
+            wired_driver = WIRED_E1000;
             n->state = NV_NET_DOWN;
         } else n->state = NV_NET_DOWN;
     }
@@ -66,7 +87,8 @@ static void discover(u32 address, u32 id, u32 cls) {
 void net_init(void) {
     pci_visit(discover);
     kprintf("[net] %u PCI network device(s), physical wired driver %s\n", count,
-            active < NV_NET_MAX ? "started" : "unavailable");
+            wired_driver == WIRED_IGC ? "igc" :
+            wired_driver == WIRED_E1000 ? "e1000" : "unavailable");
 }
 void net_usb_attach(u32 vendor, u32 product, const u8 *mac) {
     if (usb_index < count) return;
@@ -102,7 +124,16 @@ void net_usb_detach(void) {
 }
 static bool is_active(void) {
     if (active >= count) return false;
-    return active == usb_index ? usb_ecm_link() : net_igc_link();
+    if (active == usb_index) return usb_ecm_link();
+    return wired_driver == WIRED_E1000 ? net_e1000_link() : net_igc_link();
+}
+static int wired_send(const void *data, u32 size) {
+    return wired_driver == WIRED_E1000 ? net_e1000_send(data, size) :
+                                         net_igc_send(data, size);
+}
+static void wired_poll(void (*receive)(const void *, u32)) {
+    if (wired_driver == WIRED_E1000) net_e1000_poll(receive);
+    else net_igc_poll(receive);
 }
 static int send_frame(const u8 *dest, u16 type, const void *data, u32 length) {
     if (!is_active()) return -NV_ENODEV;
@@ -114,7 +145,7 @@ static int send_frame(const u8 *dest, u16 type, const void *data, u32 length) {
     memcpy(frame + 14, data, length);
     if (length + 14 < 60) memset(frame + 14 + length, 0, 60 - length - 14);
     int result = active == usb_index ? usb_ecm_send(frame, MAX(60u, length + 14)) :
-                                      net_igc_send(frame, MAX(60u, length + 14));
+                                      wired_send(frame, MAX(60u, length + 14));
     if (!result) ++n->tx_packets;
     return result;
 }
@@ -298,7 +329,7 @@ void net_poll(void) {
         n->state = NV_NET_DOWN; lease_state = 0; peer_ip = 0; inbox_full = false;
     } else {
         if (n->state == NV_NET_DOWN) n->state = NV_NET_LINK;
-        if (active == wired) net_igc_poll(receive);
+        if (active == wired) wired_poll(receive);
         if (lease_state && ticks - last_dhcp >= 400)
             dhcp_send(lease_state == 2);
     }

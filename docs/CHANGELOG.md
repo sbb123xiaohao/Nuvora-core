@@ -1,5 +1,20 @@
 # Nuvora Core 0.10.0
 
+## Windows / VMware 兼容性补丁
+
+- 增加 `start.ps1` 和 `scripts/windows.ps1`：Windows PowerShell 的 doctor、
+  WSL2/native 构建、UEFI ISO、QEMU 启动和 VMware 配置入口；默认优先使用
+  WSL2，工具缺失时直接报告可执行安装动作。
+- 增加 `scripts/vmware.ps1`、Windows/VMware 文档和安全的 VMDK 转换流程；
+  模板固定 UEFI、关闭未签名 loader 不能使用的 Secure Boot，启用 USB 3.x、
+  HDAudio、GOP 和 e1000e。
+- 内核增加 Intel e1000/e1000e legacy descriptor 驱动和单端口 AHCI/SATA
+  轮询存储驱动；现有 IDE/NVMe 路径和写入隔离继续保留。
+- QEMU 增加 `--disk-bus ahci` 和 `--network` 路径；新增实际 AHCI FIS
+  和 e1000 DMA 环的宿主夹具，当前共 22 组 UBSan 回归通过。
+- 这轮仍未把 VMware/实体硬件测试冒充为宿主回归；实际启动需按 WINDOWS.md
+  和 VMWARE.md 在对应机器复验。
+
 ## 0.10.0 磁盘块存储与流式媒体
 
 - 新盘默认 NVSTORE3，文件内容按 4 KiB 区间写入全卷数据区；两个 2 MiB

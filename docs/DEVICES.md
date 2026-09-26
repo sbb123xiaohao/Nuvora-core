@@ -1,9 +1,10 @@
-# NVMe、USB 鼠标与 HDA 音频（开发范围）
+# IDE、AHCI/NVMe、USB 鼠标与 HDA 音频（开发范围）
 
 ## 数据盘
 
-x86-64 在 IDE primary master 找不到有效的 Nuvora 数据卷时，枚举首个 PCIe
-NVMe 控制器及其前 16 个 namespace，选择首个 512 字节扇区、无 metadata
+x86-64 按 IDE primary master、首个 AHCI/SATA 端口、首个 PCIe NVMe 控制器的
+顺序寻找有效 Nuvora 数据卷。AHCI 使用一个轮询命令槽；NVMe 枚举前 16 个
+namespace，选择首个 512 字节扇区、无 metadata
 和保护信息的 NVM namespace。控制器使用轮询管理队列和一个 I/O 队列；
 IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。
 当前一次只处理一个 512 字节扇区，命令超时或出错后停用该 namespace。
@@ -12,13 +13,14 @@ IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。
 打开的 Nuvora 卷只允许写入自身两个快照槽；不会自动格式化硬盘。
 
 目前只选择一个数据盘；IDE 上有有效 Nuvora 卷时，不同时挂载 NVMe。
-不支持 AHCI/SATA 控制器、4K 原生 namespace、NVMe 多队列、中断、
+不支持 4K 原生 namespace、NVMe 多队列、中断、
 热插拔、设备休眠恢复或断电恢复验证。盘符表示 Nuvora 自有卷，
 不是 Windows 文件系统兼容承诺。可用 `partitions`、`volumes` 查看已识别卷，
 `anchor` 把各卷内存状态提交到其快照槽。
 在配有 OVMF、mtools 和 QEMU 的宿主上，`python3 start.py --uefi --window
---disk-bus nvme` 可将已有的 GPT 数据镜像挂为模拟 NVMe 设备；省略该参数仍
-使用 IDE。该命令仅提供复验入口，当前环境未执行 QEMU 启动。
+--disk-bus nvme` 可将已有的 GPT 数据镜像挂为模拟 NVMe 设备；
+`--disk-bus ahci` 使用 SATA/AHCI，省略参数使用 IDE。该命令仅提供复验入口，
+当前环境未执行 QEMU 启动。
 
 ## 鼠标
 
@@ -63,7 +65,7 @@ DMA 和 GPT 镜像，检查格式拒绝、队列回绕、分区边界、写入�
 I/O 故障。USB 输入夹具验证实际 Boot 报告解码、按键释放与队列溢出；
 桌面栅格夹具验证坐标命中和画面一致性；HDA 夹具把实际驱动接到模拟
 寄存器、codec verb 和 DMA，检查路由、格式、BDL、错误与用户缓冲边界。
-这些是宿主模拟，不代表已在 QEMU NVMe/xHCI/HDA、任何笔记本或实体设备
+这些是宿主模拟，不代表已在 QEMU AHCI/NVMe/xHCI/HDA、任何笔记本或实体设备
 上启动或运行。驱动部署前还需
 不同控制器和固件的实机测试、长时间 I/O、突然断电及热插拔测试。
 

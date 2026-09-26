@@ -19,8 +19,9 @@ parser.add_argument('--partitions', type=int, default=1, choices=range(1, 5), me
 parser.add_argument('--memory', type=int, default=256, metavar='MIB', help='Guest memory in MiB (default: 256)')
 parser.add_argument('--cpu', help='x64 QEMU CPU model; defaults to qemu64')
 parser.add_argument('--machine', choices=['pc', 'q35'], default='pc', help='QEMU machine model')
-parser.add_argument('--disk-bus', choices=['ide', 'nvme'], default='ide',
-                    help='Attach the data image as IDE or NVMe (default: ide)')
+parser.add_argument('--disk-bus', choices=['ide', 'ahci', 'nvme'], default='ide',
+                    help='Attach the data image as IDE, AHCI/SATA or NVMe (default: ide)')
+parser.add_argument('--network', action='store_true', help='Attach an Intel e1000e virtual NIC with QEMU user networking')
 parser.add_argument('--no-ecam', action='store_true', help='Disable PCIe ECAM and use CF8/CFC fallback')
 args = parser.parse_args()
 if args.memory < 32:
@@ -29,7 +30,8 @@ if args.uefi and args.arch != 'x86_64':
     parser.error('UEFI boot is only implemented for x86_64')
 if args.arch == 'aarch64':
     if (args.window or args.audio or args.no_ecam or args.machine != 'pc' or args.cpu or
-            args.disk_size not in (64, 512, 8192) or args.partitions != 1 or args.disk_bus != 'ide'):
+            args.disk_size not in (64, 512, 8192) or args.partitions != 1 or
+            args.disk_bus != 'ide' or args.network):
         parser.error('ARM64 bring-up uses QEMU virt, the serial console and its built-in CPU')
     cmd = [sys.executable, str(root / 'scripts/arm64.py'), 'run', '--memory', str(args.memory)]
     raise SystemExit(subprocess.call(cmd))
@@ -50,8 +52,10 @@ if args.window:
     cmd.append('--window')
 if args.audio:
     cmd.append('--audio')
-if args.disk_bus == 'nvme':
-    cmd += ['--disk-bus', 'nvme']
+if args.disk_bus != 'ide':
+    cmd += ['--disk-bus', args.disk_bus]
+if args.network:
+    cmd.append('--network')
 if args.uefi:
     if args.arch != 'x86_64':
         raise SystemExit('UEFI boot is only implemented for x86_64.')
