@@ -224,6 +224,7 @@ void memory_reserve(u64, u64);
 uptr page_alloc(void);
 uptr page_alloc_below(u64 limit); /* never returns pages at or above limit */
 uptr page_alloc_run(u32 count);   /* physically contiguous run, zeroed */
+uptr page_alloc_run_below(u32 count, u64 limit); /* contiguous DMA run below limit */
 uptr page_alloc_order(u32 order); /* aligned 2^order physical pages, zeroed */
 void page_free(uptr);
 void page_pin(uptr); /* convert an owned page to a permanent kernel reservation */

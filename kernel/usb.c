@@ -5,8 +5,8 @@
  * Device DMA pages are released only after Disable Slot has completed. */
 #define MMIO_SIZE 65536u
 #define USB_DMA_LIMIT 0x100000000ull /* conservative DMA mask, like Linux dma_alloc_coherent */
-#define MAX_PORTS 32u
-#define MAX_SCRATCH 32u
+#define MAX_PORTS 255u /* full eight-bit HCS MaxPorts field */
+#define MAX_SCRATCH 1023u /* full ten-bit HCS MaxScratchpadBufs field */
 #define RING_TRBS 256u
 #define TYPE(n) ((u32)(n) << 10)
 #define PORT_CHANGES 0x00fe0000u
@@ -21,6 +21,7 @@ struct host {
     volatile u8 *mmio;
     u32 op, runtime, doorbell, context_size, slots, pci;
     u32 dcbaa, event_page, erst, scratch_array, scratch[MAX_SCRATCH], scratch_count;
+    u32 scratch_array_pages;
     struct ring command;
     u32 event_index, event_cycle, command_wait, command_code, command_slot;
     u32 transfer_wait, transfer_slot, transfer_code, short_left;
@@ -800,6 +801,33 @@ static int reset_root_port(struct host *h, u32 port) {
     u32 speed = (state >> 10) & 15;
     return speed >= 1 && speed <= 5 ? (int)speed : -NV_EINVAL;
 }
+static bool scratch_alloc(struct host *h) {
+    if (!h->scratch_count || h->scratch_count > MAX_SCRATCH)
+        return h->scratch_count == 0;
+    h->scratch_array_pages = ALIGN_UP(h->scratch_count * sizeof(u64), PAGE) / PAGE;
+    h->scratch_array = page_alloc_run_below(h->scratch_array_pages, USB_DMA_LIMIT);
+    if (!h->scratch_array) return false;
+    for (u32 i = 0; i < h->scratch_count; ++i) {
+        h->scratch[i] = page_alloc_below(USB_DMA_LIMIT);
+        if (!h->scratch[i]) return false;
+        ((u64 *)phys_ptr(h->scratch_array))[i] = h->scratch[i];
+    }
+    ((u64 *)phys_ptr(h->dcbaa))[0] = h->scratch_array;
+    return true;
+}
+/* Only used before bus mastering: once running, keep DMA pages pinned until
+ * the controller is known to have stopped. */
+static void scratch_free(struct host *h) {
+    for (u32 i = 0; i < MIN(h->scratch_count, MAX_SCRATCH); ++i)
+        if (h->scratch[i]) {
+            page_free(h->scratch[i]);
+            h->scratch[i] = 0;
+        }
+    for (u32 i = 0; h->scratch_array && i < h->scratch_array_pages; ++i)
+        page_free(h->scratch_array + i * PAGE);
+    h->scratch_array = 0;
+    h->scratch_array_pages = 0;
+}
 static int hub_status(struct device *d, u32 port, u32 *status) {
     if (control(d, 0xa3, 0, 0, (u16)port, 4) < 4)
         return -NV_EIO;
@@ -885,22 +913,7 @@ static void scan(void) {
             scan_hub(&devices[i]);
     last_scan = ticks;
 }
-static bool init_host(struct host *h) {
-    u32 bar = pci_read(h->pci, 0x10);
-    if (bar & 1)
-        return false;
-    u64 physical = bar & ~15u;
-    if ((bar & 6) == 4)
-        physical |= (u64)pci_read(h->pci, 0x14) << 32;
-    else if (bar & 6)
-        return false;
-    if (!physical)
-        return false;
-    h->mmio = vm_mmio_map(physical, MMIO_SIZE);
-    if (!h->mmio)
-        return false;
-    pci_write16(h->pci, 4, (u16)(pci_read(h->pci, 4) | 2u));
-    u32 cap = read32(h, 0), hcs1 = read32(h, 4), hcs2 = read32(h, 8), hcc = read32(h, 16);
+static bool host_capabilities(struct host *h, u32 cap, u32 hcs1, u32 hcc) {
     if ((cap >> 16) < 0x0090 || (cap >> 16) > 0x0200 || (cap & 255) < 0x20)
         return false;
     h->op = cap & 255;
@@ -939,6 +952,25 @@ static bool init_host(struct host *h) {
             break;
         ext += next * 4;
     }
+    return true;
+}
+static bool init_host(struct host *h) {
+    u32 bar = pci_read(h->pci, 0x10);
+    if (bar & 1)
+        return false;
+    u64 physical = bar & ~15u;
+    if ((bar & 6) == 4)
+        physical |= (u64)pci_read(h->pci, 0x14) << 32;
+    else if (bar & 6)
+        return false;
+    if (!physical)
+        return false;
+    h->mmio = vm_mmio_map(physical, MMIO_SIZE);
+    if (!h->mmio)
+        return false;
+    pci_write16(h->pci, 4, (u16)(pci_read(h->pci, 4) | 2u));
+    u32 cap = read32(h, 0), hcs1 = read32(h, 4), hcs2 = read32(h, 8), hcc = read32(h, 16);
+    if (!host_capabilities(h, cap, hcs1, hcc)) return false;
     write32(h, h->op, read32(h, h->op) & ~1u);
     if (!wait_bits(h, h->op + 4, 1, 1, 1000))
         return false;
@@ -947,25 +979,12 @@ static bool init_host(struct host *h) {
         !(read32(h, h->op + 8) & 1))
         return false;
     h->scratch_count = ((hcs2 >> 27) & 31) | (((hcs2 >> 21) & 31) << 5);
-    if (h->scratch_count > MAX_SCRATCH)
-        return false;
     h->dcbaa = page_alloc_below(USB_DMA_LIMIT);
     h->event_page = page_alloc_below(USB_DMA_LIMIT);
     h->erst = page_alloc_below(USB_DMA_LIMIT);
     if (!h->dcbaa || !h->event_page || !h->erst || !ring_init(&h->command))
         return false;
-    if (h->scratch_count) {
-        h->scratch_array = page_alloc_below(USB_DMA_LIMIT);
-        if (!h->scratch_array)
-            return false;
-        ((u64 *)phys_ptr(h->dcbaa))[0] = h->scratch_array;
-        for (u32 i = 0; i < h->scratch_count; ++i) {
-            h->scratch[i] = page_alloc_below(USB_DMA_LIMIT);
-            if (!h->scratch[i])
-                return false;
-            ((u64 *)phys_ptr(h->scratch_array))[i] = h->scratch[i];
-        }
-    }
+    if (!scratch_alloc(h)) return false;
     u32 *erst = phys_ptr(h->erst);
     erst[0] = h->event_page;
     erst[2] = RING_TRBS;
@@ -1009,13 +1028,11 @@ static void discover_host(u32 address, u32 id, u32 cls) {
             host_failed(h);
         else if (h->info.state != NV_USB_FAILED) {
             /* Initialization failed before any DMA pointers were published. */
-            u32 pages[] = {h->dcbaa, h->event_page, h->erst, h->scratch_array, h->command.page};
+            u32 pages[] = {h->dcbaa, h->event_page, h->erst, h->command.page};
             for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
                 if (pages[i])
                     page_free(pages[i]);
-            for (u32 i = 0; i < MIN(h->scratch_count, MAX_SCRATCH); ++i)
-                if (h->scratch[i])
-                    page_free(h->scratch[i]);
+            scratch_free(h);
         }
         h->info.state = NV_USB_FAILED;
     }

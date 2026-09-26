@@ -13,6 +13,7 @@ static void reset_pages(u64 start, u64 length) {
     memset(allocated, 0, sizeof(allocated));
     free_count = total_count = search_word = 0;
     available(start, length);
+    managed_pages = (u32)((start + length) / PAGE);
 }
 static void *fixed_map(uptr address, usize length, int fd) {
     int flags = MAP_FIXED_NOREPLACE | (fd < 0 ? MAP_PRIVATE | MAP_ANONYMOUS : MAP_SHARED);
@@ -46,6 +47,33 @@ static void boundary_run(void) {
     page_free(physical); page_free(physical + PAGE);
     assert(pages_free() == 2);
     munmap(ram, 2 * PAGE); munmap(low, PAGE); munmap(user, PAGE); close(fd);
+}
+static void dma_boundary_run(bool with_buddy) {
+    const uptr physical = 0x100000000ull - 2 * PAGE;
+    int fd = memfd_create("nuvora-dma-boundary", 0);
+    assert(fd >= 0 && ftruncate(fd, 4 * PAGE) == 0);
+    u8 *ram = fixed_map(PHYS_WINDOW + physical, 4 * PAGE, fd);
+    reset_pages(physical, 4 * PAGE);
+    if (with_buddy) {
+        buddy_levels = malloc(nv_buddy_bytes(managed_pages));
+        assert(buddy_levels);
+        nv_buddy_init(&buddy, bitmap, buddy_levels, managed_pages);
+    }
+    memset(ram, 0xa5, 4 * PAGE);
+    assert(!page_alloc_run_below(3, 0x100000000ull));
+    uptr run = page_alloc_run_below(2, 0x100000000ull);
+    assert(run == physical && !page_alloc_run_below(1, 0x100000000ull));
+    for (u32 i = 0; i < 2 * PAGE; ++i) assert(ram[i] == 0);
+    assert(ram[2 * PAGE] == 0xa5);
+    page_free(run);
+    page_free(run + PAGE);
+    assert(page_alloc_run_below(2, 0x100000000ull) == physical);
+    page_free(run);
+    page_free(run + PAGE);
+    free(buddy_levels);
+    buddy_levels = NULL;
+    munmap(ram, 4 * PAGE);
+    close(fd);
 }
 static void allocator_edges(void) {
     const uptr physical = 0x6000000u;
@@ -136,6 +164,7 @@ static void slab_churn(void) {
     munmap(ram, COUNT * PAGE);
 }
 int main(void) {
-    boundary_run(); allocator_edges(); heap_churn(); slab_churn();
+    boundary_run(); dma_boundary_run(false); dma_boundary_run(true);
+    allocator_edges(); heap_churn(); slab_churn();
     puts("PASS memory: boundary/DMA/fragmentation, 12000 heap operations, slab page reclaim");
 }

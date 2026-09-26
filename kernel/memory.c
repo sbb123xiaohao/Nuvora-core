@@ -237,6 +237,35 @@ uptr page_alloc_run(u32 count) {
     }
     return 0;
 }
+uptr page_alloc_run_below(u32 count, u64 limit) {
+    u32 top = (u32)MIN((u64)managed_pages, MIN(limit, (u64)PHYS_LIMIT) / PAGE);
+    if (!count || count > free_count || count >= top)
+        return 0;
+    if (buddy_levels && !(count & (count - 1)) &&
+        count <= (1u << NV_BUDDY_MAX_ORDER)) {
+        u32 first = nv_buddy_find(&buddy, (u32)__builtin_ctz(count), 1, top);
+        return first < top ? commit_pages(first, count) : 0;
+    }
+    u32 run = 0, start = 0;
+    for (u32 i = 1; i < top; ++i) {
+        if (marked(i)) {
+            run = 0;
+            continue;
+        }
+        if (!run) start = i;
+        if (++run != count) continue;
+        for (u32 j = start; j < start + count; ++j) {
+            bitmap[j / 32] |= 1u << (j % 32);
+            allocated[j / 32] |= 1u << (j % 32);
+        }
+        free_count -= count;
+        if (buddy_levels) nv_buddy_refresh(&buddy, start, count);
+        uptr p = (uptr)((u64)start * PAGE);
+        memset(phys_ptr(p), 0, (usize)count * PAGE);
+        return p;
+    }
+    return 0;
+}
 void page_pin(uptr p) {
     if (p >= PHYS_LIMIT || p % PAGE ||
         !(allocated[p / PAGE / 32] & (1u << (p / PAGE % 32))))

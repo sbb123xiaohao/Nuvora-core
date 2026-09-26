@@ -4,7 +4,19 @@ Nuvora Core 是自研实验操作系统：x86-64 提供 UEFI/BIOS 启动、Loom�
 自有数据卷和基础硬件驱动；ARM64 目前是独立的引导与 EL0 计算基线。
 项目尚未完成实体机兼容认证，首次测试请使用专用启动介质和测试数据盘。
 
-## 本轮硬件兼容修复
+## 本轮 xHCI 兼容修复
+
+- 读取控制器能力字段支持最多 255 个根端口；较多端口的 USB 控制器不再因
+  旧的 32 端口上限被直接跳过。支持协议端口范围仍严格校验。
+- 按控制器声明数量准备最多 1023 个暂存 DMA 页，指针表超过 512 项时
+  使用连续两页。新增受 4 GiB 边界约束的连续物理页分配和初始化失败回收；
+  控制器开始 DMA 后出错仍隔离缓冲页，不把可能被设备访问的页交还系统。
+
+`make -j4 all` 和 `make test-host` 检查构建及 27 组宿主回归，含 xHCI
+能力解析、两页 DMA 表、分配失败回滚和 4 GiB 边界。尚需 QEMU 和实体机
+启动验证。具体范围见 [设备说明](docs/DEVICES.md)。
+
+## 前轮硬件兼容修复
 
 - SATA/AHCI 按 PCI 地址与端口顺序寻找有效 Nuvora 卷。前面的控制器只有
   外来格式、4Kn 或不支持的设备时，继续检查后续控制器；一次只启用一个数据盘。
@@ -13,7 +25,6 @@ Nuvora Core 是自研实验操作系统：x86-64 提供 UEFI/BIOS 启动、Loom�
 - PCIe ECAM 必须与一个实际存在的设备配置空间相符；首个总线没有设备时继续
   检查该区域的其他总线。错误 MCFG 区域不再凭两个“无设备”读数通过校验。
 
-`make -j4 all` 和 `make test-host` 检查构建及 26 组宿主回归。
 这些检查没有替代 QEMU 和实体机启动；支持范围与记录见
 [设备说明](docs/DEVICES.md)及[测试说明](docs/TESTING.md)。
 
@@ -29,7 +40,7 @@ Media 支持流式 MP3、MP2、FLAC、扩展 WAV/RF64 和 MPEG-1/MP2 视频，
 去掉视频整份载入与 640×480 的额外限制。桌面显示 64 位容量和 GiB 等单位。
 MP4/MKV 等格式可通过宿主 FFmpeg 转换导入，尚非系统内原生解码。
 
-[使用、迁移、磁盘格式和验证记录](docs/STORAGE-0.10.md)。当前通过 26 组
+[使用、迁移、磁盘格式和验证记录](docs/STORAGE-0.10.md)。当前通过 27 组
 宿主回归，包含 10 GiB 稀疏文件、160 MiB 连续数据、失败回滚与 720p 解码；
 本轮没有 QEMU/实机验证。硬件、元数据、用户地址空间仍有明确边界。Windows
 使用方式见 [Ubuntu 构建与验证](docs/UBUNTU.md) 和
@@ -225,7 +236,7 @@ rest
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 26 组宿主回归；C 夹具使用 UBSan
+make test-host      # 27 组宿主回归；C 夹具使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -285,7 +296,7 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘与鼠标、CDC-ECM 和 ESP USB Dongle CDC 控制；USB 存储仍只识别 |
 | 网络 | x64 Intel I225/I226 与 e1000/e1000e PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
 | 音视频 | x64 HDA 48 kHz 双声道输出；Media 流式 MP3/MP2/FLAC、WAV/RF64 与 MPEG-1/MP2；720p 宿主解码验证，未实机验证 |
-| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。26 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
+| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。27 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 
