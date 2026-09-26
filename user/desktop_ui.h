@@ -11,11 +11,16 @@ struct desktop_view {
     bool pointer;
     u32 pointer_x, pointer_y;
     bool audio_ready;
+    bool menu;
+    u32 menu_selected;
 };
 static const char *desktop_kind(const struct nv_dirent *entry) {
     if (entry->kind == NV_DIR) return "Folder";
     usize n = strlen(entry->name);
     if (n >= 4 && !strcmp(entry->name + n - 4, ".wav")) return "WAV audio";
+    if (n >= 4 && !strcmp(entry->name + n - 4, ".mp3")) return "MP3 audio";
+    if (n >= 4 && !strcmp(entry->name + n - 4, ".mpg")) return "MPEG video";
+    if (n >= 5 && !strcmp(entry->name + n - 5, ".mpeg")) return "MPEG video";
     if (n >= 4 && !strcmp(entry->name + n - 4, ".txt")) return "Text";
     if (n >= 4 && !strcmp(entry->name + n - 4, ".nvd")) return "Document";
     return "File";
@@ -27,12 +32,32 @@ static u32 desktop_scale(u32 width, u32 height) {
 static u32 desktop_visible(u32 height, u32 scale) {
     return height > 128 * scale ? MAX(1u, (height - 128 * scale) / (14 * scale)) : 1;
 }
-enum { DESKTOP_HIT_NONE, DESKTOP_HIT_PLACE, DESKTOP_HIT_FILE };
+enum { DESKTOP_HIT_NONE, DESKTOP_HIT_PLACE, DESKTOP_HIT_FILE,
+       DESKTOP_HIT_START, DESKTOP_HIT_MENU, DESKTOP_HIT_MEDIA };
 struct desktop_hit { u32 kind, index; };
 static struct desktop_hit desktop_hit(u32 width, u32 height,
                                       const struct desktop_view *v, u32 x, u32 y) {
     u32 s = desktop_scale(width, height), margin = 12 * s, nav = 74 * s;
     u32 main_x = 2 * margin + nav, main_y = 38 * s;
+    if (v->menu) {
+        u32 menu_y = height - 177 * s;
+        if (x >= margin && x < margin + 145 * s &&
+            y >= menu_y && y < height - 23 * s) {
+            if (x >= margin + 24 * s) {
+                for (u32 i = 0; i < 4; ++i) {
+                    u32 row = menu_y + (56 + 18 * i) * s;
+                    if (y >= row - 4 * s && y < row + 13 * s)
+                        return (struct desktop_hit){DESKTOP_HIT_MENU, i};
+                }
+            }
+            return (struct desktop_hit){DESKTOP_HIT_NONE, 0};
+        }
+    }
+    if (y >= height - 23 * s && x >= margin && x < margin + 54 * s)
+        return (struct desktop_hit){DESKTOP_HIT_START, 0};
+    if (y < 26 * s && x >= 56 * s && x < 115 * s)
+        return (struct desktop_hit){DESKTOP_HIT_MEDIA, 0};
+    if (v->menu) return (struct desktop_hit){DESKTOP_HIT_NONE, 0};
     if (x >= margin && x < margin + nav) {
         for (u32 i = 0; i < v->volumes + 3; ++i) {
             u32 top = main_y + (28 + i * 18) * s - 4 * s;
@@ -61,6 +86,9 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
     nv_gfx_fill(c, 0, 0, c->width, 26 * s, 0xf8f9f9);
     nv_gfx_fill(c, 0, 26 * s - s, c->width, s, 0xb6c0c6);
     nv_gfx_text(c, margin, 8 * s, "Files", 5, s, 0x24333a);
+    nv_gfx_fill(c, 54 * s, 6 * s, s, 14 * s, 0xb6c0c6);
+    nv_gfx_fill(c, 59 * s, 5 * s, 56 * s, 16 * s, 0x23343d);
+    nv_gfx_text(c, 65 * s, 9 * s, "Media", 5, s, 0xf6f7f5);
     nv_gfx_text(c, c->width - 54 * s, 8 * s, "Nuvora", 6, s, 0x53646d);
 
     nv_gfx_fill(c, margin, main_y, nav, main_h, 0xe9edef);
@@ -140,26 +168,50 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
     number(amount, v->count, 10);
     strlcpy(amount + strlen(amount), v->count == 1 ? " item" : " items",
             sizeof(amount) - strlen(amount));
-    nv_gfx_text(c, margin, height - 16 * s, amount, (u32)strlen(amount), s, 0x53646d);
-    if (*v->message) nv_gfx_label(c, margin + 72 * s, height - 16 * s, v->message,
-                                   (c->width / s - 84) / 6, s, 0x87402f);
+    nv_gfx_fill(c, margin, height - 20 * s, 54 * s, 17 * s, 0x23343d);
+    nv_gfx_fill(c, margin, height - 20 * s, 3 * s, 17 * s, 0xb9814c);
+    nv_gfx_text(c, margin + 9 * s, height - 15 * s, "N  Start", 8, s, 0xf7f5f0);
+    nv_gfx_text(c, margin + 62 * s, height - 16 * s,
+                amount, (u32)strlen(amount), s, 0x53646d);
+    if (*v->message) nv_gfx_label(c, margin + 112 * s, height - 16 * s, v->message,
+                                   (c->width / s - 124) / 6, s, 0x87402f);
     if (v->help) {
         u32 x = main_x + 10 * s, y = main_y + 59 * s;
-        nv_gfx_fill(c, x, y, main_w - 20 * s, 112 * s, 0xf4f7f8);
+        nv_gfx_fill(c, x, y, main_w - 20 * s, 91 * s, 0xf4f7f8);
         nv_gfx_fill(c, x, y, main_w - 20 * s, s, 0x9fb3bc);
-        const char *help[] = {"Keyboard", "Arrows       Select item",
-                              "Enter        Open item", "Backspace    Parent folder",
-                              "F2           New document", "F5           Refresh",
-                              "F6           Save drives", "1-4          Drives",
-                              "5-7          Root, apps, temp", "F1           Close help"};
+        const char *help[] = {"Keyboard", "Arrows / Enter  Select / open",
+                              "Backspace       Parent folder", "F2 Folio   F3 Media",
+                              "F5 Refresh   F6 Save", "F10 Start   Esc Exit",
+                              "1-4 Drives   5-7 Locations", "F1 Close help"};
         for (u32 i = 0; i < ARRAY_LEN(help); ++i)
             nv_gfx_label(c, x + 8 * s, y + (8 + i * 11) * s, help[i],
                          (main_w / s - 36) / 6, s, 0x24333a);
     } else {
-        const char *keys = main_w < 300 * s ? "Enter Open   F1 Keys   Esc Exit" :
-                           "Enter Open   F1 Keys   F2 New   F5 Refresh   F6 Save   Esc Exit";
+        const char *keys = main_w < 300 * s ? "Enter Open   F3 Media   F10 Start" :
+                           "Enter Open   F1 Keys   F2 New   F3 Media   F10 Start   F5 Refresh";
         nv_gfx_label(c, main_x + 10 * s, main_y + main_h - 13 * s,
                      keys, (main_w / s - 20) / 6, s, 0x53646d);
+    }
+    if (v->menu) {
+        u32 x = margin, y = height - 177 * s, w = 145 * s, h = 154 * s;
+        nv_gfx_fill(c, x + 2 * s, y + 3 * s, w, h, 0x8b969a);
+        nv_gfx_fill(c, x, y, w, h, 0xf5f4ef);
+        nv_gfx_fill(c, x, y, 24 * s, h, 0x23343d);
+        nv_gfx_fill(c, x, y, 24 * s, 3 * s, 0xb9814c);
+        nv_gfx_text(c, x + 8 * s, y + 12 * s, "N", 1, s, 0xf5f4ef);
+        nv_gfx_text(c, x + 33 * s, y + 11 * s, "Nuvora", 6, s, 0x23343d);
+        nv_gfx_text(c, x + 33 * s, y + 34 * s, "APPLICATIONS", 12, s, 0x64757d);
+        const char *apps[] = {"Media", "Files", "Folio", "Return to Loom"};
+        for (u32 i = 0; i < ARRAY_LEN(apps); ++i) {
+            u32 row = y + (56 + 18 * i) * s;
+            if (i == v->menu_selected) {
+                nv_gfx_fill(c, x + 27 * s, row - 4 * s, 115 * s, 16 * s, 0xe1e9e9);
+                nv_gfx_fill(c, x + 27 * s, row - 4 * s, 2 * s, 16 * s, 0xb9814c);
+            }
+            nv_gfx_text(c, x + 34 * s, row, apps[i], (u32)strlen(apps[i]), s, 0x263a43);
+        }
+        nv_gfx_fill(c, x + 32 * s, y + 137 * s, 104 * s, s, 0xcbd2d2);
+        nv_gfx_text(c, x + 33 * s, y + 142 * s, "C:  HOME", 8, s, 0x64757d);
     }
     if (v->pointer) {
         for (u32 i = 0; i < 9; ++i) {

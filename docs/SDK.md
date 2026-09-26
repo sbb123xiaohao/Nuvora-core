@@ -105,17 +105,19 @@ DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不
 零字节或超长请求返回 `-NV_EINVAL`；坏用户地址返回 `-NV_EFAULT`。
 接口没有录音、混音、音量控制、设备切换和异步缓冲契约。
 `wave FILE.wav` 播放符合此格式的 RIFF/WAVE PCM 文件；`wave --test`
-产生一秒 440 Hz 测试音。文件系统的普通文件上限为 128 KiB。
+产生一秒 440 Hz 测试音。图形 `media` 应用另用 minimp3 和 pl_mpeg
+解码 MP3 与 MPEG-1/MP2，再写入同一 PCM 接口；其代码示例见
+`user/media.c`。文件系统的普通文件上限为 4 MiB。
 控制器、模拟和实机边界见 [DEVICES.md](DEVICES.md)。
 
 ## 桌面入口和后续边界
 
 在 Loom 输入 `desktop`。USB Boot 鼠标可单击选中文件、双击进入文件夹
-或打开 `.txt`/`.nvd` 文档及 `.wav` 音频；也可以用方向键选择文件，Enter 进入文件夹，
-以 Folio 打开文档或以 Wave 播放音频；Backspace 返回上级；1–4 进入已挂载的 C:–F:，
+或打开 `.txt`/`.nvd` 文档及 `.wav`/`.mp3`/`.mpg`/`.mpeg` 媒体；也可以用方向键选择文件，Enter 进入文件夹，
+以 Folio 打开文档或以 Media 播放媒体；Backspace 返回上级；1–4 进入已挂载的 C:–F:，
 5–7 分别进入系统根目录、应用和临时目录；
-F1 显示操作说明，F2 创建空白文档，F5 刷新目录，F6 将数据盘快照保存，
-Esc 返回 Loom。桌面在启动 Folio/Wave 前归还像素屏，子程序退出后重新获取；
+F1 显示操作说明，F2 创建空白文档，F3 打开 Media，F10 打开开始菜单，
+F5 刷新目录，F6 将数据盘快照保存，Esc 返回 Loom。桌面在启动 Folio/Media 前归还像素屏，子程序退出后重新获取；
 不同程序始终不能同时直接写屏幕。
 
 当前没有触控、多个应用窗口、合成服务、Unicode 字体、

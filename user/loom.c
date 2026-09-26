@@ -174,6 +174,10 @@ static int dispatch(int n, char **v) {
         int pid = spawn("/apps/desktop", "");
         return pid < 0 ? pid : (wait_task(pid) < 0 ? -NV_ECHILD : 0);
     }
+    if (!strcmp(cmd, "media") && n <= 2) {
+        int pid = spawn("/apps/media", n == 2 ? v[1] : "");
+        return pid < 0 ? pid : (wait_task(pid) < 0 ? -NV_ECHILD : 0);
+    }
     if (!strcmp(cmd, "wave") && n == 2) {
         int pid = spawn("/apps/wave", v[1]);
         return pid < 0 ? pid : (wait_task(pid) < 0 ? -NV_ECHILD : 0);

@@ -32,13 +32,26 @@ x86-64 新增 Intel I225/I226 PCIe 实体有线卡与 USB CDC-ECM 收发驱动�
 ## 开放应用接口与图形桌面（x86-64 开发版）
 
 - 公开 `include/nv/abi.h`、`include/nv/sdk.h` 和 `include/nv/gfx.h`：保留 ABI 1 原有调用号和结构。`NV_SUB_DISPLAY` 管理 UEFI GOP 像素租约和矩形提交，`NV_SUB_INPUT` 提供相对鼠标事件，`NV_SUB_AUDIO` 提供有界 PCM 输出；用户程序不能直接映射固件显存或声卡 MMIO。
-- Loom 输入 `desktop` 打开文件浏览器：显示位置、文件类型和字节数；USB Boot 鼠标单击选择、双击打开，也可用方向键和 Enter；`.txt`/`.nvd` 由 Folio 打开，`.wav` 由 Wave 播放。1–4 进入 C:–F:，5–7 进入系统目录；F1 快捷键，F2 新建，F5 刷新，F6 保存，Esc 退出。启动子程序时归还屏幕租约。
+- Loom 输入 `desktop` 打开图形文件管理器：USB Boot 鼠标单击选择、双击打开，也可用方向键和 Enter。`.txt`/`.nvd` 由 Folio 打开，`.wav`/`.mp3`/`.mpg`/`.mpeg` 由 Media 打开。顶栏有 Media 快捷入口；底栏 N Start 打开应用菜单，包含 Media、Files、Folio 和返回 Loom。F3 打开 Media，F10 打开开始菜单；1–4 进入 C:–F:，5–7 进入系统目录；F1 快捷键，F2 新建，F5 刷新，F6 保存，Esc 退出。启动子程序时归还屏幕租约。
 - 该桌面目前没有触控、多窗口合成、Unicode 字体或 GPU 加速；BIOS 文本模式不提供像素屏。接口与构建方式见 [应用 SDK](docs/SDK.md)。
 
 ## 音频输出（x86-64 开发版）
 
 - PCI Intel HDA 控制器可通过模拟输出 pin 到 DAC 的 codec 路径播放 48 kHz、双声道、16-bit PCM；`wave --test` 发出一秒测试音，`wave /home/sample.wav` 播放相应格式的短 WAV。无需图形桌面，BIOS 文本模式也可调用。
-- QEMU 可用 `python3 start.py --audio --window` 附加 HDA 设备；实际扬声器和耳机路径仍需实体声卡验证。当前无录音、USB/蓝牙/HDMI 音频、混音器或连续流缓冲，文件上限 128 KiB。接口、设备范围见 [SDK](docs/SDK.md) 与 [设备说明](docs/DEVICES.md)。
+- 图形 Media 应用支持 MP3（逐帧解码，软件重采样到 48 kHz）、原有格式的 PCM WAV，以及 MPEG-1 Program Stream 视频（`.mpg`/`.mpeg`，可带 MP2 音轨）。播放时 Space 暂停，Esc 返回文件列表；无 HDA 输出时可看无声视频。**不支持 MP4/H.264/AAC**。普通文件上限 4 MiB，视频画面最多 640×480。内核仍是同步分块 HDA，块间可能有短暂间隙；尚无混音器、USB/蓝牙/HDMI 音频、录音或连续流缓冲。
+- QEMU 可用 `python3 start.py --uefi --audio --window` 启动图形桌面并附加 HDA 设备（先构建 `make esp`）；实际扬声器和耳机路径仍需实体声卡验证。接口、设备范围见 [SDK](docs/SDK.md) 与 [设备说明](docs/DEVICES.md)。
+
+宿主机的媒体文件可在**虚拟机关机后**导入专用 GPT 数据镜像；不会改动启动镜像或宿主系统分区：
+
+```sh
+make -j4
+make disk esp
+python3 scripts/import_media.py --disk build/x86_64/nuvora-store.img song.mp3 clip.mpg
+python3 start.py --uefi --audio --window --memory 128
+```
+
+已有同名文件默认拒绝，显式传 `--replace` 才替换；导入使用数据卷的另一快照槽，保留原有文件。要从 MP4 转成可播放的短视频，可在宿主机用 FFmpeg：
+`ffmpeg -i input.mp4 -vf scale=320:240 -c:v mpeg1video -b:v 500k -c:a mp2 -ar 48000 -b:a 96k -f mpeg clip.mpg`。输出仍需小于 4 MiB。
 
 ## 0.9.0 物理页与小对象分配
 
@@ -145,14 +158,14 @@ rest
 
 **Loom 命令修改的文件需要执行 `anchor`，才能把 C:（`/home`）及其他已挂载分区保存到数据镜像。Folio 的保存和导出会调用同一提交操作。** `/tmp` 在重启后清空；上一次 `anchor` 之后未保存的修改也会丢弃。`rest` 关机，`renew` 重启，二者不会自动保存。
 
-完整的 35 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
+完整的 36 条 Loom 命令见 [命令手册](docs/COMMANDS.md)。每个命令都支持 `命令 --help`；`help` 和旧别名 `atlas` 显示总表。命令行位于 `user/loom.c`，实际运行在 Ring 3，并通过内核系统调用完成操作。输入 `folio` 可打开全文编辑器；Folio 的快捷键和文档格式见 [命令手册](docs/COMMANDS.md)。
 
 ## 构建、测试和 ISO
 
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 14 组源码边界夹具，使用 UBSan
+make test-host      # 16 组源码边界夹具，使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -203,14 +216,14 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 文件系统 | 分层内存文件树、目录、相对路径、文件句柄、读写、移动和删除 |
 | 虚拟节点 | `/dev/null`、`/dev/zero`、`/dev/console`，`/sys` 动态状态 |
 | 磁盘 | IDE 主盘 ATA PIO，或首个 PCIe NVMe 控制器的 512B namespace；GPT 分区识别；Nuvora 卷各有独立双槽 CRC32 快照，上限每分区 16 MiB |
-| 命令环境 | 35 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
+| 命令环境 | 36 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
 | 文档 | Folio 全屏编辑器；`.nvd` 原生格式；RTF/Word 可读导出 |
 | 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
 | 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘与鼠标、CDC-ECM 和 ESP USB Dongle CDC 控制；USB 存储仍只识别 |
 | 网络 | x64 Intel I225/I226 PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
-| 音频 | x64 Intel HDA 模拟 pin/DAC 输出，48 kHz 双声道 16-bit PCM；`wave` 短 WAV 播放，未实机验证 |
-| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。14 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
+| 音视频 | x64 HDA 48 kHz 双声道输出；Media 支持 MP3、PCM WAV 和 MPEG-1/MP2 Program Stream，最高 640×480、4 MiB；未实机验证 |
+| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。16 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 
@@ -222,13 +235,13 @@ x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回
 - 暂无 ACPI AML/电源管理、原生 PCI Wi-Fi、TCP/IPv6、AHCI、录音与多设备音频混合、GPU 加速、多窗口桌面和 Unicode 终端；NVMe 仅支持一个 512B namespace，USB 鼠标仅支持 Boot Protocol，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
 - 暂无 `fork`、管道、套接字、动态链接、POSIX/Linux ABI 或通用文件系统格式支持。
 - x87/MMX/SSE 状态已经隔离；AVX/XSAVE、AVX-512/AMX、多核与微码更新尚未实现。SSE #XM 递交受 QEMU TCG 限制而明确跳过，尚未通过实机验证。
-- x64 文件系统共 128 个节点，普通文件最大 128 KiB；内核堆 8 MiB、每进程用户堆 512 MiB。单份快照最多 16 MiB，缓冲还受可用 RAM 约束。扩大数据镜像不会同步扩大这些容量。文件系统与快照采用本项目的简化格式。
+- x64 文件系统共 128 个节点，普通文件最大 4 MiB；内核堆 8 MiB、每进程用户堆 512 MiB。单份快照最多 16 MiB，缓冲还受可用 RAM 约束。扩大数据镜像不会同步扩大这些容量。文件系统与快照采用本项目的简化格式。
 - 测试通过不构成生产级安全或可靠性证明。没有进行真实硬件、长期压力或断电时序的全面认证。
 
 架构细节见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)，系统调用见 [ABI.md](docs/ABI.md)，下一阶段范围见 [ROADMAP.md](docs/ROADMAP.md)。
 
 ## 许可与参考
 
-Nuvora 原创源码采用 MIT。ISO 使用的 GRUB 2.12 属于独立第三方组件，其 GPL 许可和对应 Ubuntu 源码一并附在 `third_party/`。QEMU、编译器及其他宿主工具没有打包进来。
+Nuvora 原创源码采用 MIT。Media 集成 CC0 的 minimp3 与 MIT 的 pl_mpeg，版本与许可见 [third_party/README-media.md](third_party/README-media.md)。ISO 使用的 GRUB 2.12 属于独立第三方组件，其 GPL 许可和对应 Ubuntu 源码一并附在 `third_party/`。QEMU、编译器及其他宿主工具没有打包进来。
 
 实现参考处理器、Multiboot 和 ELF 公开规范，链接集中在 [SOURCES.md](docs/SOURCES.md)。

@@ -6,7 +6,7 @@
 #define NV_NAME_MAX 31
 #define NV_PATH_MAX 192
 #define NV_ARG_MAX 256
-#define NV_FILE_MAX (128u * 1024u)
+#define NV_FILE_MAX (4u * 1024u * 1024u)
 #define NV_OPEN_MAX 16
 #define NV_TASK_MAX 32
 #define NV_VOLUME_MAX 4u

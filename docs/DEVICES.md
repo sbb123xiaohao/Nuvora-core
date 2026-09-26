@@ -41,11 +41,12 @@ x86-64 枚举 PCI class 04:03 的 Intel High Definition Audio 控制器，从
 明确报告无输出；不解析长格式或范围编码的 codec 连接列表。只选第一个
 符合条件的模拟 line-out、speaker 或 headphone 路径，没有插拔自动切换、
 HDMI/DisplayPort 数字音频、USB 声卡、蓝牙、录音、混音和音量设置。
-每次写入同步播放最多 3072 字节，分块重新启动 DMA 会在块间产生短暂间隙；
-普通文件最大 128 KiB，因此 `wave FILE.wav` 适合短音效和接口验证，
-尚不是连续音乐播放栈。
+每次写入同步播放最多 3072 字节，分块重新启动 DMA 会在块间产生短暂间隙
+（静音尾部缩为 128 字节）。普通文件最大 4 MiB；`wave FILE.wav` 播放 PCM，
+图形 `media` 可解码 MP3 与 MPEG-1/MP2 视频。仍不是连续低延迟音乐播放栈，
+没有 MP4/H.264/AAC 解码。
 
-`python3 start.py --audio --window` 将 QEMU `intel-hda` 与 `hda-duplex`
+`python3 start.py --uefi --audio --window` 将 QEMU `intel-hda` 与 `hda-duplex`
 接给 guest，随后在 Loom 输入 `wave --test`。QEMU 自动选择宿主音频后端；
 没有声音时应检查宿主 QEMU 的后端设置。音频也可在 BIOS 文本模式使用，
 只有像素桌面依赖 UEFI GOP。公开 API 见 [SDK.md](SDK.md)。

@@ -124,7 +124,7 @@ int main(void) {
     assert(audio_ioctl(NV_AUDIO_WRITE, (u32)(uptr)request) == 3000 && played == 1);
     struct hda_bdl *bdl = phys_ptr(hda.bdl_page);
     assert(bdl[0].address == hda.data_page && bdl[0].length == 3000 && !bdl[0].flags);
-    assert(bdl[1].address == hda.data_page + 3000 && bdl[1].length == 1024 && bdl[1].flags == 1);
+    assert(bdl[1].address == hda.data_page + 3000 && bdl[1].length == HDA_SILENCE && bdl[1].flags == 1);
     assert(!memcmp(phys_ptr(hda.data_page), user_page + 64, 3000));
     request->bytes = 3;
     assert(audio_ioctl(NV_AUDIO_WRITE, (u32)(uptr)request) == -NV_EINVAL);

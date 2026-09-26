@@ -53,7 +53,7 @@ ASFLAGS := $(BASEFLAGS) -g
 KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/pci_decode.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := loom pulse spin fault probe folio relay vector desktop wave
+APPS := loom pulse spin fault probe folio relay vector desktop wave media
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
@@ -80,6 +80,8 @@ $(BUILD)/esp.img: $(BUILD)/BOOTX64.EFI $(BUILD)/nuvora.elf scripts/mkesp.py FORC
 	$(PYTHON) scripts/mkesp.py $@
 esp: $(BUILD)/esp.img
 $(BUILD)/apps/folio.elf: $(BUILD)/user/folio.o $(BUILD)/user/document.o $(UCOMMON) $(ULINK)
+$(BUILD)/apps/media.elf: $(BUILD)/user/media.o $(BUILD)/user/media_codecs.o $(UCOMMON) $(ULINK)
+$(BUILD)/user/media.o $(BUILD)/user/media_codecs.o: CFLAGS := $(filter-out -mgeneral-regs-only -msoft-float -mno-sse -mno-sse2,$(CFLAGS)) -msse2 -U_FORTIFY_SOURCE
 $(BUILD)/apps/%.elf: $(BUILD)/user/%.o $(UCOMMON) $(ULINK)
 	@mkdir -p $(dir $@)
 	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 -T $(ULINK) -o $@ $(filter %.o,$^)

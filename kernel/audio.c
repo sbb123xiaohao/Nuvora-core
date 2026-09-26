@@ -6,7 +6,7 @@
  * particular vendor/node ID. Registers follow HDA specification rev 1.0a. */
 #define HDA_WAIT 12000000u
 #define HDA_DMA_LIMIT 0x100000000ull
-#define HDA_SILENCE 1024u
+#define HDA_SILENCE 128u
 struct hda_bdl { u64 address; u32 length, flags; };
 struct hda_route { u8 node, choice; };
 static struct {

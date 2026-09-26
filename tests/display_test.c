@@ -23,10 +23,15 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     }
     strlcpy(files[17].name, "sample.wav", sizeof(files[17].name));
     assert(!strcmp(desktop_kind(&files[17]), "WAV audio"));
+    strlcpy(files[18].name, "track.mp3", sizeof(files[18].name));
+    files[18].kind = NV_FILE;
+    strlcpy(files[19].name, "movie.mpg", sizeof(files[19].name));
+    assert(!strcmp(desktop_kind(&files[18]), "MP3 audio"));
+    assert(!strcmp(desktop_kind(&files[19]), "MPEG video"));
     struct desktop_view view = {
         "/drives/D/notes/reports/2026/a-very-long-path", "Select a file or press F1 for help",
         "4 drives", files, ARRAY_LEN(files), 16, 12, help, 4,
-        true, width / 2, height / 2, true};
+        true, width / 2, height / 2, true, false, 0};
     u32 n = width * height;
     u32 *full = guarded(n), *tiled = guarded(n);
     struct nv_canvas all = {full + 1, width, 0, height, format};
@@ -51,10 +56,34 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     struct desktop_hit row = desktop_hit(width, height, &view, selected_x, selected_y);
     assert(nav.kind == DESKTOP_HIT_PLACE && nav.index == 1);
     assert(row.kind == DESKTOP_HIT_FILE && row.index == 16);
+    assert(desktop_hit(width, height, &view, 60 * scale, 9 * scale).kind == DESKTOP_HIT_MEDIA);
+    assert(desktop_hit(width, height, &view, 25 * scale, height - 14 * scale).kind == DESKTOP_HIT_START);
     assert(full[1 + view.pointer_y * width + view.pointer_x] ==
            nv_display_rgb(format, 0x071724));
     free(full);
     free(tiled);
+}
+
+static void menu_render(void) {
+    const u32 width = 640, height = 480, count = width * height;
+    u32 *full = guarded(count), *tiled = guarded(count);
+    struct desktop_view view = {"/home", "", "1 drive", NULL, 0, 0, 0, false,
+                                1, false, 0, 0, true, true, 0};
+    struct nv_canvas all = {full + 1, width, 0, height, NV_DISPLAY_BGRX8};
+    desktop_render(&all, height, &view);
+    for (u32 y = 0; y < height; y += 17) {
+        struct nv_canvas tile = {tiled + 1 + y * width, width, y,
+                                 MIN(17u, height - y), NV_DISPLAY_BGRX8};
+        desktop_render(&tile, height, &view);
+    }
+    assert(!memcmp(full + 1, tiled + 1, count * sizeof(u32)));
+    for (u32 i = 0; i < 4; ++i) {
+        u32 y = height - 177 * 2 + (56 + 18 * i) * 2;
+        struct desktop_hit hit = desktop_hit(width, height, &view, 90, y);
+        assert(hit.kind == DESKTOP_HIT_MENU && hit.index == i);
+    }
+    assert(full[0] == 0x9173ace4 && full[count + 1] == 0x27607845);
+    free(full); free(tiled);
 }
 
 int main(void) {
@@ -67,6 +96,7 @@ int main(void) {
         case_render(2560, 720, format, 31, false);
         case_render(2560, 1440, format, 193, true);
     }
+    menu_render();
     puts("PASS display: desktop tile/full-frame equality, clipping and drive selection at four resolutions");
     return 0;
 }

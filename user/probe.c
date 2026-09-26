@@ -523,33 +523,35 @@ static void hardware_tests(void) {
 /* The storage runner seeds this file in a checksummed snapshot before boot. */
 static void restored_growth_tests(void) {
     const char *path = "/home/growth";
+    const u32 fixture_size = 128u * 1024u;
     struct nv_info before, after;
     info(&before);
     int fd = open_file(path, NV_READ | NV_WRITE | NV_APPEND);
-    check(fd >= 3 && seek_file(fd, 0, 2) == NV_FILE_MAX - 1,
+    check(fd >= 3 && seek_file(fd, 0, 2) == (int)fixture_size - 1,
           "restored file has its exact saved length");
     if (fd < 0)
         return;
-    check(emit(fd, "!", 1) == 1, "append reaches the file size limit");
+    check(emit(fd, "!", 1) == 1, "append reaches the 128 KiB growth boundary");
     info(&after);
     check(after.heap_used == before.heap_used,
           "restored file growth stays within its aligned 128 KiB buffer budget");
     bool valid = seek_file(fd, 0, 0) == 0;
     u8 buffer[1024];
-    for (u32 offset = 0; offset < NV_FILE_MAX; offset += sizeof(buffer)) {
+    for (u32 offset = 0; offset < fixture_size; offset += sizeof(buffer)) {
         int n = take(fd, buffer, sizeof(buffer));
         if (n != (int)sizeof(buffer)) {
             valid = false;
             break;
         }
         for (u32 i = 0; i < sizeof(buffer); ++i)
-            valid = valid && buffer[i] == (offset + i == NV_FILE_MAX - 1 ? '!' : 0x5a);
+            valid = valid && buffer[i] == (offset + i == fixture_size - 1 ? '!' : 0x5a);
     }
     check(valid, "restored bytes and appended byte survive reallocation");
-    check(emit(fd, "?", 1) == -NV_ENOSPC, "growth beyond the file limit is rejected");
+    check(seek_file(fd, NV_FILE_MAX, 0) == NV_FILE_MAX &&
+          emit(fd, "?", 1) == -NV_ENOSPC, "growth beyond the file limit is rejected");
     check(close_file(fd) == 0 && remove_path(path) == 0, "restored growth fixture removed");
     info(&after);
-    check(after.heap_used + NV_FILE_MAX == before.heap_used,
+    check(after.heap_used + fixture_size == before.heap_used,
           "removing the grown file returns its entire heap allocation");
 }
 int user_main(const char *args) {

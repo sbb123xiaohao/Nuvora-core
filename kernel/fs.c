@@ -355,8 +355,9 @@ int fs_write(struct task *t, int fd, const void *buf, u32 len) {
     u32 end = offset + len;
     if (end > n->capacity) {
         u32 cap = MAX(256u, n->capacity);
-        /* Restored files have exact-size capacities, not powers of two.
-         * Saturate growth at the file limit to avoid wasting heap space. */
+        /* Restored files have exact-size capacities. Round their next growth
+         * to a power of two so 128 KiB - 1 grows to 128 KiB, not 256 KiB. */
+        if (cap & (cap - 1u)) cap = 256u;
         while (cap < end)
             cap = MIN(cap * 2, NV_FILE_MAX);
         u8 *data = kmalloc(cap);

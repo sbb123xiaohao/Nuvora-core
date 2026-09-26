@@ -65,12 +65,21 @@ int main(void) {
     head = (struct block *)heap;
     *head = (struct block){.magic = BLOCK_MAGIC, .size = HEAP_SIZE - sizeof(*head), .free = 1};
     fs_init();
-    const u32 sizes[] = {NV_FILE_MAX - 1, 257, 65535, 65537};
+    const u32 sizes[] = {128u * 1024u - 1, 257, 65535, 65537};
     for (u32 i = 0; i < ARRAY_LEN(sizes); ++i) {
-        restored_growth(sizes[i], NV_FILE_MAX, false);
+        restored_growth(sizes[i], NV_FILE_MAX + 256, false);
         restored_growth(sizes[i], 0, false);
         restored_growth(sizes[i], NV_FILE_MAX - 16, true);
     }
+    struct task media = {.cwd = home_node};
+    for (u32 i = 0; i < NV_OPEN_MAX; ++i) media.fd[i].node = -1;
+    int large = fs_open(&media, "/home/media.mpg", NV_WRITE | NV_CREATE);
+    assert(large >= 3);
+    u8 block[4096] = {0};
+    for (u32 i = 0; i < NV_FILE_MAX; i += sizeof(block))
+        assert(fs_write(&media, large, block, sizeof(block)) == sizeof(block));
+    assert(fs_write(&media, large, block, 1) == -NV_ENOSPC);
+    assert(fs_close(&media, large) == 0 && fs_remove(0, "/home/media.mpg") == 0);
     fs_mount_volumes(2);
     assert(fs_lookup(0, "C:/") == home_node);
     int droot = fs_lookup(0, "D:/");

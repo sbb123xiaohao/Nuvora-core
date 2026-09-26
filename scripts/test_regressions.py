@@ -11,7 +11,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='nuvora-regression-') as directory:
         disk_image = pathlib.Path(directory) / 'two-volumes.img'
         create_gpt_disk(disk_image, size_mib=128, partitions=2)
-        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'store', 'uefi', 'network', 'audio', 'display', 'pointer']:
+        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'store', 'uefi', 'network', 'audio', 'display', 'pointer', 'media']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -23,8 +23,12 @@ def main():
             args = [str(output)] + ([str(ROOT / 'build/x86_64/nuvora.elf')] if name == 'uefi' else [])
             if name in ('gpt_disk', 'nvme'):
                 args += [str(disk_image), '128']
+            if name == 'media':
+                args += [str(ROOT / 'tests/fixtures/tone.mp3'),
+                         str(ROOT / 'tests/fixtures/clip.mpg')]
             subprocess.run(args, check=True)
-    print('ALL 14 HOST REGRESSION GROUPS PASSED (including NVMe, GPT, networking, HDA audio, desktop and USB pointer, UBSan enabled)')
+        subprocess.run(['python3', 'scripts/test_media_import.py'], cwd=ROOT, check=True)
+    print('ALL 16 HOST REGRESSION GROUPS PASSED (including MP3/MPEG decode, safe media import and graphical UI, UBSan enabled)')
 
 if __name__ == '__main__':
     main()

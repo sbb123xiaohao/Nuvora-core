@@ -328,7 +328,7 @@ def restored_file_growth():
         vm.close()
     record('Restored file growth / 32 MiB',
            '7 guest assertions: append at 128 KiB, bounded heap use, preserved data, '
-           'file limit and complete reclamation')
+           '4 MiB file limit and complete reclamation')
 
 def persistence():
     disk = new_image('persistence.img')
@@ -477,7 +477,7 @@ def unrecognized_disk():
 
 def command_help_tests():
     vm = VM('command-help', new_image('command-help.img'))
-    names = set('help atlas origin silicon firmament prism horizon volumes partitions ports where step glance nest weave stitch unfold folio desktop wave mirror shift prune sparks forge scatter gather quench tempo doze anchor trial scrub rest renew'.split())
+    names = set('help atlas origin silicon firmament prism horizon volumes partitions ports where step glance nest weave stitch unfold folio desktop media wave mirror shift prune sparks forge scatter gather quench tempo doze anchor trial scrub rest renew'.split())
     try:
         vm.send('weave /home/--help "keep this file"')
         guide = vm.send('help')
@@ -497,12 +497,12 @@ def command_help_tests():
         vm.send('horizon', 'committed generation: 0')
         vm.send('weave /home/literal.txt --help')
         vm.send('unfold /home/literal.txt', '\n--help\n')
-        record('Command catalog and help', 'all 35 commands have purpose, usage and examples; help aliases, unknown commands and literal --help text checked; file and disk generation preserved')
-        for app in ['loom', 'folio', 'pulse', 'spin', 'fault', 'probe', 'relay', 'vector', 'desktop', 'wave']:
+        record('Command catalog and help', 'all 36 commands have purpose, usage and examples; help aliases, unknown commands and literal --help text checked; file and disk generation preserved')
+        for app in ['loom', 'folio', 'pulse', 'spin', 'fault', 'probe', 'relay', 'vector', 'desktop', 'wave', 'media']:
             out = vm.send('forge ' + app + ' --help', 'exited 0')
             assert 'Usage: ' in out and 'Example: ' in out, out
             assert 'PROBE RESULT:' not in out and '[fault]' not in out, out
-        record('Built-in program help', 'all 10 programs exit 0 for --help; fault/spin/probe/editor bodies are not entered')
+        record('Built-in program help', 'all 11 programs exit 0 for --help; fault/spin/probe/editor bodies are not entered')
         vm.send('ports', '0 controller(s), 0 device(s).')
         vm.send('ports --scan', '0 controller(s), 0 device(s).')
         record('USB absent controller', 'no-controller query and rescan remain usable')

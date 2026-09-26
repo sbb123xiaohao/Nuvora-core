@@ -29,7 +29,7 @@ static const struct command_help commands[] = {
     {"ports", "ports [--scan]", "List USB controllers and connected USB devices.", "ports --scan",
      "--scan retries connected ports; automatic hotplug scans also run.\n"
      "xHCI: device descriptors, hubs and boot-keyboard input.\n"
-     "Other classes are identified; USB disk files and mouse input are not implemented.\n"
+     "USB Boot Mouse pointer input works in pixel apps; USB disk files are unavailable.\n"
      "UHCI/OHCI/EHCI controllers are listed as unsupported."},
     {"net", "net [wifi scan|status|join SSID [--open] | use INDEX | dhcp [INDEX] | static INDEX IP MASK GATEWAY [DNS] | send IP PORT TEXT | recv PORT]",
      "List physical network adapters; configure IPv4 and send or receive UDP.", "net dhcp",
@@ -56,8 +56,12 @@ static const struct command_help commands[] = {
      "Use .nvd for formatted documents or .txt for plain text.\n"
      "Folio saves /home to the Nuvora data disk when it is available."},
     {"desktop", "desktop", "Open the pixel desktop and file browser on UEFI displays.",
-     "desktop", "Keyboard controls: arrows, Enter, Backspace, 1-4, F1/F2/F5/F6, Escape.\n"
+     "desktop", "Keyboard controls: arrows, Enter, Backspace, 1-4, F1/F2/F3/F5/F6/F10, Escape.\n"
      "Requires a supported firmware framebuffer; BIOS text mode remains in Loom."},
+    {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
+     "Open the graphical audio and video player.", "media /home/clip.mpg",
+     "MP3, 48 kHz PCM WAV, MPEG-1 video with optional MP2 audio; files up to 4 MiB.\n"
+     "Requires UEFI pixels; audio needs supported HDA output. Space pauses."},
     {"wave", "wave FILE.wav | wave --test", "Play a PCM WAV file or a test tone on HDA audio.",
      "wave --test", "48 kHz, stereo, signed 16-bit PCM; analog HDA output required."},
     {"mirror", "mirror FROM TO", "Copy a file to a new destination.",

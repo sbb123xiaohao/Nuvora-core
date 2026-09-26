@@ -7,7 +7,8 @@ static struct document doc, spare, history[UNDO_DEPTH];
 static struct doc_cell clipboard[DOC_CAP];
 static struct doc_layout layout;
 static struct nv_surface screen;
-static u8 io_buffer[NV_FILE_MAX];
+/* A document's own bound is far smaller than the filesystem's media limit. */
+static u8 io_buffer[128u * 1024u];
 static u32 clip_len, hist_at, hist_count, saved_hash, top, goal = DOC_NONE;
 static bool grouped, preview, new_file, disk_pending;
 static char path[NV_PATH_MAX], message[160], query[192];

@@ -9,6 +9,8 @@ static bool help;
 static u32 pointer_x, pointer_y, pointer_buttons;
 static bool pointer_visible;
 static bool audio_ready;
+static bool menu, quit_requested;
+static u32 menu_selected;
 
 static void note(const char *s) { strlcpy(message, s, sizeof(message)); }
 static void note_error(const char *action, int error) {
@@ -47,7 +49,8 @@ static void scroll_to_selection(void) {
 static int draw(u32 *tile, u32 rows) {
     struct desktop_view view = {directory, message, drive, entries,
                                 count, selected, scroll, help, volumes,
-                                pointer_visible, pointer_x, pointer_y, audio_ready};
+                                pointer_visible, pointer_x, pointer_y, audio_ready,
+                                menu, menu_selected};
     for (u32 y = 0; y < mode.height; y += rows) {
         struct nv_canvas canvas = {tile, mode.width, y, MIN(rows, mode.height - y), mode.format};
         desktop_render(&canvas, mode.height, &view);
@@ -67,6 +70,15 @@ static bool document_name(const char *name) {
 static bool wave_name(const char *name) {
     usize len = strlen(name);
     return len >= 4 && !strcmp(name + len - 4, ".wav");
+}
+static bool mp3_name(const char *name) {
+    usize len = strlen(name);
+    return len >= 4 && !strcmp(name + len - 4, ".mp3");
+}
+static bool video_name(const char *name) {
+    usize len = strlen(name);
+    return (len >= 4 && !strcmp(name + len - 4, ".mpg")) ||
+           (len >= 5 && !strcmp(name + len - 5, ".mpeg"));
 }
 static int launch(const char *app, const char *path) {
     int r = nv_display_release();
@@ -90,9 +102,10 @@ static int open_selected(void) {
         return refresh();
     }
     bool document = document_name(entries[selected].name);
-    bool wav = wave_name(entries[selected].name);
-    if (!document && !wav) {
-        note("No opener for this file type. Supported: .txt, .nvd, .wav.");
+    bool media = wave_name(entries[selected].name) ||
+                 mp3_name(entries[selected].name) || video_name(entries[selected].name);
+    if (!document && !media) {
+        note("No opener. Supported: .txt, .nvd, .wav, .mp3, .mpg.");
         return 0;
     }
     char full[NV_PATH_MAX];
@@ -104,8 +117,20 @@ static int open_selected(void) {
     }
     if (strlcpy(full + len, entries[selected].name, sizeof(full) - len) >= sizeof(full) - len)
         return -NV_E2BIG;
-    if (wav && !audio_ready) { note("No HDA audio output. Select a supported device."); return 0; }
-    return launch(document ? "/apps/folio" : "/apps/wave", full);
+    if (media && !video_name(entries[selected].name) && !audio_ready) {
+        note("No HDA audio output. Select a supported device."); return 0;
+    }
+    return launch(document ? "/apps/folio" : "/apps/media", full);
+}
+static int go_place(u32 index);
+static int start_app(u32 index) {
+    menu = false;
+    menu_selected = index;
+    if (index == 0) return launch("/apps/media", "");
+    if (index == 1) return go_place(0);
+    if (index == 2) return launch("/apps/folio", "");
+    if (index == 3) quit_requested = true;
+    return 0;
 }
 static int go_place(u32 index) {
     static const char *const places[] = {"/home", "/drives/D", "/drives/E",
@@ -160,10 +185,20 @@ int user_main(const char *args) {
             pointer_y = (u32)MAX(0, MIN(y, (i32)mode.height - 1));
             if ((event.buttons & NV_POINTER_LEFT) && !(pointer_buttons & NV_POINTER_LEFT)) {
                 struct desktop_view view = {directory, message, drive, entries,
-                    count, selected, scroll, help, volumes, true, pointer_x, pointer_y, audio_ready};
+                    count, selected, scroll, help, volumes, true, pointer_x, pointer_y, audio_ready,
+                    menu, menu_selected};
                 struct desktop_hit hit = desktop_hit(mode.width, mode.height,
                                                       &view, pointer_x, pointer_y);
                 if (help) help = false;
+                else if (hit.kind == DESKTOP_HIT_START) menu = !menu;
+                else if (hit.kind == DESKTOP_HIT_MENU) {
+                    r = start_app(hit.index);
+                    if (r < 0) note_error("Start", r);
+                } else if (hit.kind == DESKTOP_HIT_MEDIA) {
+                    menu = false;
+                    r = launch("/apps/media", "");
+                    if (r < 0) note_error("Media", r);
+                } else if (menu) menu = false;
                 else if (hit.kind == DESKTOP_HIT_PLACE) {
                     last_click = 0xffffffffu;
                     r = go_place(hit.index);
@@ -186,12 +221,26 @@ int user_main(const char *args) {
             if (r < 0) r = 0;
             dirty = true;
         }
+        if (quit_requested) break;
         int key = key_event();
         if (key == -NV_EAGAIN) { nap(25); continue; }
         if (key < 0) { r = key; break; }
         u32 k = (u32)key & 4095u;
+        if (menu) {
+            if (k == 27 || k == NV_KEY_F10) menu = false;
+            else if (k == NV_KEY_UP && menu_selected) --menu_selected;
+            else if (k == NV_KEY_DOWN && menu_selected < 3) ++menu_selected;
+            else if (k == '\n') {
+                r = start_app(menu_selected);
+                if (r < 0) note_error("Start", r);
+            }
+            dirty = true;
+            if (quit_requested) break;
+            continue;
+        }
         if (k == 27) break;
-        if (k == NV_KEY_F1) help = !help;
+        if (k == NV_KEY_F10) { menu = true; menu_selected = 0; }
+        else if (k == NV_KEY_F1) help = !help;
         else if (k == NV_KEY_UP && selected) --selected;
         else if (k == NV_KEY_DOWN && selected + 1 < count) ++selected;
         else if (k == NV_KEY_PGUP) selected = selected > 8 ? selected - 8 : 0;
@@ -207,6 +256,9 @@ int user_main(const char *args) {
         } else if (k == NV_KEY_F2) {
             r = launch("/apps/folio", "");
             if (r < 0) note_error("New document", r);
+        } else if (k == NV_KEY_F3) {
+            r = launch("/apps/media", "");
+            if (r < 0) note_error("Media", r);
         } else if (k == NV_KEY_F5) {
             r = refresh();
             if (r < 0) note_error("Refresh folder", r);

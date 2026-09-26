@@ -12,7 +12,11 @@ bool app_help(const char *name, const char *args) {
          "editor shortcuts.",
          "folio /home/report.nvd"},
         {"desktop", "desktop", "Firmware framebuffer desktop with a keyboard-operated file browser.\n"
-         "F1 controls; Escape returns to Loom.", "desktop"},
+         "F1 controls; F3 opens Media; F10 opens Start; Escape returns to Loom.", "desktop"},
+        {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
+         "Graphical MP3, PCM WAV and MPEG-1/MP2 player. File picker opens from C:.\n"
+         "Space pauses; Escape returns to the library. MPEG files must be at most 4 MiB.",
+         "media /home/clip.mpg"},
         {"wave", "wave FILE.wav | wave --test",
          "Play 48 kHz stereo 16-bit PCM WAV through an HDA analog output.\n"
          "--test plays a one-second tone.", "wave /home/tone.wav"},

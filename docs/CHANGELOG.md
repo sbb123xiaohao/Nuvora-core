@@ -1,5 +1,17 @@
 # Nuvora Core 0.9.0
 
+## 0.9.0 Media 播放器与开始菜单（宿主样本验证）
+
+- 加入图形 Media 应用：MP3 解码并软件重采样为 HDA 所需的 48 kHz 双声道 PCM；
+  MPEG-1 Program Stream 显示视频，可选 MP2 音轨；保留 48 kHz PCM WAV。
+  使用原有独占像素租约和音频接口，不支持 MP4/H.264/AAC。
+- 桌面顶栏 Media 快捷入口、文件关联、F3 快捷键及 F10/鼠标可用的 N Start
+  菜单。文件上限从 128 KiB 扩为 4 MiB，文件增长对非整幂容量按需上取整；
+  `import_media.py` 可在虚拟机关机后向 GPT 镜像的非活动快照槽导入媒体。
+- 16 组宿主回归含真实 MP3/MPEG-1/MP2 解码样本、图形逐块绘制和
+  双槽导入校验；当前环境无 QEMU/OVMF，实际 HDA 播放及 UEFI 点击流程
+  仍待运行验证。
+
 ## 0.9.0 HDA 音频与文件管理器修订（宿主夹具验证）
 
 - 新增 PCI HDA 模拟 pin/DAC 输出，48 kHz 双声道 16-bit PCM 的版本化
