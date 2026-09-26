@@ -50,14 +50,16 @@ static u8 inb(u16 port) { (void)port; return 0xff; }
 static u16 inw(u16 port) { (void)port; return 0; }
 static void outb(u16 port, u8 value) { (void)port; (void)value; }
 static void outw(u16 port, u16 value) { (void)port; (void)value; }
-static bool ahci_init(u64 *capacity, u32 first, u32 *selected) {
-    (void)capacity; (void)first; (void)selected; return false;
+static bool ahci_init(u64 *capacity, u32 first_pci, u32 first_port,
+                      u32 *selected_pci, u32 *selected_port) {
+    (void)capacity; (void)first_pci; (void)first_port;
+    (void)selected_pci; (void)selected_port; return false;
 }
 static int ahci_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
 static int ahci_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
 static int ahci_flush(void) { return -NV_ENODEV; }
 static bool ahci_ready(void) { return false; }
-static void ahci_shutdown(void) {}
+static bool ahci_shutdown(void) { return true; }
 static u32 sim_read(u32 offset) {
     if (offset == 0) return (u32)cap;
     if (offset == 4) return (u32)(cap >> 32);

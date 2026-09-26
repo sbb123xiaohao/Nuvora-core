@@ -31,7 +31,7 @@ _Static_assert(sizeof(struct ahci_prdt) == 16, "AHCI PRDT entry");
 
 static struct {
     volatile u8 *regs;
-    u32 pci, port;
+    u32 pci, port, scan_min_pci;
     uptr command_page, fis_page, table_page, data_page;
     u64 sectors;
     bool lba48, online;
@@ -88,11 +88,12 @@ static bool start_engine(void) {
 
 static void discover(u32 address, u32 id, u32 class_code) {
     (void)id;
-    if (ahci.regs || (class_code >> 8) != 0x010601u) return;
+    if (ahci.regs || address < ahci.scan_min_pci ||
+        (class_code >> 8) != 0x010601u) return;
     u32 bar = pci_read(address, 0x24);
-    if ((bar & 1u) || ((bar & 6u) != 0 && (bar & 6u) != 4u)) return;
+    /* ABAR is BAR5: a 64-bit BAR needs a following BAR, which BAR5 lacks. */
+    if ((bar & 7u) != 0) return;
     u64 physical = bar & ~15u;
-    if ((bar & 6u) == 4u) physical |= (u64)pci_read(address, 0x28) << 32;
     if (!physical || physical % PAGE || physical >> 52) return;
     ahci.regs = vm_mmio_map(physical, AHCI_MMIO);
     if (ahci.regs) ahci.pci = address;
@@ -150,46 +151,50 @@ static bool identify(void) {
     return ahci.sectors >= 8192 && ahci.sectors <= (1ull << 48);
 }
 
-bool ahci_init(u64 *capacity, u32 first_port, u32 *selected_port) {
-    if (first_port >= 32 || !capacity || !selected_port) return false;
-    memset(&ahci, 0, sizeof(ahci));
-    pci_visit(discover);
-    if (!ahci.regs) return false;
-    u32 command = (u32)pci_read(ahci.pci, 4);
-    pci_write16(ahci.pci, 4, (u16)(command | 6u));
-    /* AE is required before the HBA port registers are interpreted. */
-    hw(0x04, hr(0x04) | (1u << 31));
-    u32 implemented = hr(0x0c);
-    ahci.command_page = page_alloc_below(AHCI_DMA_LIMIT);
-    ahci.fis_page = page_alloc_below(AHCI_DMA_LIMIT);
-    ahci.table_page = page_alloc_below(AHCI_DMA_LIMIT);
-    ahci.data_page = page_alloc_below(AHCI_DMA_LIMIT);
-    if (!ahci.command_page || !ahci.fis_page || !ahci.table_page || !ahci.data_page) goto fail;
-    for (u32 port = first_port; port < 32; ++port) {
-        if (!(implemented & (1u << port))) continue;
-        ahci.port = port;
-        u32 ssts = pr(0x28), signature = pr(0x24);
-        if ((ssts & 0xfu) != 3u || ((ssts >> 8) & 0xfu) != 1u) continue;
-        if (signature && signature != 0x00000101u) continue;
-        if (!stop_engine()) goto quarantine;
-        if (!start_engine() || !identify()) {
-            if (!stop_engine()) goto quarantine;
-            continue;
+bool ahci_init(u64 *capacity, u32 first_pci, u32 first_port,
+               u32 *selected_pci, u32 *selected_port) {
+    if (first_pci > 0x00ffff00u || first_port >= 32 || !capacity ||
+        !selected_pci || !selected_port) return false;
+    while (first_pci <= 0x00ffff00u) {
+        memset(&ahci, 0, sizeof(ahci));
+        ahci.scan_min_pci = first_pci;
+        pci_visit(discover);
+        if (!ahci.regs) return false;
+        u32 address = ahci.pci;
+        u32 command = pci_read(address, 4);
+        pci_write16(address, 4, (u16)(command | 6u));
+        /* AE is required before the HBA port registers are interpreted. */
+        hw(0x04, hr(0x04) | (1u << 31));
+        u32 implemented = hr(0x0c);
+        ahci.command_page = page_alloc_below(AHCI_DMA_LIMIT);
+        ahci.fis_page = page_alloc_below(AHCI_DMA_LIMIT);
+        ahci.table_page = page_alloc_below(AHCI_DMA_LIMIT);
+        ahci.data_page = page_alloc_below(AHCI_DMA_LIMIT);
+        bool stopped = true;
+        if (ahci.command_page && ahci.fis_page && ahci.table_page && ahci.data_page) {
+            for (u32 port = address == first_pci ? first_port : 0; port < 32; ++port) {
+                if (!(implemented & (1u << port))) continue;
+                ahci.port = port;
+                u32 ssts = pr(0x28), signature = pr(0x24);
+                if ((ssts & 0xfu) != 3u || ((ssts >> 8) & 0xfu) != 1u) continue;
+                if (signature && signature != 0x00000101u) continue;
+                if (!stop_engine()) { stopped = false; break; }
+                if (!start_engine() || !identify()) {
+                    if (!stop_engine()) { stopped = false; break; }
+                    continue;
+                }
+                ahci.online = true;
+                *capacity = ahci.sectors;
+                *selected_pci = address;
+                *selected_port = port;
+                return true;
+            }
         }
-        ahci.online = true;
-        *capacity = ahci.sectors;
-        *selected_port = port;
-        return true;
+        pci_write16(address, 4, (u16)(command & ~4u));
+        if (stopped) release_pages(); /* Failed stop: quarantine DMA pages. */
+        first_pci = address + 0x100u;
+        first_port = 0;
     }
-    goto fail;
-quarantine:
-    pci_write16(ahci.pci, 4, (u16)(command & ~4u));
-    memset(&ahci, 0, sizeof(ahci));
-    return false; /* Keep DMA pages reserved if the HBA did not stop. */
-fail:
-    pci_write16(ahci.pci, 4, (u16)(command & ~4u));
-    release_pages();
-    memset(&ahci, 0, sizeof(ahci));
     return false;
 }
 
@@ -214,14 +219,15 @@ int ahci_flush(void) {
     return 0;
 }
 bool ahci_ready(void) { return ahci.online; }
-void ahci_shutdown(void) {
-    if (!ahci.regs) return;
+bool ahci_shutdown(void) {
+    if (!ahci.regs) return true;
     if (!stop_engine()) {
         pci_write16(ahci.pci, 4, (u16)(pci_read(ahci.pci, 4) & ~4u));
         memset(&ahci, 0, sizeof(ahci));
-        return;
+        return false; /* Do not retry ports on a controller which still owns DMA. */
     }
     pci_write16(ahci.pci, 4, (u16)(pci_read(ahci.pci, 4) & ~4u));
     release_pages();
     memset(&ahci, 0, sizeof(ahci));
+    return true;
 }

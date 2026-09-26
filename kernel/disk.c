@@ -323,14 +323,16 @@ static bool scan_storage(void) {
 bool disk_init(void) {
     nvme_disk = ahci_disk = false;
     if (ata_identify() && scan_storage()) return true;
-    for (u32 next_port = 0, selected_port; next_port < 32;
-         next_port = selected_port + 1) {
-        if (!ahci_init(&sectors, next_port, &selected_port)) break;
+    for (u32 next_pci = 0, next_port = 0, selected_pci, selected_port;
+         next_pci <= 0x00ffff00u;) {
+        if (!ahci_init(&sectors, next_pci, next_port, &selected_pci, &selected_port)) break;
         ahci_disk = true;
         identified = true;
         if (scan_storage()) return true;
-        ahci_shutdown();
+        bool stopped = ahci_shutdown();
         ahci_disk = false;
+        next_pci = stopped && selected_port < 31 ? selected_pci : selected_pci + 0x100u;
+        next_port = stopped && selected_port < 31 ? selected_port + 1 : 0;
     }
     /* Only a disk with a validated Nuvora layout is selected. A foreign IDE
      * disk must not prevent discovery of a valid NVMe data namespace. */

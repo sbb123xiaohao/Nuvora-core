@@ -86,14 +86,15 @@ static void sim_write(u32 offset, u32 value) {
 }
 
 int main(void) {
-    u64 capacity = 0; u32 port = 32;
-    assert(ahci_init(&capacity, 0, &port) && capacity == (1ull << 45) && port == 0);
+    u64 capacity = 0; u32 address = 0, port = 32;
+    assert(ahci_init(&capacity, 0, 0, &address, &port) &&
+           capacity == (1ull << 45) && address == 0x2000 && port == 0);
     u8 out[512]; assert(!ahci_read(0x123456789aull, out));
     for (u32 i = 0; i < sizeof(out); ++i) assert(out[i] == 0xa5);
     memset(out, 0x3c, sizeof(out)); assert(!ahci_write(8, out) && writes == 1);
     assert(!ahci_flush() && ahci_ready());
     fail_io = true;
     assert(ahci_read(0x123456789aull, out) == -NV_EIO && !ahci_ready());
-    ahci_shutdown(); assert(!ahci_ready());
+    assert(ahci_shutdown() && !ahci_ready());
     puts("PASS AHCI: port discovery, command FIS, DMA bounce read/write, flush and shutdown");
 }

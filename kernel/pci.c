@@ -34,6 +34,26 @@ static u32 ecam_read(const struct nv_mcfg_region *region, u32 address, u32 offse
     return device ? *(volatile u32 *)(device + offset) : 0xffffffffu;
 }
 
+static bool ecam_matches_legacy(const struct nv_mcfg_region *region) {
+    /* A range may begin with an empty bus. An all-ones comparison on that bus
+     * proves nothing; find a populated function 0 anywhere in the range. */
+    for (u32 bus = region->start_bus; bus <= region->end_bus; ++bus) {
+        for (u32 dev = 0; dev < 32; ++dev) {
+            u32 address = (bus << 16) | (dev << 11);
+            uptr flags = irq_save();
+            u32 legacy = legacy_read(address, 0);
+            if ((legacy & 0xffffu) == 0xffffu || !(legacy & 0xffffu)) {
+                irq_restore(flags);
+                continue;
+            }
+            u32 modern = ecam_read(region, address, 0);
+            irq_restore(flags);
+            return legacy == modern;
+        }
+    }
+    return false;
+}
+
 u32 pci_ecam_configure(const struct nv_mcfg_region *regions, u32 count, u32 physical_bits,
                        u32 *rejected, struct nv_mcfg_region *first) {
     ecam_count = 0;
@@ -49,16 +69,8 @@ u32 pci_ecam_configure(const struct nv_mcfg_region *regions, u32 count, u32 phys
             if (candidate->start_bus <= ecam[j].end_bus &&
                 ecam[j].start_bus <= candidate->end_bus)
                 valid = false;
-        /* Cross-check a conventional config-space value before enabling an
-         * ECAM region. Both paths must describe the same segment-0 bus. */
-        if (valid) {
-            u32 address = (u32)candidate->start_bus << 16;
-            uptr flags = irq_save();
-            u32 legacy = legacy_read(address, 0);
-            u32 modern = ecam_read(candidate, address, 0);
-            irq_restore(flags);
-            valid = legacy == modern;
-        }
+        /* Both paths must describe the same real segment-0 device. */
+        if (valid) valid = ecam_matches_legacy(candidate);
         if (!valid || ecam_count == NV_ACPI_MCFG_MAX) {
             if (rejected)
                 ++*rejected;

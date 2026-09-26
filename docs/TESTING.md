@@ -2,7 +2,9 @@
 
 ## 0.10.0 当前结果
 
-`make -j4 all` 及 `make test-host` 的 **25 组**通过（所有 C 夹具 UBSan）。
+`make -j4 all` 及 `make test-host` 的 **26 组**通过（所有 C 夹具 UBSan）。
+AHCI 模拟增加后续控制器上的有效卷、前控制器外来盘隔离和非法 BAR5；
+PCIe 模拟增加 MCFG 区域首总线为空、后续设备匹配及配置空间不匹配回退。
 新增 GPT/ESP 可移动启动镜像的主备 GPT CRC、分区位置和 FAT 镜像字节比对；
 NVMe 夹具新增同控制器后续 namespace、第二控制器的外来盘隔离。
 新增双 SATA 端口的真实 AHCI/卷识别代码夹具：前盘是外来格式、

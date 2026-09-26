@@ -1,4 +1,4 @@
-/* A foreign SATA disk on port 0 must not hide a Nuvora disk on port 1. */
+/* Foreign SATA disks and controllers must not hide a later Nuvora volume. */
 #include <assert.h>
 #include <stdio.h>
 #include <nv/abi.h>
@@ -8,12 +8,13 @@
 #define SNAP_CAP_MAX (128u * 1024u * 1024u)
 #define AHCI_MMIO 0x3000u
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
-static u8 dma[12][PAGE], mmio[AHCI_MMIO], nuvora_header[512];
-static u32 next_page, pci_command, port_command[2], clb[2], writes[2];
+static u8 dma[32][PAGE], mmio[2][AHCI_MMIO], nuvora_header[512];
+static u32 next_page, pci_command[2], port_command[2][2], clb[2][2], writes[2][2];
 static bool first_supports_lba48 = true;
-static bool first_is_4kn;
+static bool first_is_4kn, second_controller, invalid_first_bar;
+static u32 controller(void);
 static uptr page_alloc_below(u64 limit) {
-    assert(limit == 0x100000000ull && next_page + 1 < 12);
+    assert(limit == 0x100000000ull && next_page + 1 < 32);
     ++next_page; memset(dma[next_page], 0, PAGE); return next_page * PAGE;
 }
 static void page_free(uptr page) { assert(page / PAGE <= next_page); }
@@ -22,17 +23,25 @@ static void *phys_ptr(uptr physical) {
     return dma[physical / PAGE] + physical % PAGE;
 }
 static void *vm_mmio_map(u64 physical, u32 size) {
-    assert(physical == 0x40000000u && size == AHCI_MMIO); return mmio;
+    assert(size == AHCI_MMIO);
+    if (physical == 0x40000000u) return mmio[0];
+    assert(second_controller && physical == 0x50000000u);
+    return mmio[1];
 }
 static u32 pci_read(u32 address, u32 offset) {
-    assert(address == 0x2000);
-    return offset == 0x24 ? 0x40000000u : offset == 4 ? pci_command : 0;
+    assert(address == 0x2000 || (second_controller && address == 0x3000));
+    u32 n = address == 0x3000;
+    return offset == 0x24 ? (n ? 0x50000000u :
+                             (invalid_first_bar ? 0x40000004u : 0x40000000u)) :
+           offset == 4 ? pci_command[n] : 0;
 }
 static void pci_write16(u32 address, u32 offset, u16 value) {
-    assert(address == 0x2000 && offset == 4); pci_command = value;
+    assert((address == 0x2000 || (second_controller && address == 0x3000)) && offset == 4);
+    pci_command[address == 0x3000] = value;
 }
 static void pci_visit(void (*visit)(u32, u32, u32)) {
     visit(0x2000, 0x12348086, 0x01060100);
+    if (second_controller) visit(0x3000, 0x12348086, 0x01060100);
 }
 static u8 inb(u16 port) { (void)port; return 0xff; }
 static u16 inw(u16 port) { (void)port; return 0; }
@@ -56,28 +65,31 @@ static void sim_write(u32 offset, u32 value);
 #include "../kernel/ahci.c"
 #undef transfer
 #include "../kernel/disk.c"
+static u32 controller(void) { return ahci.pci == 0x3000u ? 1u : 0u; }
 
 static u32 sim_read(u32 offset) {
-    if (offset == 0x0c) return 3u;
+    u32 n = controller();
+    if (offset == 0x0c) return second_controller ? 1u : 3u;
     if (offset >= 0x100 && offset < 0x200) {
         u32 port = (offset - 0x100) / 0x80, reg = (offset - 0x100) % 0x80;
-        if (reg == 0x18) return port_command[port];
+        if (reg == 0x18) return port_command[n][port];
         if (reg == 0x24) return 0x101u;
         if (reg == 0x28) return 0x103u;
         if (reg == 0x38) return 0;
     }
-    return *(u32 *)(mmio + offset);
+    return *(u32 *)(mmio[n] + offset);
 }
 static void sim_write(u32 offset, u32 value) {
+    u32 n = controller();
     if (offset >= 0x100 && offset < 0x200) {
         u32 port = (offset - 0x100) / 0x80, reg = (offset - 0x100) % 0x80;
-        if (reg == 0x18) { port_command[port] = value; return; }
-        if (reg == 0x00) { clb[port] = value; return; }
+        if (reg == 0x18) { port_command[n][port] = value; return; }
+        if (reg == 0x00) { clb[n][port] = value; return; }
         if (reg == 0x10 || reg == 0x30) {
-            *(u32 *)(mmio + offset) &= ~value; return;
+            *(u32 *)(mmio[n] + offset) &= ~value; return;
         }
         if (reg == 0x38 && (value & 1u)) {
-            struct ahci_header *h = phys_ptr(clb[port]);
+            struct ahci_header *h = phys_ptr(clb[n][port]);
             u8 *table = phys_ptr((uptr)h->table);
             struct ahci_prdt *prdt = (struct ahci_prdt *)(table + 0x80);
             u8 *buffer = phys_ptr((uptr)prdt->address);
@@ -85,22 +97,23 @@ static void sim_write(u32 offset, u32 value) {
                 u16 *id = (u16 *)buffer;
                 memset(buffer, 0, 512);
                 id[49] = 1u << 9;
-                id[83] = (port == 0 && !first_supports_lba48) ? 0 : 0x4400u;
-                id[106] = (port == 0 && first_is_4kn) ? 0x5000u : 0x6003u;
-                if (port == 0 && first_is_4kn) id[117] = 2048u;
+                id[83] = (!n && port == 0 && !first_supports_lba48) ? 0 : 0x4400u;
+                id[106] = (!n && port == 0 && first_is_4kn) ? 0x5000u : 0x6003u;
+                if (!n && port == 0 && first_is_4kn) id[117] = 2048u;
                 id[100] = 8192;
             } else if (table[2] == 0x25) {
                 u64 lba = (u64)table[4] | (u64)table[5] << 8 | (u64)table[6] << 16 |
                           (u64)table[8] << 24 | (u64)table[9] << 32 | (u64)table[10] << 40;
                 memset(buffer, 0, 512);
-                if (port == 1 && lba == 0) memcpy(buffer, nuvora_header, 512);
+                if ((n || (!second_controller && port == 1)) && lba == 0)
+                    memcpy(buffer, nuvora_header, 512);
             } else if (table[2] == 0x35) {
-                ++writes[port];
+                ++writes[n][port];
             }
             return;
         }
     }
-    *(u32 *)(mmio + offset) = value;
+    *(u32 *)(mmio[n] + offset) = value;
 }
 
 int main(void) {
@@ -117,17 +130,27 @@ int main(void) {
     assert(!disk_read(0, buffer) && !memcmp(buffer, "NVSTORE3", 8));
     assert(disk_volume_write(0, 0, buffer) == -NV_EACCESS);
     assert(!disk_volume_write(0, 8, buffer));
-    assert(writes[0] == 0 && writes[1] == 1);
+    assert(writes[0][0] == 0 && writes[0][1] == 1);
     ahci_shutdown();
     next_page = 0; /* The simulated allocator may reuse the freed DMA pages. */
     first_supports_lba48 = false;
     assert(disk_init() && ahci_disk && ahci.port == 1);
     assert(!disk_read(0, buffer) && !memcmp(buffer, "NVSTORE3", 8));
-    assert(writes[0] == 0);
+    assert(writes[0][0] == 0);
     ahci_shutdown();
     next_page = 0;
     first_supports_lba48 = true; first_is_4kn = true;
     assert(disk_init() && ahci_disk && ahci.port == 1);
-    assert(writes[0] == 0);
-    puts("PASS AHCI multiport: foreign/LBA28/4Kn disk skipped, later 512e Nuvora port mounted, writes isolated");
+    assert(writes[0][0] == 0);
+    assert(ahci_shutdown());
+    next_page = 0;
+    first_is_4kn = false; second_controller = true;
+    assert(disk_init() && ahci_disk && ahci.pci == 0x3000 && ahci.port == 0);
+    assert(!disk_volume_write(0, 8, buffer));
+    assert(writes[0][0] == 0 && writes[1][0] == 1);
+    assert(ahci_shutdown());
+    next_page = 0; invalid_first_bar = true;
+    assert(disk_init() && ahci_disk && ahci.pci == 0x3000 && ahci.port == 0);
+    assert(ahci_shutdown());
+    puts("PASS AHCI: foreign/LBA28/4Kn disks, later controllers and malformed BAR5 skipped");
 }

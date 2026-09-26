@@ -59,14 +59,16 @@ static int nvme_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV
 static int nvme_flush(void) { return -NV_ENODEV; }
 static bool nvme_ready(void) { return false; }
 static bool nvme_shutdown(void) { return true; }
-static bool ahci_init(u64 *capacity, u32 first, u32 *selected) {
-    (void)capacity; (void)first; (void)selected; return false;
+static bool ahci_init(u64 *capacity, u32 first_pci, u32 first_port,
+                      u32 *selected_pci, u32 *selected_port) {
+    (void)capacity; (void)first_pci; (void)first_port;
+    (void)selected_pci; (void)selected_port; return false;
 }
 static int ahci_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
 static int ahci_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
 static int ahci_flush(void) { return -NV_ENODEV; }
 static bool ahci_ready(void) { return false; }
-static void ahci_shutdown(void) {}
+static bool ahci_shutdown(void) { return true; }
 #include "../kernel/disk.c"
 int main(int argc, char **argv) {
     assert(argc == 3 || argc == 4);
