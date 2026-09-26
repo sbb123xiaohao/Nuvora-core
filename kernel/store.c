@@ -5,15 +5,13 @@ struct snapshot_header {
     u8 reserved[488];
 } PACKED;
 _Static_assert(sizeof(struct snapshot_header) == 512, "snapshot sector");
-/* One bounded buffer serves partitions sequentially; each has its own two
- * committed snapshot slots and generation. */
-static u8 *snap_buffer;
-static u32 snap_cap, count;
+/* NVSS0001 stays byte compatible; payloads now travel one sector at a time. */
+static u32 count;
 static struct volume_state {
     struct store_layout layout;
     int active_slot;
     u32 generation;
-    bool restore_blocked;
+    int restore_error;
 } volume[NV_VOLUME_MAX];
 u32 store_generation(void) { return volume[0].generation; }
 u32 store_volume_generation(u32 index) {
@@ -21,6 +19,15 @@ u32 store_volume_generation(u32 index) {
 }
 static u32 slot_lba(u32 index, int slot) {
     return volume[index].layout.slot_lba[slot];
+}
+static u32 crc_more(u32 state, const void *bytes, u32 length) {
+    const u8 *p = bytes;
+    while (length--) {
+        state ^= *p++;
+        for (u32 j = 0; j < 8; ++j)
+            state = (state >> 1) ^ (0xedb88320u & (0u - (state & 1u)));
+    }
+    return state;
 }
 static bool valid_header(const struct store_layout *l, struct snapshot_header *h) {
     if (memcmp(h->magic, "NVSS0001", 8) || h->length < 4 || h->length > l->snap_cap)
@@ -31,17 +38,30 @@ static bool valid_header(const struct store_layout *l, struct snapshot_header *h
     h->header_checksum = checksum;
     return checksum == actual;
 }
-static int restore(u32 index, int slot, const struct snapshot_header *h) {
-    if (h->length > snap_cap) return -NV_ENOMEM;
-    u32 size = ALIGN_UP(h->length, 512);
-    int result = 0;
-    for (u32 off = 0; off < size; off += 512) {
-        result = disk_volume_read(index, slot_lba(index, slot) + 1 + off / 512, snap_buffer + off);
-        if (result < 0) break;
+int store_read_bytes(u32 index, int slot, u32 offset, void *out, u32 length) {
+    if (index >= count || slot < 0 || slot > 1 ||
+        offset > volume[index].layout.snap_cap ||
+        length > volume[index].layout.snap_cap - offset) return -NV_EIO;
+    u8 sector[512], *dest = out;
+    while (length) {
+        u32 skip = offset % 512, part = MIN(length, 512 - skip);
+        int r = disk_volume_read(index, slot_lba(index, slot) + 1 + offset / 512, sector);
+        if (r < 0) return r;
+        memcpy(dest, sector + skip, part);
+        dest += part; offset += part; length -= part;
     }
-    if (!result && crc32(snap_buffer, h->length) != h->checksum) result = -NV_EIO;
-    if (!result) result = fs_import_volume(index, snap_buffer, h->length);
-    return result;
+    return 0;
+}
+static int restore(u32 index, int slot, const struct snapshot_header *h) {
+    u8 sector[512];
+    u32 checksum = 0xffffffffu;
+    for (u32 off = 0; off < h->length; off += 512) {
+        int r = disk_volume_read(index, slot_lba(index, slot) + 1 + off / 512, sector);
+        if (r < 0) return r;
+        checksum = crc_more(checksum, sector, MIN(512u, h->length - off));
+    }
+    if (~checksum != h->checksum) return -NV_EIO;
+    return fs_import_stream(index, slot, h->length);
 }
 void store_init(void) {
     count = disk_volume_count();
@@ -49,38 +69,23 @@ void store_init(void) {
         kprintf("[store] no Nuvora data disk; /home is volatile\n");
         return;
     }
-    u32 largest = 0;
-    for (u32 i = 0; i < count; ++i) {
-        if (!disk_volume_layout(i, &volume[i].layout)) panic("data partition geometry missing");
-        volume[i].active_slot = -1;
-        volume[i].generation = 0;
-        volume[i].restore_blocked = false;
-        largest = MAX(largest, volume[i].layout.snap_cap);
-    }
-    u32 want = MIN(SNAP_CAP_MAX / PAGE, largest / PAGE);
-    want = MIN(want, pages_free() / 4);
-    while (want >= 16) {
-        snap_buffer = phys_ptr(page_alloc_run(want));
-        if (snap_buffer) break;
-        want /= 2;
-    }
-    if (snap_buffer) snap_cap = want * PAGE;
-    else {
-        u32 fallback = MIN(64 * 1024u, largest);
-        snap_buffer = kmalloc(fallback);
-        snap_cap = snap_buffer ? fallback : 0;
-    }
-    if (!snap_buffer) {
-        kprintf("[store] no snapshot buffer available; volumes are volatile\n");
-        return;
-    }
     for (u32 index = 0; index < count; ++index) {
         struct volume_state *v = &volume[index];
+        if (!disk_volume_layout(index, &v->layout)) panic("data partition geometry missing");
+        v->active_slot = -1;
+        v->generation = 0;
+        v->restore_error = 0;
         struct snapshot_header h[2];
         bool valid[2] = {false, false};
-        for (int i = 0; i < 2; ++i)
-            valid[i] = disk_volume_read(index, slot_lba(index, i), &h[i]) == 0 &&
-                       valid_header(&v->layout, &h[i]);
+        bool blank = true;
+        for (int i = 0; i < 2; ++i) {
+            memset(&h[i], 0, sizeof(h[i]));
+            int read = disk_volume_read(index, slot_lba(index, i), &h[i]);
+            valid[i] = !read && valid_header(&v->layout, &h[i]);
+            if (read) blank = false;
+            for (u32 b = 0; b < sizeof(h[i]); ++b)
+                if (((const u8 *)&h[i])[b]) { blank = false; break; }
+        }
         int first = valid[1] && (!valid[0] || (i32)(h[1].generation - h[0].generation) > 0) ? 1 : 0;
         for (int k = 0; k < 2; ++k) {
             int i = (first + k) % 2;
@@ -94,48 +99,80 @@ void store_init(void) {
                 break;
             }
             if (result == -NV_ENOMEM || result == -NV_ENOSPC) {
-                v->restore_blocked = true;
+                v->restore_error = result;
                 kprintf("[store] %c: restore needs RAM or nodes; writes disabled\n", 'C' + index);
                 break;
             }
             kprintf("[store] %c: rejected invalid snapshot in slot %u\n", 'C' + index, (u32)i);
         }
+        if (v->active_slot < 0 && !blank && !v->restore_error) {
+            v->restore_error = -NV_EIO;
+            kprintf("[store] %c: no valid snapshot; writes disabled\n", 'C' + index);
+        }
     }
+}
+struct writer {
+    u32 index, lba, sectors, length, checksum, fill;
+    u8 sector[512];
+};
+static int write_payload(void *context, const void *data, u32 length) {
+    struct writer *w = context;
+    const u8 *p = data;
+    if (w->length > volume[w->index].layout.snap_cap ||
+        length > volume[w->index].layout.snap_cap - w->length) return -NV_ENOSPC;
+    w->checksum = crc_more(w->checksum, p, length);
+    w->length += length;
+    while (length) {
+        u32 part = MIN(length, 512 - w->fill);
+        memcpy(w->sector + w->fill, p, part);
+        w->fill += part; p += part; length -= part;
+        if (w->fill == 512) {
+            int r = disk_volume_write(w->index, w->lba + 1 + w->sectors, w->sector);
+            if (r < 0) return r;
+            ++w->sectors; w->fill = 0;
+        }
+    }
+    return 0;
 }
 static int sync_one(u32 index) {
     struct volume_state *v = &volume[index];
-    if (v->restore_blocked) return -NV_ENOMEM;
-    u32 cap = MIN(snap_cap, v->layout.snap_cap), len;
-    int r = fs_export_volume(index, snap_buffer, cap, &len);
-    if (r < 0) return r;
-    memset(snap_buffer + len, 0, ALIGN_UP(len, 512u) - len);
+    if (v->restore_error) return v->restore_error;
     int slot = v->active_slot == 0 ? 1 : 0;
+    struct writer w = {.index = index, .lba = slot_lba(index, slot),
+                       .checksum = 0xffffffffu};
+    u32 length, offsets[FS_NODES];
     struct snapshot_header h;
     memset(&h, 0, sizeof(h));
-    r = disk_volume_write(index, slot_lba(index, slot), &h);
+    int r = disk_volume_write(index, w.lba, &h);
     if (!r) r = disk_flush();
-    for (u32 off = 0; !r && off < ALIGN_UP(len, 512); off += 512)
-        r = disk_volume_write(index, slot_lba(index, slot) + 1 + off / 512, snap_buffer + off);
-    if (!r) r = disk_flush();
-    if (!r) {
-        memcpy(h.magic, "NVSS0001", 8);
-        h.generation = v->generation + 1;
-        h.length = len;
-        h.checksum = crc32(snap_buffer, len);
-        h.header_checksum = crc32(&h, sizeof(h));
-        r = disk_volume_write(index, slot_lba(index, slot), &h);
+    if (r < 0) return r;
+    r = fs_export_stream(index, v->layout.snap_cap, write_payload, &w, &length, offsets);
+    if (r < 0) return r;
+    if (w.fill) {
+        memset(w.sector + w.fill, 0, 512 - w.fill);
+        r = disk_volume_write(index, w.lba + 1 + w.sectors, w.sector);
+        if (r < 0) return r;
     }
+    r = disk_flush();
+    if (r < 0) return r;
+    memcpy(h.magic, "NVSS0001", 8);
+    h.generation = v->generation + 1;
+    h.length = length;
+    h.checksum = ~w.checksum;
+    h.header_checksum = crc32(&h, sizeof(h));
+    r = disk_volume_write(index, w.lba, &h);
     if (!r) r = disk_flush();
     if (!r) {
         v->active_slot = slot;
         v->generation = h.generation;
+        fs_rebase_volume(index, slot, offsets);
     }
     return r;
 }
 int store_sync(void) {
-    if (!disk_ready() || !snap_cap) return -NV_ENODEV;
+    if (!disk_ready() || !count) return -NV_ENODEV;
     for (u32 i = 0; i < count; ++i)
-        if (volume[i].restore_blocked) return -NV_ENOMEM;
+        if (volume[i].restore_error) return volume[i].restore_error;
     for (u32 i = 0; i < count; ++i) {
         int result = sync_one(i);
         if (result < 0) return result;

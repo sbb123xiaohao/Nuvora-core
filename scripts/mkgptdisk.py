@@ -11,9 +11,9 @@ import uuid
 import zlib
 
 try:
-    from .mkdisk import SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS
+    from .mkdisk import SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS, slot_sectors
 except ImportError:  # direct execution from scripts/
-    from mkdisk import SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS
+    from mkdisk import SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS, slot_sectors
 
 SECTOR = 512
 MIB_SECTORS = 2048
@@ -31,7 +31,7 @@ def _gpt_header(lba, alternate, entries_lba, first, last, disk_guid, entries_crc
     return header
 
 
-def create(path: pathlib.Path, if_missing=False, size_mib=64, partitions=1):
+def create(path: pathlib.Path, if_missing=False, size_mib=512, partitions=1):
     if path.exists():
         if if_missing and path.is_file():
             with path.open('rb') as stream:
@@ -82,8 +82,10 @@ def create(path: pathlib.Path, if_missing=False, size_mib=64, partitions=1):
             out.write(_gpt_header(total - 1, 1, total - 33, first, last, guid, entry_crc))
             for begin, end in regions:
                 capacity = end - begin + 1
+                sectors_per_slot = slot_sectors(capacity)
                 body = b'NVSTORE2' + struct.pack('<IIIII', 2, 512, SLOT0_LBA,
-                                                  SLOT1_LBA, SLOT_SECTORS)
+                                                  SLOT0_LBA + sectors_per_slot,
+                                                  sectors_per_slot)
                 body += struct.pack('<I', 0) + struct.pack('<Q', capacity)
                 header = body + struct.pack('<I', zlib.crc32(body))
                 out.seek(begin * SECTOR); out.write(header.ljust(SECTOR, b'\0'))
@@ -97,7 +99,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('path', type=pathlib.Path)
     parser.add_argument('--if-missing', action='store_true')
-    parser.add_argument('--size', type=int, default=64, metavar='MIB')
+    parser.add_argument('--size', type=int, default=512, metavar='MIB')
     parser.add_argument('--partitions', type=int, default=1, metavar='COUNT')
     options = parser.parse_args()
     create(options.path, options.if_missing, options.size, options.partitions)

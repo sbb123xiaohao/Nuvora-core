@@ -4,12 +4,63 @@ struct node {
     int parent;
     bool locked;
     char name[32];
-    u8 *data;
+    u8 *data; /* embedded programs and old in-memory imports */
+    u8 **pages; /* modified 4 KiB pages; holes need no physical RAM */
+    u32 page_count, backing_offset;
+    int backing_slot;
+    u32 backing_volume;
 };
 static struct node nodes[FS_NODES];
 static int home_node;
 static int volume_nodes[NV_VOLUME_MAX];
 static u32 mounted_volumes;
+/* File pages are separate physical allocations, outside the fixed 8 MiB
+ * metadata heap. Only modified pages remain resident after a commit. */
+static u8 *file_page_alloc(void) {
+#ifdef NV_FS_TEST_HOST
+    return kmalloc(PAGE);
+#else
+    uptr p = page_alloc();
+    return p ? phys_ptr(p) : NULL;
+#endif
+}
+static void file_page_free(u8 *p) {
+#ifdef NV_FS_TEST_HOST
+    kfree(p);
+#else
+    page_free(ptr_phys(p));
+#endif
+}
+static void release_file(struct node *n) {
+    if (n->pages) {
+        for (u32 i = 0; i < n->page_count; ++i)
+            if (n->pages[i]) file_page_free(n->pages[i]);
+        kfree(n->pages);
+    }
+    kfree(n->data);
+    n->pages = NULL; n->data = NULL; n->page_count = n->capacity = 0;
+    n->backing_slot = -1; n->backing_offset = 0;
+}
+static int file_copy(const struct node *n, u32 offset, void *buf, u32 len) {
+    u8 *out = buf;
+    if (n->data) {
+        memcpy(out, n->data + offset, len);
+        return 0;
+    }
+    while (len) {
+        u32 page = offset / PAGE, part = MIN(len, PAGE - offset % PAGE);
+        if (page < n->page_count && n->pages && n->pages[page])
+            memcpy(out, n->pages[page] + offset % PAGE, part);
+        else if (n->backing_slot >= 0) {
+            int r = store_read_bytes(n->backing_volume, n->backing_slot,
+                                     n->backing_offset + offset, out, part);
+            if (r < 0) return r;
+        } else
+            memset(out, 0, part);
+        out += part; offset += part; len -= part;
+    }
+    return 0;
+}
 static int child(int parent, const char *name) {
     for (int i = 1; i < FS_NODES; ++i)
         if (nodes[i].kind && nodes[i].parent == parent && !strcmp(nodes[i].name, name))
@@ -21,7 +72,8 @@ static int make_node(int parent, const char *name, u32 kind, bool locked) {
         return -NV_E2BIG;
     for (int i = 1; i < FS_NODES; ++i)
         if (!nodes[i].kind) {
-            nodes[i] = (struct node){.kind = kind, .parent = parent, .locked = locked};
+            nodes[i] = (struct node){.kind = kind, .parent = parent, .locked = locked,
+                                      .backing_slot = -1};
             strlcpy(nodes[i].name, name, 32);
             return i;
         }
@@ -111,7 +163,8 @@ static int create_node(int cwd, const char *path, u32 kind) {
     return make_node(p, name, kind, false);
 }
 void fs_init(void) {
-    nodes[0] = (struct node){.kind = NV_DIR, .parent = 0, .locked = true};
+    nodes[0] = (struct node){.kind = NV_DIR, .parent = 0, .locked = true,
+                             .backing_slot = -1};
     make_node(0, "apps", NV_DIR, true);
     home_node = make_node(0, "home", NV_DIR, false);
     volume_nodes[0] = home_node;
@@ -232,9 +285,8 @@ int fs_open(struct task *t, const char *path, u32 flags) {
         (nodes[n].kind == NV_PROC || (nodes[n].locked && nodes[n].kind != NV_DEVICE)))
         return -NV_EACCESS;
     if ((flags & NV_TRUNC) && nodes[n].kind == NV_FILE) {
-        kfree(nodes[n].data);
-        nodes[n].data = NULL;
-        nodes[n].size = nodes[n].capacity = 0;
+        release_file(&nodes[n]);
+        nodes[n].size = 0;
     }
     ++nodes[n].refs;
     t->fd[fd] = (struct descriptor){
@@ -329,7 +381,9 @@ int fs_read(struct task *t, int fd, void *buf, u32 len) {
     if (d->offset >= size)
         return 0;
     u32 amount = MIN(len, size - d->offset);
-    memcpy(buf, data + d->offset, amount);
+    int result = n->kind == NV_FILE ? file_copy(n, d->offset, buf, amount) : 0;
+    if (result < 0) return result;
+    if (n->kind != NV_FILE) memcpy(buf, data + d->offset, amount);
     d->offset += amount;
     return (int)amount;
 }
@@ -353,6 +407,67 @@ int fs_write(struct task *t, int fd, const void *buf, u32 len) {
     if (offset > NV_FILE_MAX || len > NV_FILE_MAX - offset)
         return -NV_ENOSPC;
     u32 end = offset + len;
+    if (!n->data) {
+        u32 needed = (end + PAGE - 1u) / PAGE;
+        u32 old_count = n->page_count;
+        u8 **pages = n->pages;
+        if (needed > old_count) {
+            u32 grown = MAX(16u, old_count);
+            while (grown < needed) grown *= 2;
+            pages = kmalloc((usize)grown * sizeof(*pages));
+            if (!pages) return -NV_ENOMEM;
+            memset(pages, 0, (usize)grown * sizeof(*pages));
+            if (old_count) memcpy(pages, n->pages, (usize)old_count * sizeof(*pages));
+            needed = grown;
+        }
+        /* Allocate and populate everything before modifying file contents. */
+        u32 first = offset / PAGE, last = (end - 1) / PAGE;
+        int error = -NV_ENOMEM;
+        for (u32 i = first; i <= last; ++i) {
+            if (pages[i]) continue;
+            u8 *fresh = file_page_alloc();
+            if (!fresh) goto rollback_pages;
+            memset(fresh, 0, PAGE);
+            u32 base = i * PAGE;
+            if (base < n->size && n->backing_slot >= 0) {
+                u32 valid = MIN(PAGE, n->size - base);
+                int r = store_read_bytes(n->backing_volume, n->backing_slot,
+                                         n->backing_offset + base, fresh, valid);
+                if (r < 0) {
+                    file_page_free(fresh);
+                    error = r;
+                    goto rollback_pages;
+                }
+            }
+            /* Page pointers are aligned. Bit zero marks allocations from this
+             * syscall until every page has been prepared successfully. */
+            pages[i] = (u8 *)((uptr)fresh | 1u);
+        }
+        for (u32 i = first; i <= last; ++i)
+            pages[i] = (u8 *)((uptr)pages[i] & ~(uptr)1u);
+        if (pages != n->pages) {
+            kfree(n->pages);
+            n->pages = pages; n->page_count = needed;
+        }
+        const u8 *input = buf;
+        u32 copied = 0;
+        while (copied < len) {
+            u32 at = offset + copied, part = MIN(len - copied, PAGE - at % PAGE);
+            memcpy(pages[at / PAGE] + at % PAGE, input + copied, part);
+            copied += part;
+        }
+        n->size = MAX(n->size, end);
+        d->offset = end;
+        return (int)len;
+rollback_pages:
+        for (u32 i = first; i <= last; ++i)
+            if ((uptr)pages[i] & 1u) {
+                file_page_free((u8 *)((uptr)pages[i] & ~(uptr)1u));
+                pages[i] = NULL;
+            }
+        if (pages != n->pages) kfree(pages);
+        return error;
+    }
     if (end > n->capacity) {
         u32 cap = MAX(256u, n->capacity);
         /* Restored files have exact-size capacities. Round their next growth
@@ -415,7 +530,7 @@ int fs_mkdir(int cwd, const char *path) {
     return n < 0 ? n : 0;
 }
 static void delete_node(int n) {
-    kfree(nodes[n].data);
+    release_file(&nodes[n]);
     memset(&nodes[n], 0, sizeof(nodes[n]));
 }
 int fs_remove(int cwd, const char *path) {
@@ -596,8 +711,8 @@ int fs_export_volume(u32 volume, u8 *out, u32 cap, u32 *length) {
             pos += 12;
             memcpy(out + pos, path, n);
             pos += n;
-            if (nodes[i].size)
-                memcpy(out + pos, nodes[i].data, nodes[i].size);
+            if (nodes[i].size && file_copy(&nodes[i], 0, out + pos, nodes[i].size) < 0)
+                return -NV_EIO;
             pos += nodes[i].size;
             ++count;
         }
@@ -700,4 +815,137 @@ int fs_import_volume(u32 volume, const u8 *data, u32 len) {
 }
 int fs_import_home(const u8 *data, u32 len) {
     return fs_import_volume(0, data, len);
+}
+
+/* The disk snapshot keeps the original NVSS0001 byte format. These streaming
+ * paths avoid staging its contents in RAM and retain only modified file pages.
+ * Every saved file points into the committed slot after the header is durable. */
+int fs_export_stream(u32 volume, u32 cap,
+                     int (*write)(void *, const void *, u32), void *context,
+                     u32 *length, u32 offsets[FS_NODES]) {
+    if (volume >= mounted_volumes) return -NV_ENODEV;
+    int root = volume_nodes[volume];
+    u32 count = 0, total = 4, max_depth = 0;
+    for (int i = 0; i < FS_NODES; ++i) offsets[i] = 0xffffffffu;
+    for (int i = 1; i < FS_NODES; ++i) {
+        if (!nodes[i].kind || i == root || !descendant(i, root)) continue;
+        char path[NV_PATH_MAX];
+        if (fs_path(i, path, sizeof(path)) < 0) return -NV_E2BIG;
+        u32 n = strlen(path);
+        if (total > cap || cap - total < 12 + n ||
+            nodes[i].size > cap - total - 12 - n) return -NV_ENOSPC;
+        total += 12 + n + nodes[i].size;
+        u32 depth = 0;
+        for (int p = i; p != root; p = nodes[p].parent) ++depth;
+        max_depth = MAX(max_depth, depth);
+        ++count;
+    }
+    int r = write(context, &count, 4);
+    if (r < 0) return r;
+    u32 pos = 4;
+    u8 chunk[PAGE];
+    for (u32 depth = 1; depth <= max_depth; ++depth)
+        for (int i = 1; i < FS_NODES; ++i) {
+            if (!nodes[i].kind || i == root || !descendant(i, root)) continue;
+            u32 d = 0;
+            for (int p = i; p != root; p = nodes[p].parent) ++d;
+            if (d != depth) continue;
+            char path[NV_PATH_MAX];
+            if (fs_path(i, path, sizeof(path)) < 0) return -NV_E2BIG;
+            u32 n = strlen(path);
+            u32 header[3] = {nodes[i].kind, n, nodes[i].size};
+            if ((r = write(context, header, sizeof(header))) < 0 ||
+                (r = write(context, path, n)) < 0) return r;
+            pos += sizeof(header) + n;
+            offsets[i] = pos;
+            for (u32 off = 0; off < nodes[i].size;) {
+                u32 part = MIN(PAGE, nodes[i].size - off);
+                if ((r = file_copy(&nodes[i], off, chunk, part)) < 0 ||
+                    (r = write(context, chunk, part)) < 0) return r;
+                off += part;
+            }
+            pos += nodes[i].size;
+        }
+    *length = pos;
+    return pos == total ? 0 : -NV_EIO;
+}
+
+static int stream_entry(u32 volume, int slot, u32 length, u32 *pos,
+                        u32 *kind, u32 *size, char path[NV_PATH_MAX]) {
+    if (*pos > length || length - *pos < 12) return -NV_EIO;
+    u32 fields[3];
+    int r = store_read_bytes(volume, slot, *pos, fields, sizeof(fields));
+    if (r < 0) return r;
+    *pos += sizeof(fields);
+    u32 n = fields[1]; *kind = fields[0]; *size = fields[2];
+    char prefix[NV_PATH_MAX];
+    if (fs_path(volume_nodes[volume], prefix, sizeof(prefix)) < 0) return -NV_EIO;
+    u32 prefix_len = strlen(prefix);
+    if ((*kind != NV_FILE && *kind != NV_DIR) ||
+        (*kind == NV_DIR && *size) || n < prefix_len + 2 ||
+        n >= NV_PATH_MAX || n > length - *pos ||
+        *size > length - *pos - n || *size > NV_FILE_MAX) return -NV_EIO;
+    r = store_read_bytes(volume, slot, *pos, path, n);
+    if (r < 0) return r;
+    path[n] = 0;
+    if (strnlen(path, n) != n || strncmp(path, prefix, prefix_len) ||
+        path[prefix_len] != '/' || path[n - 1] == '/') return -NV_EIO;
+    for (u32 k = prefix_len + 1; k < n;) {
+        u32 first = k;
+        while (k < n && path[k] != '/') ++k;
+        u32 part = k - first;
+        if (!part || part > NV_NAME_MAX || (part == 1 && path[first] == '.') ||
+            (part == 2 && path[first] == '.' && path[first + 1] == '.'))
+            return -NV_EIO;
+        ++k;
+    }
+    *pos += n;
+    return 0;
+}
+
+int fs_import_stream(u32 volume, int slot, u32 length) {
+    if (volume >= mounted_volumes) return -NV_ENODEV;
+    if (length < 4) return -NV_EIO;
+    u32 count;
+    int r = store_read_bytes(volume, slot, 0, &count, 4);
+    if (r < 0) return r;
+    if (count > FS_NODES - fs_node_count()) return -NV_ENOSPC;
+    /* Two passes: reject malformed offsets/paths without changing live nodes. */
+    u32 pass = 0;
+    for (; pass < 2; ++pass) {
+        u32 pos = 4;
+        if (pass) clear_volume(volume);
+        for (u32 i = 0; i < count; ++i) {
+            u32 kind, size;
+            char path[NV_PATH_MAX];
+            r = stream_entry(volume, slot, length, &pos, &kind, &size, path);
+            if (r < 0) goto invalid;
+            if (pass) {
+                int n = create_node(0, path, kind);
+                if (n < 0) { r = n == -NV_ENOSPC ? n : -NV_EIO; goto invalid; }
+                nodes[n].size = size;
+                nodes[n].backing_volume = volume;
+                nodes[n].backing_slot = slot;
+                nodes[n].backing_offset = pos;
+            }
+            pos += size;
+        }
+        if (pos != length) { r = -NV_EIO; goto invalid; }
+    }
+    return 0;
+invalid:
+    /* The first pass has not touched the tree. A failed second pass removes
+     * partial nodes before the store tries the older committed slot. */
+    if (pass) clear_volume(volume);
+    return r;
+}
+
+void fs_rebase_volume(u32 volume, int slot, const u32 offsets[FS_NODES]) {
+    for (int i = 1; i < FS_NODES; ++i) {
+        if (offsets[i] == 0xffffffffu || nodes[i].kind != NV_FILE) continue;
+        release_file(&nodes[i]);
+        nodes[i].backing_volume = volume;
+        nodes[i].backing_slot = slot;
+        nodes[i].backing_offset = offsets[i];
+    }
 }

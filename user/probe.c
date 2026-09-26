@@ -533,8 +533,9 @@ static void restored_growth_tests(void) {
         return;
     check(emit(fd, "!", 1) == 1, "append reaches the 128 KiB growth boundary");
     info(&after);
-    check(after.heap_used == before.heap_used,
-          "restored file growth stays within its aligned 128 KiB buffer budget");
+    check(after.heap_used <= before.heap_used + 1024 &&
+          after.free_pages + 4 >= before.free_pages,
+          "restored append allocates only metadata and a modified data page");
     bool valid = seek_file(fd, 0, 0) == 0;
     u8 buffer[1024];
     for (u32 offset = 0; offset < fixture_size; offset += sizeof(buffer)) {
@@ -546,13 +547,13 @@ static void restored_growth_tests(void) {
         for (u32 i = 0; i < sizeof(buffer); ++i)
             valid = valid && buffer[i] == (offset + i == fixture_size - 1 ? '!' : 0x5a);
     }
-    check(valid, "restored bytes and appended byte survive reallocation");
+    check(valid, "restored bytes and appended byte survive paged write");
     check(seek_file(fd, NV_FILE_MAX, 0) == NV_FILE_MAX &&
           emit(fd, "?", 1) == -NV_ENOSPC, "growth beyond the file limit is rejected");
     check(close_file(fd) == 0 && remove_path(path) == 0, "restored growth fixture removed");
     info(&after);
-    check(after.heap_used + fixture_size == before.heap_used,
-          "removing the grown file returns its entire heap allocation");
+    check(after.heap_used == before.heap_used && after.free_pages == before.free_pages,
+          "removing the grown file returns its metadata and data page");
 }
 int user_main(const char *args) {
     if (app_help("probe", args))

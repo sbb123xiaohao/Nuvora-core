@@ -42,7 +42,7 @@ x86-64 枚举 PCI class 04:03 的 Intel High Definition Audio 控制器，从
 符合条件的模拟 line-out、speaker 或 headphone 路径，没有插拔自动切换、
 HDMI/DisplayPort 数字音频、USB 声卡、蓝牙、录音、混音和音量设置。
 每次写入同步播放最多 3072 字节，分块重新启动 DMA 会在块间产生短暂间隙
-（静音尾部缩为 128 字节）。普通文件最大 4 MiB；`wave FILE.wav` 播放 PCM，
+（静音尾部缩为 128 字节）。普通文件最大 64 MiB；`wave FILE.wav` 播放 PCM，
 图形 `media` 可解码 MP3 与 MPEG-1/MP2 视频。仍不是连续低延迟音乐播放栈，
 没有 MP4/H.264/AAC 解码。
 

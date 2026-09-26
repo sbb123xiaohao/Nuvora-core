@@ -107,7 +107,7 @@ DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不
 `wave FILE.wav` 播放符合此格式的 RIFF/WAVE PCM 文件；`wave --test`
 产生一秒 440 Hz 测试音。图形 `media` 应用另用 minimp3 和 pl_mpeg
 解码 MP3 与 MPEG-1/MP2，再写入同一 PCM 接口；其代码示例见
-`user/media.c`。文件系统的普通文件上限为 4 MiB。
+`user/media.c`。文件系统的普通文件上限为 64 MiB，实际保存还受单卷快照槽容量限制。
 控制器、模拟和实机边界见 [DEVICES.md](DEVICES.md)。
 
 ## 桌面入口和后续边界

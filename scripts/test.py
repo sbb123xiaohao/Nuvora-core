@@ -327,8 +327,8 @@ def restored_file_growth():
     finally:
         vm.close()
     record('Restored file growth / 32 MiB',
-           '7 guest assertions: append at 128 KiB, bounded heap use, preserved data, '
-           '4 MiB file limit and complete reclamation')
+           '7 guest assertions: append at 128 KiB, one dirty page, preserved data, '
+           '64 MiB file limit and complete reclamation')
 
 def persistence():
     disk = new_image('persistence.img')

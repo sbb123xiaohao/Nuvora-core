@@ -6,7 +6,8 @@ import struct
 import zlib
 
 # NVSTORE2 geometry: header sector, two snapshot slots of 16 MiB + 1 header
-# sector each, directly adjacent. The u64 total sector count accepts images
+# sector each on legacy images, directly adjacent. New disks of at least
+# 260 MiB reserve two 128 MiB slots. The u64 total sector count accepts images
 # far beyond 2 TiB. The kernel accepts larger disks as long as they cover
 # both slots.
 SLOT_SECTORS = 16 * 1024 * 1024 // 512 + 1
@@ -14,9 +15,14 @@ SLOT0_LBA = 8
 SLOT1_LBA = SLOT0_LBA + SLOT_SECTORS
 MIN_MIB = (SLOT1_LBA + SLOT_SECTORS) * 512 // (1024 * 1024) + 1
 MAX_MIB = (1 << 48) * 512 // (1024 * 1024)  # ATA LBA48, not an unlimited filesystem
+LARGE_SLOT_SECTORS = 128 * 1024 * 1024 // 512 + 1
 
 
-def create(path: pathlib.Path, if_missing: bool = False, size_mib: int = 64):
+def slot_sectors(capacity):
+    return LARGE_SLOT_SECTORS if capacity >= SLOT0_LBA + 2 * LARGE_SLOT_SECTORS else SLOT_SECTORS
+
+
+def create(path: pathlib.Path, if_missing: bool = False, size_mib: int = 512):
     if path.exists() and if_missing:
         if not path.is_file():
             raise SystemExit(f'Not a regular file: {path}')
@@ -28,7 +34,9 @@ def create(path: pathlib.Path, if_missing: bool = False, size_mib: int = 64):
     if size_mib < MIN_MIB or size_mib > MAX_MIB:
         raise SystemExit(f'Data image size must be {MIN_MIB}..{MAX_MIB} MiB (ATA LBA48).')
     path.parent.mkdir(parents=True, exist_ok=True)
-    body = b'NVSTORE2' + struct.pack('<IIIII', 2, 512, SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS)
+    sectors = slot_sectors(size_mib * 2048)
+    body = b'NVSTORE2' + struct.pack('<IIIII', 2, 512, SLOT0_LBA,
+                                     SLOT0_LBA + sectors, sectors)
     body += struct.pack('<I', 0) + struct.pack('<Q', size_mib * 1024 * 1024 // 512)
     header = body + struct.pack('<I', zlib.crc32(body))
     with path.open('xb') as stream:
@@ -46,7 +54,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('path', type=pathlib.Path)
     parser.add_argument('--if-missing', action='store_true')
-    parser.add_argument('--size', type=int, default=64, metavar='MIB',
-                        help='image size in MiB (default: 64)')
+    parser.add_argument('--size', type=int, default=512, metavar='MIB',
+                        help='image size in MiB (default: 512)')
     args = parser.parse_args()
     create(args.path, args.if_missing, args.size)

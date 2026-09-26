@@ -52,8 +52,8 @@ static inline uptr ptr_phys(const void *ptr) {
         p -= PHYS_WINDOW;
     return p;
 }
-#define FS_NODES 128
-#define SNAP_CAP_MAX (16u * 1024u * 1024u) /* also limited by the disk slot size */
+#define FS_NODES 512
+#define SNAP_CAP_MAX (128u * 1024u * 1024u) /* also limited by the disk slot size */
 static inline void outb(u16 p, u8 v) {
     __asm__ volatile("outb %0,%1" ::"a"(v), "Nd"(p));
 }
@@ -284,6 +284,11 @@ int disk_volume_write(u32, u64, const void *);
 void fs_mount_volumes(u32);
 int fs_export_volume(u32, u8 *, u32, u32 *);
 int fs_import_volume(u32, const u8 *, u32);
+int fs_export_stream(u32, u32, int (*)(void *, const void *, u32), void *,
+                     u32 *, u32 [FS_NODES]);
+int fs_import_stream(u32, int, u32);
+void fs_rebase_volume(u32, int, const u32 [FS_NODES]);
+int store_read_bytes(u32, int, u32, void *, u32);
 void store_init(void);
 int store_sync(void);
 u32 store_generation(void);

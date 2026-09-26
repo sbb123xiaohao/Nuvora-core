@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy host media files into C:/ on a powered-off Nuvora GPT data image.
+"""Copy host files into C:/ on a powered-off Nuvora GPT data image.
 
 Commits an inactive NVSTORE2 snapshot only after every byte is written.
 Existing files are preserved; use --replace for an intentional overwrite.
@@ -13,9 +13,8 @@ import zlib
 from mkgptdisk import NV_TYPE
 
 SECTOR = 512
-FILE_LIMIT = 4 * 1024 * 1024
-SLOT_LIMIT = 16 * 1024 * 1024
-FORMAT = {'.mp3', '.wav', '.mpg', '.mpeg'}
+FILE_LIMIT = 64 * 1024 * 1024
+SLOT_LIMIT = 128 * 1024 * 1024
 
 
 def crc(data):
@@ -97,7 +96,7 @@ def parse(payload):
     if len(payload) < 4:
         raise ValueError('Invalid snapshot.')
     count = struct.unpack_from('<I', payload)[0]
-    if count > 120:
+    if count > 480:
         raise ValueError('Snapshot has too many files.')
     result = []
     pos = 4
@@ -137,14 +136,14 @@ def import_files(image, paths, replace=False):
         entries = parse(payload)
         existing = {path: index for index, (_, path, _) in enumerate(entries)}
         for source in paths:
-            if not source.is_file() or source.suffix.lower() not in FORMAT:
-                raise ValueError(f'Expected an MP3, WAV or MPEG file: {source}')
+            if not source.is_file():
+                raise ValueError(f'Expected a regular file: {source}')
             name = source.name.encode('ascii')
             if not 0 < len(name) <= 31 or b'/' in name:
                 raise ValueError(f'File name must be at most 31 ASCII bytes: {source}')
             size = source.stat().st_size
-            if size == 0 or size > FILE_LIMIT:
-                raise ValueError(f'Media file must be 1 byte to 4 MiB: {source}')
+            if size > FILE_LIMIT:
+                raise ValueError(f'File must be at most 64 MiB: {source}')
             key = b'/home/' + name
             if key in existing and not replace:
                 raise ValueError(f'C: already contains {source.name}; use --replace.')
@@ -159,7 +158,7 @@ def import_files(image, paths, replace=False):
             else:
                 existing[key] = len(entries)
                 entries.append(value)
-        if len(entries) > 120:
+        if len(entries) > 480:
             raise ValueError('C: has too many files.')
         payload = pack(entries)
         if len(payload) > capacity:
