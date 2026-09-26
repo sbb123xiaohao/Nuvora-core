@@ -1,7 +1,7 @@
 #include "runtime.h"
 #include "desktop_ui.h"
-#define DESKTOP_ITEMS 128u
-static struct nv_dirent entries[DESKTOP_ITEMS];
+#define DESKTOP_ITEMS 512u
+static struct nv_dirent64 entries[DESKTOP_ITEMS];
 static struct nv_display_info mode;
 static char directory[NV_PATH_MAX], message[160], drive[32];
 static u32 count, selected, scroll, volumes;
@@ -25,7 +25,7 @@ static int refresh(void) {
     if (r < 0) return r;
     count = 0;
     for (u32 i = 0; i < DESKTOP_ITEMS; ++i) {
-        r = list_dir(".", i, &entries[i]);
+        r = list_dir64(".", i, &entries[i]);
         if (r < 0) return r;
         if (!r) break;
         ++count;
@@ -69,7 +69,8 @@ static bool document_name(const char *name) {
 }
 static bool wave_name(const char *name) {
     usize len = strlen(name);
-    return len >= 4 && !strcmp(name + len - 4, ".wav");
+    return (len >= 4 && (!strcmp(name + len - 4, ".wav") || !strcmp(name + len - 4, ".mp2"))) ||
+           (len >= 5 && (!strcmp(name + len - 5, ".flac") || !strcmp(name + len - 5, ".wave")));
 }
 static bool mp3_name(const char *name) {
     usize len = strlen(name);
@@ -105,7 +106,7 @@ static int open_selected(void) {
     bool media = wave_name(entries[selected].name) ||
                  mp3_name(entries[selected].name) || video_name(entries[selected].name);
     if (!document && !media) {
-        note("No opener. Supported: .txt, .nvd, .wav, .mp3, .mpg.");
+        note("No opener. Use Folio for text or Media for audio and MPEG video.");
         return 0;
     }
     char full[NV_PATH_MAX];

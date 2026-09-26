@@ -5,6 +5,7 @@ typedef unsigned short u16;
 typedef unsigned int u32;
 typedef unsigned long long u64;
 typedef signed int i32;
+typedef signed long long i64;
 typedef __SIZE_TYPE__ usize;
 typedef __UINTPTR_TYPE__ uptr;
 typedef __INTPTR_TYPE__ iptr;

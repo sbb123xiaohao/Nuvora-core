@@ -298,7 +298,7 @@ def build_fingerprint():
 def new_image(name, size_mib=64):
     path = REPORT / name
     path.unlink(missing_ok=True)
-    create(path, size_mib=size_mib)
+    create(path, size_mib=size_mib, legacy=True)
     return path
 
 def store_slot_lbas(image):

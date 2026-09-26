@@ -15,6 +15,9 @@ bool task_cwd_in_use(int node) { (void)node; return false; }
 int store_read_bytes(u32 v, int slot, u32 off, void *dst, u32 len) {
     (void)v; (void)slot; (void)off; (void)dst; (void)len; return -NV_EIO;
 }
+int disk_volume_read(u32 v, u64 lba, void *out) { (void)v; (void)lba; (void)out; return -NV_EIO; }
+int disk_volume_write(u32 v, u64 lba, const void *out) { (void)v; (void)lba; (void)out; return -NV_EIO; }
+int store_write_error(u32 v) { (void)v; return 0; }
 static struct task task_at(int cwd) {
     struct task t = {.cwd = cwd};
     for (u32 i = 0; i < NV_OPEN_MAX; ++i) t.fd[i].node = -1;

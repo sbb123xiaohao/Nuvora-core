@@ -1,9 +1,13 @@
 #include "runtime.h"
 #include "media_ui.h"
 #include "../third_party/minimp3.h"
+#include "../third_party/dr_flac.h"
+#include "media_stream.h"
+#include "wav_reader.h"
+#include "media_flac.h"
 typedef short i16;
 
-#define MEDIA_ITEMS 128u
+#define MEDIA_ITEMS 512u
 static struct nv_dirent entries[MEDIA_ITEMS];
 static struct nv_display_info mode;
 static struct media_view view;
@@ -28,7 +32,8 @@ static bool suffix(const char *name, const char *ext) {
 }
 static bool supported(const char *name) {
     return suffix(name, ".mp3") || suffix(name, ".wav") ||
-           suffix(name, ".mpg") || suffix(name, ".mpeg");
+           suffix(name, ".mpg") || suffix(name, ".mpeg") || suffix(name, ".flac") ||
+           suffix(name, ".mp2") || suffix(name, ".wave");
 }
 static void note(const char *text) { strlcpy(status, text, sizeof(status)); }
 static void failure(const char *action, int error) {
@@ -42,7 +47,7 @@ static int refresh(void) {
     int r = getcwd_path(path, sizeof(path));
     if (r < 0) return r;
     u32 found = 0;
-    for (u32 i = 0; i < MEDIA_ITEMS; ++i) {
+    for (u32 i = 0; found < MEDIA_ITEMS; ++i) {
         struct nv_dirent entry;
         r = list_dir(".", i, &entry);
         if (r <= 0) break;
@@ -86,14 +91,6 @@ static int pointer_input(bool *clicked) {
     pointer_buttons = event.buttons;
     return 1;
 }
-static int exact(int fd, u8 *dst, u32 bytes) {
-    for (u32 pos = 0; pos < bytes;) {
-        int n = take(fd, dst + pos, bytes - pos);
-        if (n <= 0) return n < 0 ? n : -NV_EIO;
-        pos += (u32)n;
-    }
-    return 0;
-}
 struct audio_sink {
     i16 samples[NV_AUDIO_MAX_WRITE / sizeof(i16)];
     u32 count, rate, phase, peak_left, peak_right;
@@ -124,7 +121,7 @@ static void write_stereo(i16 left, i16 right) {
     if (sound.count == ARRAY_LEN(sound.samples) / 2) flush_audio();
 }
 static void sample_at_rate(i16 left, i16 right, u32 rate) {
-    if (rate < 8000 || rate > 96000) { sound.error = -NV_EINVAL; return; }
+    if (rate < 8000 || rate > 655350) { sound.error = -NV_EINVAL; return; }
     if (sound.rate != rate) { sound.rate = rate; sound.has_previous = false; sound.phase = 0; }
     if (!sound.has_previous) {
         sound.previous_left = left; sound.previous_right = right;
@@ -132,9 +129,9 @@ static void sample_at_rate(i16 left, i16 right, u32 rate) {
     }
     while (sound.phase < 48000) {
         i32 l = (i32)sound.previous_left +
-                ((i32)left - sound.previous_left) * (i32)sound.phase / 48000;
+                ((i64)left - sound.previous_left) * sound.phase / 48000;
         i32 r = (i32)sound.previous_right +
-                ((i32)right - sound.previous_right) * (i32)sound.phase / 48000;
+                ((i64)right - sound.previous_right) * sound.phase / 48000;
         write_stereo((i16)l, (i16)r);
         sound.phase += rate;
     }
@@ -248,61 +245,72 @@ static int play_mp3(int fd) {
     if (!stop_playback) flush_audio();
     return sound.error;
 }
-static u32 le32(const u8 *p) {
-    return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24;
+static int source_read(void *context, void *out, u32 bytes) {
+    return take(*(int *)context, out, bytes);
 }
-static u16 le16(const u8 *p) { return (u16)(p[0] | (u16)p[1] << 8); }
+static int source_seek(void *context, u64 offset) {
+    if (offset > NV_FILE_MAX64) return -NV_EINVAL;
+    return seek_file64(*(int *)context, (i64)offset, 0, NULL);
+}
+static void mix_channels(const i32 *pcm, u32 channels, u32 rate) {
+    i32 left = pcm[0], right = pcm[channels > 1 ? 1 : 0];
+    /* Preserve stereo; multichannel files use a normalized stereo downmix. */
+    if (channels > 2) {
+        i32 weight = 2;
+        left *= 2; right *= 2;
+        for (u32 c = 2; c < channels; ++c) { left += pcm[c]; right += pcm[c]; ++weight; }
+        left /= weight; right /= weight;
+    }
+    sample_at_rate((i16)left, (i16)right, rate);
+}
 static int play_wav(int fd) {
     if (!audio_ready) return -NV_ENODEV;
-    int size = seek_file(fd, 0, 2);
-    if (size < 44 || seek_file(fd, 0, 0) != 0) return -NV_EINVAL;
-    u8 header[16];
-    if (exact(fd, header, 12) < 0 || memcmp(header, "RIFF", 4) ||
-        memcmp(header + 8, "WAVE", 4) || le32(header + 4) > (u32)size - 8)
-        return -NV_EINVAL;
-    u32 end = le32(header + 4) + 8, offset = 12, data = 0, bytes = 0;
-    bool format = false;
-    while (offset + 8 <= end) {
-        if (seek_file(fd, (i32)offset, 0) != (int)offset || exact(fd, header, 8) < 0)
-            return -NV_EIO;
-        u32 chunk = le32(header + 4);
-        if (chunk > end - offset - 8 || chunk + (chunk & 1) > end - offset - 8)
-            return -NV_EINVAL;
-        if (!memcmp(header, "fmt ", 4)) {
-            if (chunk < 16 || exact(fd, header, 16) < 0) return -NV_EINVAL;
-            format = le16(header) == 1 && le16(header + 2) == 2 &&
-                     le32(header + 4) == 48000 && le16(header + 12) == 4 &&
-                     le16(header + 14) == 16;
-        } else if (!memcmp(header, "data", 4)) {
-            data = offset + 8; bytes = chunk;
+    struct nv_stat64 st;
+    int r = stat_file64(fd, &st); if (r < 0) return r;
+    struct wav_io io = {&fd, source_read, source_seek};
+    struct wav_format f;
+    r = wav_open(&io, st.size, &f); if (r < 0) return r;
+    u64 bytes = f.bytes; u32 last_draw = clock_ticks();
+    while (bytes && !stop_playback && sound.error >= 0) {
+        r = transport(); if (r < 0) return r;
+        u32 chunk = (u32)MIN(bytes, sizeof(compressed)/f.frame*f.frame);
+        r = wav_exact(&io, compressed, chunk); if (r < 0) return r;
+        for (u32 at = 0; at < chunk; at += f.frame) {
+            i32 pcm[8];
+            for (u32 c = 0; c < f.channels; ++c)
+                pcm[c] = wav_sample(compressed+at+c*(f.bits/8), f.bits, f.tag);
+            mix_channels(pcm, f.channels, f.rate);
         }
-        offset += 8 + chunk + (chunk & 1);
-    }
-    if (!format || !bytes || bytes % 4 || seek_file(fd, (i32)data, 0) != (int)data)
-        return -NV_EINVAL;
-    u32 last_draw = clock_ticks();
-    while (bytes && !stop_playback) {
-        if (transport() < 0) return -NV_EIO;
-        u32 chunk = MIN(bytes, NV_AUDIO_MAX_WRITE);
-        int r = exact(fd, (u8 *)sound.samples, chunk);
-        if (r < 0) return r;
-        for (u32 i = 0; i < chunk / 4; ++i) {
-            i32 l = sound.samples[2 * i], right = sound.samples[2 * i + 1];
-            sound.peak_left = MAX(sound.peak_left, (u32)(l == -32768 ? 32768 : l < 0 ? -l : l));
-            sound.peak_right = MAX(sound.peak_right,
-                                   (u32)(right == -32768 ? 32768 : right < 0 ? -right : right));
-        }
-        r = nv_audio_write(sound.samples, chunk);
-        if (r != (int)chunk) return r < 0 ? r : -NV_EIO;
-        sound.played_frames += chunk / 4;
         bytes -= chunk;
-        if (clock_ticks() - last_draw >= 10) {
-            r = meter();
-            if (r < 0) return r;
-            last_draw = clock_ticks();
-        }
+        if (clock_ticks()-last_draw >= 10) { r = meter(); if (r < 0) return r; last_draw = clock_ticks(); }
     }
-    return 0;
+    if (!stop_playback) flush_audio();
+    return sound.error;
+}
+static int play_flac(int fd) {
+    if (!audio_ready) return -NV_ENODEV;
+    struct nv_stat64 st; int sr = stat_file64(fd, &st); if (sr < 0) return sr;
+    struct media_source source = {.context=&fd, .read=source_read, .seek=source_seek, .length=st.size};
+    drflac *flac = drflac_open(flac_read, flac_seek, flac_tell, &source, NULL);
+    if (!flac) return source.error < 0 ? source.error : -NV_EINVAL;
+    u64 frames = 0; u32 last_draw = clock_ticks(); int r = 0;
+    if (!flac->channels || flac->channels > 8 || flac->sampleRate < 8000 || flac->sampleRate > 655350) r = -NV_EINVAL;
+    while (!r && !stop_playback && sound.error >= 0) {
+        r = transport(); if (r < 0) break;
+        u64 got = drflac_read_pcm_frames_s16(flac, ARRAY_LEN(decoded)/flac->channels, decoded);
+        if (!got) break;
+        frames += got;
+        for (u32 i = 0; i < got; ++i) {
+            i32 pcm[8];
+            for (u32 c = 0; c < flac->channels; ++c) pcm[c] = decoded[i*flac->channels+c];
+            mix_channels(pcm, flac->channels, flac->sampleRate);
+        }
+        if (clock_ticks()-last_draw >= 10) { r = meter(); last_draw = clock_ticks(); }
+    }
+    if (!r && !stop_playback && flac->totalPCMFrameCount && frames != flac->totalPCMFrameCount) r = -NV_EIO;
+    drflac_close(flac);
+    if (!stop_playback) flush_audio();
+    return r < 0 ? r : source.error < 0 ? source.error : sound.error;
 }
 struct video_state { int error; u32 frames; };
 static void video_frame(plm_t *plm, plm_frame_t *frame, void *user) {
@@ -327,29 +335,17 @@ static void video_audio(plm_t *plm, plm_samples_t *samples, void *user) {
     state->error = sound.error;
 }
 static int play_video(int fd) {
-    int size = seek_file(fd, 0, 2);
-    if (size <= 0 || (u32)size > NV_FILE_MAX || seek_file(fd, 0, 0) != 0)
-        return -NV_EINVAL;
-    u8 *data = grow((size + NV_PAGE - 1) / NV_PAGE);
-    if ((iptr)data < 0) return (int)(iptr)data;
-    int r = exact(fd, data, (u32)size);
-    if (r < 0) return r;
-    bool header = false;
-    for (u32 i = 0; i + 7 < (u32)size; ++i) {
-        if (data[i] || data[i + 1] || data[i + 2] != 1 || data[i + 3] != 0xb3)
-            continue;
-        u32 w = (u32)data[i + 4] << 4 | data[i + 5] >> 4;
-        u32 h = ((u32)data[i + 5] & 15) << 8 | data[i + 6];
-        if (!w || !h || w > 640 || h > 480) return -NV_EINVAL;
-        header = true;
-    }
-    if (!header) return -NV_EINVAL;
-    plm_t *plm = plm_create_with_memory(data, (size_t)size, 0);
+    struct nv_stat64 st;
+    int r = stat_file64(fd, &st);
+    if (r < 0 || !st.size || source_seek(&fd, 0) < 0) return r < 0 ? r : -NV_EINVAL;
+    struct media_source source = {.context=&fd, .read=source_read, .seek=source_seek, .length=st.size};
+    plm_buffer_t *buffer = plm_buffer_create_with_callbacks(media_stream_load,
+        media_stream_seek, media_stream_tell, (size_t)st.size, &source);
+    plm_t *plm = plm_create_with_buffer(buffer, 1);
     if (!plm || plm_get_num_video_streams(plm) != 1 ||
-        plm_get_width(plm) < 1 || plm_get_height(plm) < 1 ||
-        plm_get_width(plm) > 640 || plm_get_height(plm) > 480) {
+        plm_get_width(plm) < 1 || plm_get_height(plm) < 1 || plm_get_framerate(plm) <= 0) {
         if (plm) plm_destroy(plm);
-        return -NV_EINVAL;
+        return source.error < 0 ? source.error : -NV_EINVAL;
     }
     struct video_state state = {0};
     plm_set_video_decode_callback(plm, video_frame, &state);
@@ -357,7 +353,7 @@ static int play_video(int fd) {
         plm_set_audio_decode_callback(plm, video_audio, &state);
     else plm_set_audio_enabled(plm, 0);
     u32 previous = clock_ticks();
-    while (!plm_has_ended(plm) && !stop_playback && state.error >= 0) {
+    while (!plm_has_ended(plm) && !stop_playback && state.error >= 0 && source.error >= 0) {
         u32 paused_before = paused_ticks;
         r = transport();
         if (r < 0) { state.error = r; break; }
@@ -371,8 +367,32 @@ static int play_video(int fd) {
     if (!stop_playback && state.error >= 0) flush_audio();
     view.frame = NULL;
     plm_destroy(plm);
-    return state.error < 0 ? state.error :
+    return source.error < 0 ? source.error : state.error < 0 ? state.error :
            sound.error < 0 ? sound.error : state.frames ? 0 : -NV_EINVAL;
+}
+static int play_mp2(int fd) {
+    if (!audio_ready) return -NV_ENODEV;
+    struct nv_stat64 st; int r = stat_file64(fd, &st); if (r < 0) return r;
+    struct media_source source = {.context=&fd, .read=source_read, .seek=source_seek, .length=st.size};
+    plm_buffer_t *buffer = plm_buffer_create_with_callbacks(media_stream_load,
+        media_stream_seek, media_stream_tell, (size_t)st.size, &source);
+    plm_audio_t *decoder = plm_audio_create_with_buffer(buffer, 1);
+    u32 frames = 0, last_draw = clock_ticks();
+    while (!stop_playback && source.error >= 0 && sound.error >= 0) {
+        r = transport(); if (r < 0) break;
+        plm_samples_t *samples = plm_audio_decode(decoder); if (!samples) break;
+        u32 rate = (u32)plm_audio_get_samplerate(decoder);
+        for (u32 i = 0; i < samples->count; ++i) {
+            i32 l = (i32)(samples->interleaved[2*i]*32767.0f);
+            i32 right = (i32)(samples->interleaved[2*i+1]*32767.0f);
+            sample_at_rate((i16)MAX(-32768, MIN(l, 32767)), (i16)MAX(-32768, MIN(right, 32767)), rate);
+        }
+        ++frames;
+        if (clock_ticks()-last_draw >= 10) { r = meter(); if (r < 0) break; last_draw = clock_ticks(); }
+    }
+    plm_audio_destroy(decoder);
+    if (!stop_playback) flush_audio();
+    return r < 0 ? r : source.error < 0 ? source.error : sound.error < 0 ? sound.error : frames ? 0 : -NV_EINVAL;
 }
 static int play(const char *file) {
     int fd = open_file(file, NV_READ);
@@ -390,7 +410,8 @@ static int play(const char *file) {
     strlcpy(title, base, sizeof(title));
     int r = draw();
     if (r >= 0) r = view.video ? play_video(fd) :
-                    suffix(file, ".mp3") ? play_mp3(fd) : play_wav(fd);
+                    suffix(file, ".mp3") ? play_mp3(fd) : suffix(file, ".flac") ? play_flac(fd) :
+                    suffix(file, ".mp2") ? play_mp2(fd) : play_wav(fd);
     close_file(fd);
     view.playing = false; view.frame = NULL;
     u32 heap_end = (u32)(uptr)grow(0);
@@ -425,7 +446,7 @@ static int open_selected(void) {
 int user_main(const char *args) {
     if (app_help("media", args)) return 0;
     if (*args && !supported(args)) {
-        println("Usage: media [FILE.mp3 | FILE.wav | FILE.mpg]");
+        println("Usage: media [FILE.mp3 | FILE.flac | FILE.wav | FILE.mp2 | FILE.mpg]");
         return 1;
     }
     int r = nv_display_info(&mode);

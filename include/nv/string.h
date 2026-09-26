@@ -12,5 +12,6 @@ int strncmp(const char *, const char *, usize);
 usize strlcpy(char *, const char *, usize);
 int parse_u32(const char *, u32 *);
 usize number(char *, u32, u32);
+usize number64(char *, u64, u32);
 u32 crc32(const void *, usize);
 #endif

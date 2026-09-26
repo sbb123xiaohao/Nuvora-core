@@ -107,3 +107,12 @@ u32 crc32(const void *data, usize n) {
     }
     return ~c;
 }
+
+usize number64(char *dst, u64 n, u32 base) {
+    const char digits[] = "0123456789abcdef";
+    char reverse[65]; usize count = 0;
+    if (base < 2 || base > 16) { dst[0] = 0; return 0; }
+    do { reverse[count++] = digits[n % base]; n /= base; } while (n);
+    for (usize i = 0; i < count; ++i) dst[i] = reverse[count-i-1];
+    dst[count] = 0; return count;
+}

@@ -32,7 +32,7 @@ static void status(void) {
         println("No Nuvora data disk. Files are held in RAM.");
 }
 static void list_volumes(void) {
-    println("Drive  Partition  Size  Snapshot limit  Saved generation");
+    println("Drive  Partition  Size  Storage format  Saved generation");
     u32 found = 0;
     for (u32 i = 0; i < 4; ++i) {
         struct nv_volume_info v;
@@ -42,8 +42,9 @@ static void list_volumes(void) {
         print(drive); print("     ");
         print_u32(v.partition_index); print("          ");
         print_u64((((u64)v.sectors_high << 32) | v.sectors_low) / 2048);
-        print(" MiB  "); print_u32(v.snapshot_limit / 1024);
-        print(" KiB          "); print_u32(v.generation); print("\n");
+        print(" MiB  ");
+        if (!v.snapshot_limit) print("Extent / disk capacity  ");
+        else { print_u32(v.snapshot_limit / 1024); print(" KiB snapshot  "); } print_u32(v.generation); print("\n");
     }
     if (!found) println("No formatted Nuvora data partition found.");
 }
@@ -215,9 +216,9 @@ static int dispatch(int n, char **v) {
         return chdir_path(v[1]);
     if (!strcmp(cmd, "glance") && n <= 2) {
         const char *path = n == 2 ? v[1] : ".";
-        struct nv_dirent e;
+        struct nv_dirent64 e;
         for (u32 i = 0;; ++i) {
-            int r = list_dir(path, i, &e);
+            int r = list_dir64(path, i, &e);
             if (r <= 0)
                 return r;
             print(e.kind == NV_DIR      ? "dir   "
@@ -227,7 +228,7 @@ static int dispatch(int n, char **v) {
             print(e.name);
             if (e.kind == NV_FILE) {
                 print("  ");
-                print_u32(e.size);
+                print_u64(e.size);
                 print(" B");
             }
             print("\n");

@@ -5,11 +5,8 @@ import pathlib
 import struct
 import zlib
 
-# NVSTORE2 geometry: header sector, two snapshot slots of 16 MiB + 1 header
-# sector each on legacy images, directly adjacent. New disks of at least
-# 260 MiB reserve two 128 MiB slots. The u64 total sector count accepts images
-# far beyond 2 TiB. The kernel accepts larger disks as long as they cover
-# both slots.
+# Legacy NVSTORE2 snapshot geometry remains available with --legacy.
+# New NVSTORE3 disks reserve two 2 MiB metadata slots and use the rest for data.
 SLOT_SECTORS = 16 * 1024 * 1024 // 512 + 1
 SLOT0_LBA = 8
 SLOT1_LBA = SLOT0_LBA + SLOT_SECTORS
@@ -22,20 +19,20 @@ def slot_sectors(capacity):
     return LARGE_SLOT_SECTORS if capacity >= SLOT0_LBA + 2 * LARGE_SLOT_SECTORS else SLOT_SECTORS
 
 
-def create(path: pathlib.Path, if_missing: bool = False, size_mib: int = 512):
+def create(path: pathlib.Path, if_missing: bool = False, size_mib: int = 8192, legacy: bool = False):
     if path.exists() and if_missing:
         if not path.is_file():
             raise SystemExit(f'Not a regular file: {path}')
         with path.open('rb') as stream:
             magic = stream.read(8)
-            if magic not in (b'NVSTORE1', b'NVSTORE2'):
+            if magic not in (b'NVSTORE1', b'NVSTORE2', b'NVSTORE3'):
                 raise SystemExit(f'Refusing an unrecognized existing file: {path}')
         return
     if size_mib < MIN_MIB or size_mib > MAX_MIB:
         raise SystemExit(f'Data image size must be {MIN_MIB}..{MAX_MIB} MiB (ATA LBA48).')
     path.parent.mkdir(parents=True, exist_ok=True)
-    sectors = slot_sectors(size_mib * 2048)
-    body = b'NVSTORE2' + struct.pack('<IIIII', 2, 512, SLOT0_LBA,
+    sectors = slot_sectors(size_mib * 2048) if legacy else 4097
+    body = (b'NVSTORE2' if legacy else b'NVSTORE3') + struct.pack('<IIIII', 2 if legacy else 3, 512, SLOT0_LBA,
                                      SLOT0_LBA + sectors, sectors)
     body += struct.pack('<I', 0) + struct.pack('<Q', size_mib * 1024 * 1024 // 512)
     header = body + struct.pack('<I', zlib.crc32(body))
@@ -54,7 +51,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('path', type=pathlib.Path)
     parser.add_argument('--if-missing', action='store_true')
-    parser.add_argument('--size', type=int, default=512, metavar='MIB',
-                        help='image size in MiB (default: 512)')
+    parser.add_argument('--size', type=int, default=8192, metavar='MIB',
+                        help='image size in MiB (default: 8192)')
+    parser.add_argument('--legacy', action='store_true', help='create the old bounded snapshot format')
     args = parser.parse_args()
-    create(args.path, args.if_missing, args.size)
+    create(args.path, args.if_missing, args.size, args.legacy)

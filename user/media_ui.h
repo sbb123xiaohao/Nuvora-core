@@ -47,8 +47,7 @@ static u32 media_rgb(i32 y, i32 cb, i32 cr) {
 }
 static void media_picture(struct nv_canvas *c, u32 height, u32 s,
                           const plm_frame_t *frame) {
-    if (!frame || !frame->width || !frame->height ||
-        frame->width > 640 || frame->height > 480) return;
+    if (!frame || !frame->width || !frame->height) return;
     u32 area_w = c->width - 24 * s, area_h = height - 92 * s;
     u32 w = MIN(area_w, (u32)((u64)area_h * frame->width / frame->height));
     u32 h = MIN(area_h, (u32)((u64)w * frame->height / frame->width));

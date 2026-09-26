@@ -115,7 +115,8 @@ struct mmap_entry {
 } PACKED;
 struct descriptor {
     int node;
-    u32 offset, flags;
+    u64 offset;
+    u32 flags;
 };
 struct fp_state {
     u32 words[128];
@@ -247,6 +248,9 @@ int fs_close(struct task *, int);
 int fs_read(struct task *, int, void *, u32);
 int fs_write(struct task *, int, const void *, u32);
 int fs_seek(struct task *, int, i32, u32);
+int fs_seek64(struct task *, int, struct nv_seek64 *);
+int fs_stat64(struct task *, int, struct nv_stat64 *);
+int fs_list64(int, const char *, u32, struct nv_dirent64 *);
 int fs_list(int, const char *, u32, struct nv_dirent *);
 int fs_mkdir(int, const char *);
 int fs_remove(int, const char *);
@@ -271,6 +275,8 @@ int disk_write(u64, const void *);
 int disk_flush(void);
 struct store_layout {
     u32 slot_lba[2], slot_sectors, snap_cap;
+    u32 version;
+    u64 data_first, data_end; /* 4 KiB block addresses; end exclusive */
 };
 bool disk_store_layout(struct store_layout *);
 u32 disk_volume_count(void);
@@ -289,6 +295,12 @@ int fs_export_stream(u32, u32, int (*)(void *, const void *, u32), void *,
 int fs_import_stream(u32, int, u32);
 void fs_rebase_volume(u32, int, const u32 [FS_NODES]);
 int store_read_bytes(u32, int, u32, void *, u32);
+void fs_extent_enable(u32, u64, u64);
+int fs_extent_import(u32, int, u32, bool);
+int fs_extent_export(u32, int (*)(void *, const void *, u32), void *, u32 *);
+int fs_extent_prepare(u32);
+void fs_extent_finish(u32, int, bool);
+int store_write_error(u32);
 void store_init(void);
 int store_sync(void);
 u32 store_generation(void);

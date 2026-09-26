@@ -20,6 +20,18 @@ static inline int close_file(int fd) {
 static inline int seek_file(int fd, i32 off, u32 origin) {
     return call(NV_SEEK, (u32)fd, (u32)off, origin);
 }
+static inline int seek_file64(int fd, i64 off, u32 origin, u64 *position) {
+    struct nv_seek64 io = {.offset = off, .origin = origin};
+    int r = call(NV_SEEK64, (u32)fd, (uptr)&io, 0);
+    if (!r && position) *position = io.position;
+    return r;
+}
+static inline int stat_file64(int fd, struct nv_stat64 *out) {
+    return call(NV_STAT64, (u32)fd, (uptr)out, 0);
+}
+static inline int list_dir64(const char *path, u32 index, struct nv_dirent64 *out) {
+    return call(NV_LIST64, (uptr)path, index, (uptr)out);
+}
 static inline int surface(u32 op, const struct nv_surface *screen) {
     return call(NV_SURFACE, op, (uptr)screen, 0);
 }

@@ -21,7 +21,7 @@ u32 disk_volume_count(void) { return 2; }
 bool disk_volume_layout(u32 i, struct store_layout *l) {
     assert(i < 2);
     *l = (struct store_layout){{8, 8 + SLOT_SECTORS}, SLOT_SECTORS,
-                               (SLOT_SECTORS - 1) * 512};
+                               (SLOT_SECTORS - 1) * 512, 2, 0, 0};
     return true;
 }
 static u8 *sector_at(u32 i, u64 lba) {

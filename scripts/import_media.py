@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Copy host files into C:/ on a powered-off Nuvora GPT data image.
 
-Commits an inactive NVSTORE2 snapshot only after every byte is written.
+NVSTORE3 streams file data and commits metadata; NVSTORE2 remains compatible.
 Existing files are preserved; use --replace for an intentional overwrite.
 """
 import argparse
@@ -131,6 +131,9 @@ def import_files(image, paths, replace=False):
         raise ValueError('Expected a regular GPT data image, not a device.')
     with image.open('r+b') as stream:
         first, sectors = partition(stream)
+        if read_at(stream, first * SECTOR, 8) == b'NVSTORE3':
+            from extent_store import import_extents
+            return import_extents(stream, first, sectors, paths, replace)
         slot0, slot1, capacity = geometry(stream, first, sectors)
         generation, active, payload = snapshots(stream, first, (slot0, slot1), capacity)
         entries = parse(payload)
@@ -195,4 +198,4 @@ if __name__ == '__main__':
         count, size = import_files(args.disk, args.files, args.replace)
     except (OSError, ValueError, UnicodeError) as error:
         parser.exit(1, f'Import refused: {error}\n')
-    print(f'Imported {count} media file(s) into C: snapshot ({size} bytes).')
+    print(f'Imported {count} file(s) into C: ({size} metadata/snapshot bytes).')

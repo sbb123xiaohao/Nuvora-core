@@ -8,7 +8,7 @@
 #define NV_KERNEL_H
 #define PAGE 4096u
 #define SNAP_CAP_MAX (16u * 1024u * 1024u)
-struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; };
+struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static FILE *disk_file;
 static u64 disk_sectors;
 static u8 dma[8][PAGE];
@@ -101,7 +101,8 @@ static void sim_write(u32 offset, u32 value) {
 }
 
 int main(int argc, char **argv) {
-    assert(argc == 3);
+    assert(argc == 3 || argc == 4);
+    bool modern = argc == 4;
     disk_file = fopen(argv[1], "r+b");
     assert(disk_file);
     disk_sectors = (u64)strtoul(argv[2], NULL, 10) * 2048;
@@ -118,12 +119,20 @@ int main(int argc, char **argv) {
     assert(disk_volume_count() == 2 && disk_partition_count() == 2);
     assert(completed > 30); /* repeated wraps of both phase and command ID */
     u8 sector[512];
-    assert(!disk_volume_read(1, 0, sector) && !memcmp(sector, "NVSTORE2", 8));
+    assert(!disk_volume_read(1, 0, sector) && !memcmp(sector, modern ? "NVSTORE3" : "NVSTORE2", 8));
     assert(disk_write(8, sector) == -NV_EINVAL);
     memset(sector, 0xa7, sizeof(sector));
     assert(!disk_volume_write(0, 10, sector) && writes == 1);
     memset(sector, 0, sizeof(sector));
     assert(!disk_volume_read(0, 10, sector) && sector[0] == 0xa7);
+    if (modern) {
+        u64 data = volumes[0].geometry.data_first*8;
+        memset(sector, 0xb8, sizeof(sector));
+        assert(!disk_volume_write(0, data, sector));
+        memset(sector, 0, sizeof(sector));
+        assert(!disk_volume_read(0, data, sector) && sector[0] == 0xb8);
+        assert(disk_volume_write(0, data-1, sector) == -NV_EACCESS);
+    }
     assert(!disk_flush() && flushes == 1);
     fail_io = true;
     assert(disk_read(0, sector) == -NV_EIO);

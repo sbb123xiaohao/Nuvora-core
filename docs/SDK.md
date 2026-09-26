@@ -106,8 +106,8 @@ DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不
 接口没有录音、混音、音量控制、设备切换和异步缓冲契约。
 `wave FILE.wav` 播放符合此格式的 RIFF/WAVE PCM 文件；`wave --test`
 产生一秒 440 Hz 测试音。图形 `media` 应用另用 minimp3 和 pl_mpeg
-解码 MP3 与 MPEG-1/MP2，再写入同一 PCM 接口；其代码示例见
-`user/media.c`。文件系统的普通文件上限为 64 MiB，实际保存还受单卷快照槽容量限制。
+流式解码 MP3、MP2、FLAC、WAV/RF64 与 MPEG-1/MP2，再写入同一 PCM 接口；其代码示例见
+`user/media.c`。NVSTORE3 文件内容按磁盘块存储，旧盘仍受原快照格式限制。
 控制器、模拟和实机边界见 [DEVICES.md](DEVICES.md)。
 
 ## 桌面入口和后续边界
@@ -124,3 +124,22 @@ F5 刷新目录，F6 将数据盘快照保存，Esc 返回 Loom。桌面在启�
 剪贴板协议。多窗口的下一步是定义用户态窗口消息和进程间
 通信，由桌面进程统一合成；不应把任意应用的 GPU/MMIO 写权限放入
 这个 ABI。实机 GOP、不同显卡固件和高分辨率显示尚未验证。
+
+## 64 位文件接口（0.10.0）
+
+ABI 1 追加调用号，旧编号及旧结构布局保持不变：
+
+| 调用 | 参数 | 返回 |
+| --- | --- | --- |
+| NV_SEEK64 | ebx=fd, ecx=nv_seek64*, edx=0 | 0 或负错误，position 输出新 u64 位置 |
+| NV_STAT64 | ebx=fd, ecx=nv_stat64*, edx=0 | 0 或负错误，size/allocated/kind |
+| NV_LIST64 | ebx=path, ecx=index, edx=nv_dirent64* | 1 条目、0 结束、负错误 |
+
+`nv_seek64` 含 offset:i64、position:u64、origin:u32、reserved:u32；origin 为
+0/1/2（起点/当前位置/末尾），reserved 必须为零。SDK 提供
+`nv_seek_file64`、`nv_stat_file64`、`nv_list_dir64`，偏移不受旧寄存器宽度限制。
+`nv_stat64.allocated` 在新格式表示分配块字节数，旧格式表示驻留文件缓冲大小，
+不表示卷空闲空间。旧 SEEK 超过 INT_MAX 返回 E2BIG；旧 LIST 大小饱和到 UINT_MAX。
+`NV_VOLUME.snapshot_limit=0` 表示 NVSTORE3 全卷数据区，非“零容量”。
+READ/WRITE 仍每次最多 16384 字节，可循环处理任意可表示的大文件。
+格式、迁移与示例见 [STORAGE-0.10.md](STORAGE-0.10.md)。

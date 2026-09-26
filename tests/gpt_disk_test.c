@@ -6,7 +6,7 @@
 #include <nv/string.h>
 #define NV_KERNEL_H
 #define SNAP_CAP_MAX (16u * 1024u * 1024u)
-struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; };
+struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static FILE *disk_file;
 static u64 disk_size, selected_lba;
 static u8 high[3], low[3], sector_data[512];
@@ -57,16 +57,23 @@ static bool nvme_ready(void) { return false; }
 static void nvme_shutdown(void) {}
 #include "../kernel/disk.c"
 int main(int argc, char **argv) {
-    assert(argc == 3);
+    assert(argc == 3 || argc == 4);
+    bool modern = argc == 4;
     disk_file = fopen(argv[1], "rb"); assert(disk_file);
     disk_size = (u64)strtoul(argv[2], NULL, 10) * 2048;
     assert(disk_init());
+    if (argc == 4 && !strcmp(argv[3], "raw")) {
+        assert(disk_volume_count()==1 && volumes[0].start==0 && layout.version==3);
+        u8 raw[512]; assert(!disk_volume_read(0,0,raw) && !memcmp(raw,"NVSTORE3",8));
+        assert(disk_volume_write(0,0,raw)==-NV_EACCESS);
+        fclose(disk_file);puts("PASS raw NVSTORE3: volume recognition and header write protection");return 0;
+    }
     assert(disk_volume_count() == 2 && volumes[0].start == 2048);
     assert(disk_partition_count() == 2 && disk_volume_partition_number(1) == 2);
     assert(volumes[1].start > volumes[0].start + volumes[0].length - 1);
-    assert(volumes[0].geometry.snap_cap == SNAP_CAP_MAX);
+    assert(volumes[0].geometry.snap_cap == (modern ? 2*1024*1024 : SNAP_CAP_MAX));
     u8 b[512];
-    assert(disk_volume_read(1, 0, b) == 0 && !memcmp(b, "NVSTORE2", 8));
+    assert(disk_volume_read(1, 0, b) == 0 && !memcmp(b, modern ? "NVSTORE3" : "NVSTORE2", 8));
     assert(disk_volume_read(0, volumes[0].length, b) == -NV_ENODEV);
     assert(disk_volume_write(0, 0, b) == -NV_EACCESS);
     assert(disk_write(8, b) == -NV_EINVAL); /* GPT metadata is never a slot. */

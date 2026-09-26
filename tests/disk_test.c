@@ -5,7 +5,7 @@
 #include <nv/string.h>
 #define NV_KERNEL_H
 #define SNAP_CAP_MAX (16u * 1024u * 1024u)
-struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; };
+struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static struct { u16 port; u8 byte; } writes[64];
 static u32 nwrites;
 static u8 inb(u16 p) { (void)p; return 0x48; }

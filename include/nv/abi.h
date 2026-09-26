@@ -1,12 +1,13 @@
 #ifndef NV_ABI_H
 #define NV_ABI_H
 #include <nv/types.h>
-#define NV_VERSION "0.9.0"
+#define NV_VERSION "0.10.0"
 #define NV_ABI_VERSION 1
 #define NV_NAME_MAX 31
 #define NV_PATH_MAX 192
 #define NV_ARG_MAX 256
-#define NV_FILE_MAX (64u * 1024u * 1024u)
+#define NV_FILE_MAX (64u * 1024u * 1024u) /* legacy RAM/snapshot files */
+#define NV_FILE_MAX64 0x7ffffffffffff000ull
 #define NV_OPEN_MAX 16
 #define NV_TASK_MAX 32
 #define NV_VOLUME_MAX 4u
@@ -46,6 +47,9 @@ enum nv_call {
     NV_DEVCTL, /* generic extensible device control; see enum nv_subsystem */
     NV_VOLUME, /* enumerate mounted Nuvora data partitions */
     NV_PARTITION, /* enumerate all validated GPT entries, including unmounted */
+    NV_SEEK64, /* ebx=fd, ecx=nv_seek64*, edx=0; result through position */
+    NV_STAT64, /* ebx=fd, ecx=nv_stat64*, edx=0 */
+    NV_LIST64, /* same arguments as LIST; nv_dirent64 */
     NV_CALL_COUNT
 };
 enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
@@ -231,6 +235,11 @@ struct nv_usb_device {
 };
 _Static_assert(sizeof(struct nv_usb_controller) == 32, "USB controller ABI");
 _Static_assert(sizeof(struct nv_usb_device) == 216, "USB device ABI");
+struct nv_seek64 { i64 offset; u64 position; u32 origin, reserved; };
+struct nv_stat64 { u64 size, allocated; u32 kind, reserved; };
+struct nv_dirent64 { char name[32]; u32 kind, reserved; u64 size; };
+_Static_assert(sizeof(struct nv_seek64) == 24, "seek64 ABI");
+_Static_assert(sizeof(struct nv_dirent64) == 48, "dirent64 ABI");
 enum nv_error {
     NV_EINVAL = 1,
     NV_ENOENT,
@@ -310,7 +319,7 @@ struct nv_taskinfo {
     char name[32];
 };
 struct nv_volume_info {
-    u32 letter, partition_index, snapshot_limit, generation;
+    u32 letter, partition_index, snapshot_limit, generation; /* limit=0: disk-backed NVSTORE3 */
     u32 sectors_low, sectors_high;
 };
 _Static_assert(sizeof(struct nv_volume_info) == 24, "volume info ABI");

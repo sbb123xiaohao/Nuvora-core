@@ -47,6 +47,28 @@ struct frame *syscall_dispatch(struct frame *f) {
     case NV_SEEK:
         result = fs_seek(current, (int)a, (i32)b, c);
         break;
+    case NV_SEEK64:
+    case NV_STAT64: {
+        u32 bytes = f->eax == NV_SEEK64 ? sizeof(struct nv_seek64) : sizeof(struct nv_stat64);
+        if (c || !user_range(current->pd, b, bytes, true)) { result = c ? -NV_EINVAL : -NV_EFAULT; break; }
+        if (f->eax == NV_SEEK64) {
+            struct nv_seek64 io; memcpy(&io, (void *)(uptr)b, sizeof(io));
+            result = fs_seek64(current, (int)a, &io);
+            if (!result) memcpy((void *)(uptr)b, &io, sizeof(io));
+        } else {
+            struct nv_stat64 io; result = fs_stat64(current, (int)a, &io);
+            if (!result) memcpy((void *)(uptr)b, &io, sizeof(io));
+        }
+        break;
+    }
+    case NV_LIST64: {
+        result = user_string(a, path, sizeof(path));
+        if (result < 0) break;
+        if (!user_range(current->pd, c, sizeof(struct nv_dirent64), true)) { result = -NV_EFAULT; break; }
+        struct nv_dirent64 e; result = fs_list64(current->cwd, path, b, &e);
+        if (result > 0) memcpy((void *)(uptr)c, &e, sizeof(e));
+        break;
+    }
     case NV_LIST:
         result = user_string(a, path, sizeof(path));
         if (result < 0)
@@ -199,7 +221,7 @@ struct frame *syscall_dispatch(struct frame *f) {
             disk_volume_layout(a, &l);
             struct nv_volume_info item = {
                 .letter = 'C' + a, .partition_index = disk_volume_partition_number(a),
-                .snapshot_limit = l.snap_cap, .generation = store_volume_generation(a),
+                .snapshot_limit = l.version == 3 ? 0 : l.snap_cap, .generation = store_volume_generation(a),
                 .sectors_low = (u32)size, .sectors_high = (u32)(size >> 32)};
             memcpy((void *)(uptr)b, &item, sizeof(item));
             result = 1;

@@ -14,7 +14,7 @@ static u32 *guarded(u32 count) {
 }
 
 static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool help) {
-    struct nv_dirent files[24] = {0};
+    struct nv_dirent64 files[24] = {0};
     for (u32 i = 0; i < ARRAY_LEN(files); ++i) {
         files[i].kind = i & 1 ? NV_FILE : NV_DIR;
         strlcpy(files[i].name, i & 1 ? "a long document name.nvd" :
@@ -25,6 +25,8 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     assert(!strcmp(desktop_kind(&files[17]), "WAV audio"));
     strlcpy(files[18].name, "track.mp3", sizeof(files[18].name));
     files[18].kind = NV_FILE;
+    files[18].size = 10ull*1024*1024*1024;
+    files[19].size = NV_FILE_MAX64;
     strlcpy(files[19].name, "movie.mpg", sizeof(files[19].name));
     assert(!strcmp(desktop_kind(&files[18]), "MP3 audio"));
     assert(!strcmp(desktop_kind(&files[19]), "MPEG video"));
@@ -60,6 +62,12 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     assert(desktop_hit(width, height, &view, 25 * scale, height - 14 * scale).kind == DESKTOP_HIT_START);
     assert(full[1 + view.pointer_y * width + view.pointer_x] ==
            nv_display_rgb(format, 0x071724));
+    const char *output = getenv("NV_DESKTOP_PREVIEW");
+    if (output && width==1280 && height==800 && format==NV_DISPLAY_BGRX8 && !help) {
+        FILE *f=fopen(output,"wb");assert(f);fprintf(f,"P6\n%u %u\n255\n",width,height);
+        for (u32 i=0;i<n;++i) { u32 rgb=full[i+1];u8 bytes[]={(u8)(rgb>>16),(u8)(rgb>>8),(u8)rgb};assert(fwrite(bytes,1,3,f)==3); }
+        fclose(f);
+    }
     free(full);
     free(tiled);
 }
@@ -87,6 +95,8 @@ static void menu_render(void) {
 }
 
 int main(void) {
+    char size[32]; desktop_size(size, 10ull*1024*1024*1024); assert(!strcmp(size,"10GiB"));
+    desktop_size(size, NV_FILE_MAX64); assert(strlen(size)<=7);
     assert(nv_display_rgb(NV_DISPLAY_BGRX8, 0x123456) == 0x123456);
     assert(nv_display_rgb(NV_DISPLAY_RGBX8, 0x123456) == 0x563412);
     for (u32 format = NV_DISPLAY_BGRX8; format <= NV_DISPLAY_RGBX8; ++format) {

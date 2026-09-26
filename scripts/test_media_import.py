@@ -8,7 +8,7 @@ from mkgptdisk import create
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='nuvora-media-') as directory:
     disk = pathlib.Path(directory) / 'data.img'
-    create(disk)
+    create(disk, size_mib=512, legacy=True)
     tone = root / 'tests/fixtures/tone.mp3'
     clip = root / 'tests/fixtures/clip.mpg'
     document = pathlib.Path(directory) / 'notes.txt'

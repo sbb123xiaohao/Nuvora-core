@@ -1,6 +1,8 @@
 #include "kernel.h"
 struct node {
-    u32 kind, size, capacity, refs, device;
+    u32 kind, capacity, refs, device;
+    u64 size;
+    struct file_extent *extents;
     int parent;
     bool locked;
     char name[32];
@@ -10,7 +12,13 @@ struct node {
     int backing_slot;
     u32 backing_volume;
 };
+struct file_extent { u64 logical, physical, blocks; struct file_extent *next; };
 static struct node nodes[FS_NODES];
+static int volume_for(int);
+static bool extent_enabled[NV_VOLUME_MAX];
+static void extent_free(struct file_extent *);
+static int extent_read(const struct node *, u64, void *, u32);
+static int extent_write(struct node *, u32, u64, const void *, u32);
 static int home_node;
 static int volume_nodes[NV_VOLUME_MAX];
 static u32 mounted_volumes;
@@ -32,6 +40,7 @@ static void file_page_free(u8 *p) {
 #endif
 }
 static void release_file(struct node *n) {
+    extent_free(n->extents); n->extents = NULL;
     if (n->pages) {
         for (u32 i = 0; i < n->page_count; ++i)
             if (n->pages[i]) file_page_free(n->pages[i]);
@@ -41,7 +50,10 @@ static void release_file(struct node *n) {
     n->pages = NULL; n->data = NULL; n->page_count = n->capacity = 0;
     n->backing_slot = -1; n->backing_offset = 0;
 }
-static int file_copy(const struct node *n, u32 offset, void *buf, u32 len) {
+static int file_copy(const struct node *n, u64 offset, void *buf, u32 len) {
+    if (n->extents || (n->backing_volume < NV_VOLUME_MAX &&
+                      extent_enabled[n->backing_volume] && !n->data && !n->pages))
+        return extent_read(n, offset, buf, len);
     u8 *out = buf;
     if (n->data) {
         memcpy(out, n->data + offset, len);
@@ -74,6 +86,9 @@ static int make_node(int parent, const char *name, u32 kind, bool locked) {
         if (!nodes[i].kind) {
             nodes[i] = (struct node){.kind = kind, .parent = parent, .locked = locked,
                                       .backing_slot = -1};
+            int v = volume_for(parent);
+            if (v >= 0) nodes[i].backing_volume = (u32)v;
+            else nodes[i].backing_volume = NV_VOLUME_MAX;
             strlcpy(nodes[i].name, name, 32);
             return i;
         }
@@ -252,7 +267,7 @@ int fs_blob(const char *path, const u8 **data, u32 *len) {
     int n = fs_lookup(0, path);
     if (n < 0)
         return n;
-    if (nodes[n].kind != NV_FILE)
+    if (nodes[n].kind != NV_FILE || !nodes[n].data || nodes[n].size > NV_FILE_MAX)
         return -NV_ENOEXEC;
     *data = nodes[n].data;
     *len = nodes[n].size;
@@ -373,7 +388,7 @@ int fs_read(struct task *t, int fd, void *buf, u32 len) {
     }
     static char proc_buffer[4096];
     const u8 *data = n->data;
-    u32 size = n->size;
+    u64 size = n->size;
     if (n->kind == NV_PROC) {
         size = proc_text(n->device, proc_buffer);
         data = (u8 *)proc_buffer;
@@ -403,7 +418,17 @@ int fs_write(struct task *t, int fd, const void *buf, u32 len) {
     }
     if (!len)
         return 0;
-    u32 offset = (d->flags & NV_APPEND) ? n->size : d->offset;
+    u64 wide_offset = (d->flags & NV_APPEND) ? n->size : d->offset;
+    int v = volume_for(d->node);
+    if (v >= 0 && extent_enabled[v]) {
+        if (wide_offset > NV_FILE_MAX64 || len > NV_FILE_MAX64 - wide_offset)
+            return -NV_E2BIG;
+        int r = extent_write(n, (u32)v, wide_offset, buf, len);
+        if (r >= 0) { d->offset = wide_offset + len; n->size = MAX(n->size, d->offset); }
+        return r;
+    }
+    if (wide_offset > NV_FILE_MAX) return -NV_ENOSPC;
+    u32 offset = (u32)wide_offset;
     if (offset > NV_FILE_MAX || len > NV_FILE_MAX - offset)
         return -NV_ENOSPC;
     u32 end = offset + len;
@@ -491,20 +516,52 @@ rollback_pages:
     d->offset = end;
     return (int)len;
 }
-int fs_seek(struct task *t, int fd, i32 offset, u32 origin) {
-    if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0)
-        return -NV_EBADF;
+int fs_seek64(struct task *t, int fd, struct nv_seek64 *io) {
+    if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0) return -NV_EBADF;
     struct descriptor *d = &t->fd[fd];
     struct node *n = &nodes[d->node];
-    if (n->kind == NV_DEVICE || origin > 2)
+    if (n->kind == NV_DEVICE || io->origin > 2 || io->reserved) return -NV_EINVAL;
+    u64 base = io->origin == 0 ? 0 : io->origin == 1 ? d->offset : n->size;
+    u64 magnitude = io->offset < 0 ? 0ull - (u64)io->offset : (u64)io->offset;
+    if (io->offset < 0 ? magnitude > base : magnitude > NV_FILE_MAX64 - base)
         return -NV_EINVAL;
-    u32 base = origin == 0 ? 0 : origin == 1 ? d->offset : n->size;
-    if (offset < 0 && 0u - (u32)offset > base)
-        return -NV_EINVAL;
-    if (offset >= 0 && (u32)offset > NV_FILE_MAX - base)
-        return -NV_EINVAL;
-    d->offset = base + (u32)offset;
-    return (int)d->offset;
+    u64 pos = io->offset < 0 ? base - magnitude : base + magnitude;
+    int v = volume_for(d->node);
+    if ((v < 0 || !extent_enabled[v]) && pos > NV_FILE_MAX) return -NV_EINVAL;
+    d->offset = io->position = pos;
+    return 0;
+}
+int fs_seek(struct task *t, int fd, i32 offset, u32 origin) {
+    if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0) return -NV_EBADF;
+    u64 old = t->fd[fd].offset;
+    struct nv_seek64 io = {.offset = offset, .origin = origin};
+    int r = fs_seek64(t, fd, &io);
+    if (r < 0) return r;
+    if (io.position > 0x7fffffffu) { t->fd[fd].offset = old; return -NV_E2BIG; }
+    return (int)io.position;
+}
+int fs_stat64(struct task *t, int fd, struct nv_stat64 *out) {
+    if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0) return -NV_EBADF;
+    struct node *n = &nodes[t->fd[fd].node];
+    *out = (struct nv_stat64){.size = n->size, .kind = n->kind};
+    for (struct file_extent *e = n->extents; e; e = e->next) out->allocated += e->blocks * PAGE;
+    if (n->data) out->allocated += n->capacity;
+    for (u32 i = 0; i < n->page_count; ++i) if (n->pages[i]) out->allocated += PAGE;
+    return 0;
+}
+int fs_list64(int cwd, const char *path, u32 index, struct nv_dirent64 *out) {
+    int p = fs_lookup(cwd, path);
+    if (p < 0) return p;
+    if (nodes[p].kind != NV_DIR) return -NV_ENOTDIR;
+    u32 k = 0;
+    for (int i = 1; i < FS_NODES; ++i)
+        if (nodes[i].kind && nodes[i].parent == p && k++ == index) {
+            memset(out, 0, sizeof(*out));
+            strlcpy(out->name, nodes[i].name, sizeof(out->name));
+            out->kind = nodes[i].kind; out->size = nodes[i].size;
+            return 1;
+        }
+    return 0;
 }
 int fs_list(int cwd, const char *path, u32 index, struct nv_dirent *out) {
     int p = fs_lookup(cwd, path);
@@ -520,7 +577,7 @@ int fs_list(int cwd, const char *path, u32 index, struct nv_dirent *out) {
             memset(out, 0, sizeof(*out));
             strlcpy(out->name, nodes[i].name, 32);
             out->kind = nodes[i].kind;
-            out->size = nodes[i].size;
+            out->size = (u32)MIN(nodes[i].size, 0xffffffffull);
             return 1;
         }
     return 0;
@@ -615,7 +672,7 @@ int fs_move(int cwd, const char *src, const char *dst) {
     if (p < 0)
         return p;
     int from_volume = volume_for(n), to_volume = volume_for(p);
-    if (from_volume >= 0 && to_volume >= 0 && from_volume != to_volume)
+    if (from_volume != to_volume)
         return -NV_EINVAL; /* no cross-volume rename without an atomic transaction */
     if (nodes[p].kind != NV_DIR)
         return -NV_ENOTDIR;
@@ -657,7 +714,7 @@ int fs_replace(int cwd, const char *src, const char *dst) {
     if (p < 0)
         return p;
     int from_volume = volume_for(n), to_volume = volume_for(p);
-    if (from_volume >= 0 && to_volume >= 0 && from_volume != to_volume)
+    if (from_volume != to_volume)
         return -NV_EINVAL;
     if (nodes[p].kind != NV_DIR)
         return -NV_ENOTDIR;
@@ -949,3 +1006,5 @@ void fs_rebase_volume(u32 volume, int slot, const u32 offsets[FS_NODES]) {
         nodes[i].backing_offset = offsets[i];
     }
 }
+
+#include "fs_extent.inc"

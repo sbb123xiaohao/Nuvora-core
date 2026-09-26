@@ -13,6 +13,18 @@ static inline int nv_syscall(u32 op, u32 a, u32 b, u32 c) {
                      : "memory", "cc");
     return result;
 }
+static inline int nv_seek_file64(int fd, i64 offset, u32 origin, u64 *position) {
+    struct nv_seek64 io = {.offset=offset, .origin=origin};
+    int r = nv_syscall(NV_SEEK64, (u32)fd, (u32)(uptr)&io, 0);
+    if (!r && position) *position = io.position;
+    return r;
+}
+static inline int nv_stat_file64(int fd, struct nv_stat64 *out) {
+    return nv_syscall(NV_STAT64, (u32)fd, (u32)(uptr)out, 0);
+}
+static inline int nv_list_dir64(const char *path, u32 index, struct nv_dirent64 *out) {
+    return nv_syscall(NV_LIST64, (u32)(uptr)path, index, (u32)(uptr)out);
+}
 static inline int nv_display_info(struct nv_display_info *out) {
     return nv_syscall(NV_DEVCTL, NV_SUB_DISPLAY, NV_DISPLAY_INFO, (u32)(uptr)out);
 }

@@ -1,4 +1,20 @@
-# Nuvora Core 0.9.0
+# Nuvora Core 0.10.0
+
+## 0.10.0 大文件与流式媒体
+
+新数据盘使用 **NVSTORE3 磁盘块存储**，不再把全盘内容装进 128 MiB
+快照，也不再对新盘设置 64 MiB 单文件上限。支持 64 位大小/偏移、稀疏文件、
+写时复制和双元数据根恢复；文件内容分块读写，`anchor` 只提交目录与块索引。
+默认创建 8 GiB 稀疏数据镜像，可用 `--disk-size` 选择更大容量。
+**旧盘保留原格式，需要迁移到新镜像才能解除旧格式限制。**
+
+Media 支持流式 MP3、MP2、FLAC、扩展 WAV/RF64 和 MPEG-1/MP2 视频，
+去掉视频整份载入与 640×480 的额外限制。桌面显示 64 位容量和 GiB 等单位。
+MP4/MKV 等格式可通过宿主 FFmpeg 转换导入，尚非系统内原生解码。
+
+[使用、迁移、磁盘格式和验证记录](docs/STORAGE-0.10.md)。当前通过 19 组
+宿主回归，包含 10 GiB 稀疏文件、160 MiB 连续数据、失败回滚与 720p 解码；
+本轮没有 QEMU/实机验证。硬件、元数据、用户地址空间仍有明确边界。
 
 ## 实体网络开发版
 
@@ -32,13 +48,13 @@ x86-64 新增 Intel I225/I226 PCIe 实体有线卡与 USB CDC-ECM 收发驱动�
 ## 开放应用接口与图形桌面（x86-64 开发版）
 
 - 公开 `include/nv/abi.h`、`include/nv/sdk.h` 和 `include/nv/gfx.h`：保留 ABI 1 原有调用号和结构。`NV_SUB_DISPLAY` 管理 UEFI GOP 像素租约和矩形提交，`NV_SUB_INPUT` 提供相对鼠标事件，`NV_SUB_AUDIO` 提供有界 PCM 输出；用户程序不能直接映射固件显存或声卡 MMIO。
-- Loom 输入 `desktop` 打开图形文件管理器：USB Boot 鼠标单击选择、双击打开，也可用方向键和 Enter。`.txt`/`.nvd` 由 Folio 打开，`.wav`/`.mp3`/`.mpg`/`.mpeg` 由 Media 打开。顶栏有 Media 快捷入口；底栏 N Start 打开应用菜单，包含 Media、Files、Folio 和返回 Loom。F3 打开 Media，F10 打开开始菜单；1–4 进入 C:–F:，5–7 进入系统目录；F1 快捷键，F2 新建，F5 刷新，F6 保存，Esc 退出。启动子程序时归还屏幕租约。
+- Loom 输入 `desktop` 打开图形文件管理器：USB Boot 鼠标单击选择、双击打开，也可用方向键和 Enter。`.txt`/`.nvd` 由 Folio 打开，`.wav`/`.wave`/`.mp3`/`.mp2`/`.flac`/`.mpg`/`.mpeg` 由 Media 打开。顶栏有 Media 快捷入口；底栏 N Start 打开应用菜单，包含 Media、Files、Folio 和返回 Loom。F3 打开 Media，F10 打开开始菜单；1–4 进入 C:–F:，5–7 进入系统目录；F1 快捷键，F2 新建，F5 刷新，F6 保存，Esc 退出。启动子程序时归还屏幕租约。
 - 该桌面目前没有触控、多窗口合成、Unicode 字体或 GPU 加速；BIOS 文本模式不提供像素屏。接口与构建方式见 [应用 SDK](docs/SDK.md)。
 
 ## 音频输出（x86-64 开发版）
 
 - PCI Intel HDA 控制器可通过模拟输出 pin 到 DAC 的 codec 路径播放 48 kHz、双声道、16-bit PCM；`wave --test` 发出一秒测试音，`wave /home/sample.wav` 播放相应格式的短 WAV。无需图形桌面，BIOS 文本模式也可调用。
-- 图形 Media 应用支持 MP3（逐帧解码，软件重采样到 48 kHz）、原有格式的 PCM WAV，以及 MPEG-1 Program Stream 视频（`.mpg`/`.mpeg`，可带 MP2 音轨）。播放时 Space 暂停，Esc 返回文件列表；无 HDA 输出时可看无声视频。**不支持 MP4/H.264/AAC**。普通文件上限 64 MiB，视频画面最多 640×480。内核仍是同步分块 HDA，块间可能有短暂间隙；尚无混音器、USB/蓝牙/HDMI 音频、录音或连续流缓冲。
+- 图形 Media 应用支持 MP3、独立 MP2、FLAC、PCM/float WAV 和 RF64，以及 MPEG-1 Program Stream 视频（可带 MP2 音轨）。读取和解码分块进行；没有 640×480 或 64 MiB 的播放器额外限制。Space 暂停，Esc 返回文件列表；无 HDA 可看无声视频。MP4/H.264/AAC 需要宿主转换。内核仍是同步分块 HDA，块间可能有间隙；尚无混音器、USB/蓝牙/HDMI 音频、录音或连续 DMA 环。
 - QEMU 可用 `python3 start.py --uefi --audio --window` 启动图形桌面并附加 HDA 设备（先构建 `make esp`）；实际扬声器和耳机路径仍需实体声卡验证。接口、设备范围见 [SDK](docs/SDK.md) 与 [设备说明](docs/DEVICES.md)。
 
 宿主机的媒体文件可在**虚拟机关机后**导入专用 GPT 数据镜像；不会改动启动镜像或宿主系统分区：
@@ -50,8 +66,12 @@ python3 scripts/import_media.py --disk build/x86_64/nuvora-store.img song.mp3 cl
 python3 start.py --uefi --audio --window
 ```
 
-已有同名文件默认拒绝，显式传 `--replace` 才替换；导入使用数据卷的另一快照槽，保留原有文件。导入器也接受普通数据文件，如 `notes.txt` 或 `report.pdf`；当前文件名需是最多 31 字节的 ASCII。文件可被存储，但格式能否打开取决于已安装应用。要从 MP4 转成可播放的视频，可在宿主机用 FFmpeg：
-`ffmpeg -i input.mp4 -vf scale=320:240 -c:v mpeg1video -b:v 500k -c:a mp2 -ar 48000 -b:a 96k -f mpeg clip.mpg`。输出仍需小于 64 MiB，且受所在分区的槽容量限制。
+已有同名文件默认拒绝，传 `--replace` 才替换。导入器也接受普通数据文件和空文件；
+文件名当前最多 31 字节 ASCII。存储一种格式不代表已安装对应应用。
+新 NVSTORE3 盘按块导入并保留旧提交；旧 NVSTORE1/2 继续使用原有容量。
+转换导入：`python3 scripts/prepare_media.py input.mp4 movie.mpg --disk build/x86_64/nuvora-store.img`。
+旧盘迁移：`python3 scripts/migrate_store.py old.img new.img --size 65536`。
+详见 [大文件存储与媒体](docs/STORAGE-0.10.md)。
 
 ## 0.9.0 物理页与小对象分配
 
@@ -165,7 +185,7 @@ rest
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 16 组源码边界夹具，使用 UBSan
+make test-host      # 19 组源码边界夹具，使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -213,17 +233,17 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 进程 | x64：Ring 3 轮转抢占及完整生命周期；ARM64：一个静态 EL0 工作负载，尚无多进程调度 |
 | 可执行文件 | x64 ELF64 静态程序加载、范围检查和失败回滚；ARM64 尚无 ELF 加载器 |
 | 系统调用 | x64 原创 ABI 及 DEVCTL；ARM64 仅有测试用的计算结果/退出 SVC |
-| 文件系统 | 512 个节点、64 MiB 文件上限；修改过的文件页占用 RAM，已提交文件按需从磁盘读取 |
+| 文件系统 | 512 个节点；NVSTORE3 为 64 位稀疏块文件，按需读写；旧盘和 /tmp 保留 64 MiB 限制 |
 | 虚拟节点 | `/dev/null`、`/dev/zero`、`/dev/console`，`/sys` 动态状态 |
-| 磁盘 | IDE 主盘 ATA PIO，或首个 PCIe NVMe 控制器的 512B namespace；GPT 分区识别；Nuvora 卷各有独立双槽 CRC32 快照，新盘每分区最高 128 MiB |
+| 磁盘 | IDE 主盘 ATA PIO，或首个 PCIe NVMe 控制器的 512B namespace；GPT 分区识别；NVSTORE3 双元数据根 + 全卷文件数据区；兼容 NVSTORE1/2 旧快照 |
 | 命令环境 | 36 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
 | 文档 | Folio 全屏编辑器；`.nvd` 原生格式；RTF/Word 可读导出 |
 | 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
 | 显卡准备 | NVIDIA / 通用 PCI display 识别、32/64 位 BAR、PCIe 扩展能力、内核专用映射准备；尚无原生 GPU 驱动 |
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘与鼠标、CDC-ECM 和 ESP USB Dongle CDC 控制；USB 存储仍只识别 |
 | 网络 | x64 Intel I225/I226 PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
-| 音视频 | x64 HDA 48 kHz 双声道输出；Media 支持 MP3、PCM WAV 和 MPEG-1/MP2 Program Stream，最高 640×480、64 MiB；未实机验证 |
-| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。16 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
+| 音视频 | x64 HDA 48 kHz 双声道输出；Media 流式 MP3/MP2/FLAC、WAV/RF64 与 MPEG-1/MP2；720p 宿主解码验证，未实机验证 |
+| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。19 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 
@@ -235,7 +255,7 @@ x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回
 - 暂无 ACPI AML/电源管理、原生 PCI Wi-Fi、TCP/IPv6、AHCI、录音与多设备音频混合、GPU 加速、多窗口桌面和 Unicode 终端；NVMe 仅支持一个 512B namespace，USB 鼠标仅支持 Boot Protocol，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
 - 暂无 `fork`、管道、套接字、动态链接、POSIX/Linux ABI 或通用文件系统格式支持。
 - x87/MMX/SSE 状态已经隔离；AVX/XSAVE、AVX-512/AMX、多核与微码更新尚未实现。SSE #XM 递交受 QEMU TCG 限制而明确跳过，尚未通过实机验证。
-- x64 文件系统共 512 个节点，普通文件最大 64 MiB；内核堆 8 MiB、每进程用户堆 512 MiB。新建的足够大分区单份快照最多 128 MiB；旧盘仍保持原来的 1/16 MiB 槽。每次保存要重写整个分区快照，未保存的脏页受可用 RAM 约束；没有交换空间、通用页缓存、符号链接、ACL 或 Linux/Windows 文件系统兼容。扩大**已有**镜像不会自动更改原槽位几何。
+- x64 文件系统共 512 个节点，内核元数据堆 8 MiB、每进程用户堆 512 MiB。NVSTORE3 的实际内容受磁盘/空闲块约束，单卷元数据区为 2 MiB，碎片化区间扫描尚待优化。旧盘和 `/tmp` 仍保留原文件上限；旧盘需另存迁移，扩大已有镜像不会自动扩容卷。没有 swap、通用页缓存、符号链接、ACL 或 Linux/Windows 文件系统兼容。
 - 测试通过不构成生产级安全或可靠性证明。没有进行真实硬件、长期压力或断电时序的全面认证。
 
 架构细节见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)，系统调用见 [ABI.md](docs/ABI.md)，下一阶段范围见 [ROADMAP.md](docs/ROADMAP.md)。

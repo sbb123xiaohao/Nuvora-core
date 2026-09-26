@@ -5,8 +5,8 @@ int abs(int n) { return n < 0 ? -n : n; }
 /* The process owns these pages until exit. pl_mpeg frees individual buffers,
  * but its small allocation count makes page-granular reclamation unnecessary. */
 static void *media_alloc(size_t bytes) {
-    if (bytes > 12u * 1024u * 1024u) {
-        println("Media: decoder allocation exceeds 12 MiB.");
+    if (bytes > 0x7fffffffu - sizeof(size_t) - NV_PAGE) {
+        println("Media: decoder allocation exceeds the address space.");
         finish(1);
     }
     u32 pages = (u32)(bytes + sizeof(size_t) + NV_PAGE - 1) / NV_PAGE;
@@ -36,3 +36,12 @@ static void *media_realloc(void *ptr, size_t bytes) {
 #define PLM_FREE(p) media_free(p)
 #define PL_MPEG_IMPLEMENTATION
 #include "../third_party/pl_mpeg.h"
+
+#define DR_FLAC_NO_STDIO
+#define DR_FLAC_NO_SIMD
+#define DRFLAC_MALLOC(sz) media_alloc(sz)
+#define DRFLAC_REALLOC(p, sz) media_realloc(p, sz)
+#define DRFLAC_FREE(p) media_free(p)
+#define DRFLAC_ASSERT(x) ((void)0)
+#define DR_FLAC_IMPLEMENTATION
+#include "../third_party/dr_flac.h"

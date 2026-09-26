@@ -7,7 +7,7 @@ static bool identified, owned, lba48, nvme_disk;
 static u64 sectors;
 static struct store_layout layout;
 /* Primary and backup GPT entry arrays have at most 128 entries of 128 bytes.
- * Unknown partition types are never written; only our own signed NVSTORE2
+ * Unknown partition types are never written; only our own validated NVSTORE
  * partitions are offered as volumes. */
 static u8 gpt_entries[128 * 128];
 static const u8 nuvora_type[16] = {
@@ -146,7 +146,8 @@ int disk_volume_write(u32 index, u64 relative, const void *buf) {
     if (index >= volume_count || relative >= volumes[index].length)
         return -NV_ENODEV;
     const struct store_layout *l = &volumes[index].geometry;
-    if (!((relative >= l->slot_lba[0] && relative - l->slot_lba[0] < l->slot_sectors) ||
+    if (!(l->version == 3 && relative >= l->data_first * 8 && relative < l->data_end * 8) &&
+        !((relative >= l->slot_lba[0] && relative - l->slot_lba[0] < l->slot_sectors) ||
           (relative >= l->slot_lba[1] && relative - l->slot_lba[1] < l->slot_sectors)))
         return -NV_EACCESS;
     return nvme_disk ? nvme_write(volumes[index].start + relative, buf) :
@@ -158,10 +159,12 @@ static bool parse_header_size(const u8 *header, u64 capacity, struct store_layou
     memcpy(fields, header + 8, sizeof(fields));
     memcpy(&crc_stored, header + 40, sizeof(crc_stored));
     u32 version = fields[0];
-    if (version == 2) {
+    memset(out, 0, sizeof(*out));
+    out->version = version;
+    if (version == 2 || version == 3) {
         /* NVSTORE2: sector size, slot0 LBA, slot1 LBA, slot sectors (u32),
          * then a u64 total sector count and the CRC over the first 40 bytes. */
-        if (memcmp(header, "NVSTORE2", 8) || crc_stored != crc32(header, 40))
+        if (memcmp(header, version == 3 ? "NVSTORE3" : "NVSTORE2", 8) || crc_stored != crc32(header, 40))
             return false;
         memcpy(&total, header + 32, sizeof(total));
         if (fields[1] != 512 || fields[2] != 8 || fields[4] < 8 ||
@@ -187,6 +190,11 @@ static bool parse_header_size(const u8 *header, u64 capacity, struct store_layou
     } else
         return false;
     out->snap_cap = MIN(SNAP_CAP_MAX, out->slot_sectors * 512 - 512);
+    if (version == 3) {
+        out->data_first = ((u64)out->slot_lba[1] + out->slot_sectors + 7) / 8;
+        out->data_end = total / 8;
+        if (out->data_first >= out->data_end) return false;
+    }
     return out->snap_cap >= 512;
 }
 static bool parse_header(const u8 *header) {
@@ -288,7 +296,7 @@ static bool scan_storage(void) {
     u8 header[512];
     if (disk_read(0, header) < 0)
         return false;
-    if ((!memcmp(header, "NVSTORE2", 8) || !memcmp(header, "NVSTORE1", 8)) &&
+    if ((!memcmp(header, "NVSTORE3", 8) || !memcmp(header, "NVSTORE2", 8) || !memcmp(header, "NVSTORE1", 8)) &&
         parse_header(header)) {
         volumes[0].start = 0;
         volumes[0].length = sectors;

@@ -30,7 +30,7 @@ static u32 crc_more(u32 state, const void *bytes, u32 length) {
     return state;
 }
 static bool valid_header(const struct store_layout *l, struct snapshot_header *h) {
-    if (memcmp(h->magic, "NVSS0001", 8) || h->length < 4 || h->length > l->snap_cap)
+    if (memcmp(h->magic, l->version == 3 ? "NVSS0002" : "NVSS0001", 8) || h->length < 4 || h->length > l->snap_cap)
         return false;
     u32 checksum = h->header_checksum;
     h->header_checksum = 0;
@@ -61,7 +61,8 @@ static int restore(u32 index, int slot, const struct snapshot_header *h) {
         checksum = crc_more(checksum, sector, MIN(512u, h->length - off));
     }
     if (~checksum != h->checksum) return -NV_EIO;
-    return fs_import_stream(index, slot, h->length);
+    return volume[index].layout.version == 3 ?
+        fs_extent_import(index, slot, h->length, false) : fs_import_stream(index, slot, h->length);
 }
 void store_init(void) {
     count = disk_volume_count();
@@ -72,6 +73,7 @@ void store_init(void) {
     for (u32 index = 0; index < count; ++index) {
         struct volume_state *v = &volume[index];
         if (!disk_volume_layout(index, &v->layout)) panic("data partition geometry missing");
+        fs_extent_enable(index, v->layout.data_first, v->layout.data_end);
         v->active_slot = -1;
         v->generation = 0;
         v->restore_error = 0;
@@ -86,11 +88,20 @@ void store_init(void) {
             for (u32 b = 0; b < sizeof(h[i]); ++b)
                 if (((const u8 *)&h[i])[b]) { blank = false; break; }
         }
+        if (v->layout.version == 3) {
+            for (int i = 0; i < 2; ++i) if (valid[i]) {
+                int r = restore(index, i, &h[i]);
+                if (r < 0) valid[i] = false;
+                if (r == -NV_ENOMEM || r == -NV_ENOSPC) v->restore_error = r;
+            }
+            if (v->restore_error) continue;
+        }
         int first = valid[1] && (!valid[0] || (i32)(h[1].generation - h[0].generation) > 0) ? 1 : 0;
         for (int k = 0; k < 2; ++k) {
             int i = (first + k) % 2;
             if (!valid[i]) continue;
-            int result = restore(index, i, &h[i]);
+            int result = v->layout.version == 3 ?
+                fs_extent_import(index, i, h[i].length, true) : restore(index, i, &h[i]);
             if (!result) {
                 v->active_slot = i;
                 v->generation = h[i].generation;
@@ -141,21 +152,24 @@ static int sync_one(u32 index) {
     struct writer w = {.index = index, .lba = slot_lba(index, slot),
                        .checksum = 0xffffffffu};
     u32 length, offsets[FS_NODES];
+    bool ext = v->layout.version == 3;
+    if (ext) { int p = fs_extent_prepare(index); if (p < 0) return p; }
     struct snapshot_header h;
     memset(&h, 0, sizeof(h));
     int r = disk_volume_write(index, w.lba, &h);
     if (!r) r = disk_flush();
-    if (r < 0) return r;
-    r = fs_export_stream(index, v->layout.snap_cap, write_payload, &w, &length, offsets);
-    if (r < 0) return r;
+    if (r < 0) goto aborted;
+    r = ext ? fs_extent_export(index, write_payload, &w, &length) :
+        fs_export_stream(index, v->layout.snap_cap, write_payload, &w, &length, offsets);
+    if (r < 0) goto aborted;
     if (w.fill) {
         memset(w.sector + w.fill, 0, 512 - w.fill);
         r = disk_volume_write(index, w.lba + 1 + w.sectors, w.sector);
-        if (r < 0) return r;
+        if (r < 0) goto aborted;
     }
     r = disk_flush();
-    if (r < 0) return r;
-    memcpy(h.magic, "NVSS0001", 8);
+    if (r < 0) goto aborted;
+    memcpy(h.magic, ext ? "NVSS0002" : "NVSS0001", 8);
     h.generation = v->generation + 1;
     h.length = length;
     h.checksum = ~w.checksum;
@@ -165,9 +179,18 @@ static int sync_one(u32 index) {
     if (!r) {
         v->active_slot = slot;
         v->generation = h.generation;
-        fs_rebase_volume(index, slot, offsets);
+        if (ext) fs_extent_finish(index, slot, true);
+        else fs_rebase_volume(index, slot, offsets);
     }
+    /* A failed final write/flush is ambiguous: do not recycle blocks until a
+     * remount has read which root reached stable storage. */
+    if (r < 0 && ext) v->restore_error = r;
+aborted:
+    if (ext && r < 0) fs_extent_finish(index, slot, false);
     return r;
+}
+int store_write_error(u32 index) {
+    return index < count ? volume[index].restore_error : -NV_ENODEV;
 }
 int store_sync(void) {
     if (!disk_ready() || !count) return -NV_ENODEV;

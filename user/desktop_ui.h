@@ -4,7 +4,7 @@
 #include <nv/string.h>
 struct desktop_view {
     const char *path, *message, *drive;
-    const struct nv_dirent *entries;
+    const struct nv_dirent64 *entries;
     u32 count, selected, scroll;
     bool help;
     u32 volumes;
@@ -14,9 +14,24 @@ struct desktop_view {
     bool menu;
     u32 menu_selected;
 };
-static const char *desktop_kind(const struct nv_dirent *entry) {
+static void desktop_size(char out[32], u64 size) {
+    static const char *units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
+    u32 unit = 0; u64 divisor = 1;
+    while (unit < 6 && size/divisor >= 1024) { divisor *= 1024; ++unit; }
+    u64 whole = size/divisor;
+    usize n = number64(out, whole, 10);
+    if (unit && whole < 10 && size%divisor) {
+        out[n++] = '.';
+        out[n++] = (char)('0' + (size%divisor)*10/divisor);
+        out[n] = 0;
+    }
+    strlcpy(out+n, units[unit], 32-n);
+}
+static const char *desktop_kind(const struct nv_dirent64 *entry) {
     if (entry->kind == NV_DIR) return "Folder";
     usize n = strlen(entry->name);
+    if (n >= 5 && !strcmp(entry->name + n - 5, ".flac")) return "FLAC audio";
+    if (n >= 4 && !strcmp(entry->name + n - 4, ".mp2")) return "MP2 audio";
     if (n >= 4 && !strcmp(entry->name + n - 4, ".wav")) return "WAV audio";
     if (n >= 4 && !strcmp(entry->name + n - 4, ".mp3")) return "MP3 audio";
     if (n >= 4 && !strcmp(entry->name + n - 4, ".mpg")) return "MPEG video";
@@ -137,7 +152,7 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
                  (main_w / s - 48) / 6, s, 0x24333a);
     nv_gfx_fill(c, main_x, main_y + 27 * s, main_w, s, 0xd6dde1);
     nv_gfx_text(c, main_x + 10 * s, main_y + 35 * s, "Name", 4, s, 0x53646d);
-    nv_gfx_text(c, main_x + main_w - 98 * s, main_y + 35 * s, "Size", 4, s, 0x53646d);
+    nv_gfx_text(c, main_x + main_w - 110 * s, main_y + 35 * s, "Size", 4, s, 0x53646d);
     nv_gfx_text(c, main_x + main_w - 58 * s, main_y + 35 * s, "Type", 4, s, 0x53646d);
     nv_gfx_fill(c, main_x, main_y + 46 * s, main_w, s, 0xd6dde1);
     u32 visible = desktop_visible(height, s);
@@ -151,11 +166,11 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
         }
         u32 ink = 0x24333a;
         nv_gfx_label(c, main_x + 10 * s, y, v->entries[i].name,
-                     (main_w / s - 116) / 6, s, ink);
+                     (main_w / s - 128) / 6, s, ink);
         if (v->entries[i].kind == NV_FILE) {
-            char bytes[16];
-            number(bytes, v->entries[i].size, 10);
-            nv_gfx_label(c, main_x + main_w - 98 * s, y, bytes, 7, s, 0x53646d);
+            char bytes[32];
+            desktop_size(bytes, v->entries[i].size);
+            nv_gfx_label(c, main_x + main_w - 110 * s, y, bytes, 7, s, 0x53646d);
         }
         const char *kind = desktop_kind(&v->entries[i]);
         nv_gfx_label(c, main_x + main_w - 58 * s, y, kind, 9, s, 0x53646d);
