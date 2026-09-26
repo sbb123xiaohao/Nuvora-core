@@ -30,7 +30,7 @@ for path in sorted(root.rglob('*')):
             continue
     selected.append(path)
 
-for arch, assertions in [('x86_64', 137)]:
+for arch, assertions in [('x86_64', 139)]:
     build = root / 'build' / arch
     results = json.loads((build / 'test-results/results.json').read_text())
     execution = json.loads((build / 'test-results/execution.json').read_text())

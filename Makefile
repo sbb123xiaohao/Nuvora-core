@@ -53,7 +53,7 @@ ASFLAGS := $(BASEFLAGS) -g
 KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/pci_decode.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := loom pulse spin fault probe folio relay vector desktop
+APPS := loom pulse spin fault probe folio relay vector desktop wave
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
 .DELETE_ON_ERROR:

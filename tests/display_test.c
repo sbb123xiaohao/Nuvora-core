@@ -19,11 +19,14 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
         files[i].kind = i & 1 ? NV_FILE : NV_DIR;
         strlcpy(files[i].name, i & 1 ? "a long document name.nvd" :
                 "very long folder name in a mounted drive", sizeof(files[i].name));
+        files[i].size = i * 101;
     }
+    strlcpy(files[17].name, "sample.wav", sizeof(files[17].name));
+    assert(!strcmp(desktop_kind(&files[17]), "WAV audio"));
     struct desktop_view view = {
         "/drives/D/notes/reports/2026/a-very-long-path", "Select a file or press F1 for help",
         "4 drives", files, ARRAY_LEN(files), 16, 12, help, 4,
-        true, width / 2, height / 2};
+        true, width / 2, height / 2, true};
     u32 n = width * height;
     u32 *full = guarded(n), *tiled = guarded(n);
     struct nv_canvas all = {full + 1, width, 0, height, format};
@@ -38,12 +41,12 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     assert(tiled[0] == 0x9173ace4 && tiled[n + 1] == 0x27607845);
     u32 scale = desktop_scale(width, height);
     u32 selected_y = 38 * scale + (52 + (16 - 12) * 14) * scale;
-    u32 selected_x = (12 * 2 + 74) * scale + 5 * scale;
+    u32 selected_x = (12 * 2 + 74) * scale + 7 * scale;
     if (!help) assert(full[1 + selected_y * width + selected_x] ==
-                      nv_display_rgb(format, 0x276078));
+                      nv_display_rgb(format, 0xd4e7ed));
     u32 drive_y = 38 * scale + (28 + 18) * scale - 4 * scale;
     assert(full[1 + drive_y * width + 17 * scale] ==
-           nv_display_rgb(format, 0x276078));
+           nv_display_rgb(format, 0xcbdfe5));
     struct desktop_hit nav = desktop_hit(width, height, &view, 17 * scale, drive_y);
     struct desktop_hit row = desktop_hit(width, height, &view, selected_x, selected_y);
     assert(nav.kind == DESKTOP_HIT_PLACE && nav.index == 1);

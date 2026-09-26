@@ -10,6 +10,7 @@ root = pathlib.Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--arch', choices=['x86_64', 'aarch64'], default='x86_64')
 parser.add_argument('--window', action='store_true', help='Use a graphics window with virtual USB input')
+parser.add_argument('--audio', action='store_true', help='Attach Intel HDA audio (x86-64 only)')
 parser.add_argument('--uefi', action='store_true', help='Boot via the UEFI stub (x86_64 only; needs OVMF and mtools-built ESP)')
 parser.add_argument('--no-usb', action='store_true', help='Boot without virtual USB devices')
 parser.add_argument('--disk-size', type=int, default=64, metavar='MIB', help='New data image size in MiB (default: 64)')
@@ -27,7 +28,7 @@ if args.memory < 32:
 if args.uefi and args.arch != 'x86_64':
     parser.error('UEFI boot is only implemented for x86_64')
 if args.arch == 'aarch64':
-    if (args.window or args.no_ecam or args.machine != 'pc' or args.cpu or
+    if (args.window or args.audio or args.no_ecam or args.machine != 'pc' or args.cpu or
             args.disk_size != 64 or args.partitions != 1 or args.disk_bus != 'ide'):
         parser.error('ARM64 bring-up uses QEMU virt, the serial console and its built-in CPU')
     cmd = [sys.executable, str(root / 'scripts/arm64.py'), 'run', '--memory', str(args.memory)]
@@ -47,6 +48,8 @@ if args.cpu:
     cmd += ['--cpu', args.cpu]
 if args.window:
     cmd.append('--window')
+if args.audio:
+    cmd.append('--audio')
 if args.disk_bus == 'nvme':
     cmd += ['--disk-bus', 'nvme']
 if args.uefi:

@@ -60,8 +60,23 @@ enum nv_subsystem {
     NV_SUB_GPU = 2,
     NV_SUB_NET = 3,
     NV_SUB_DISPLAY = 4,
-    NV_SUB_INPUT = 5
+    NV_SUB_INPUT = 5,
+    NV_SUB_AUDIO = 6
 };
+/* One interleaved signed 16-bit little-endian stereo PCM output at 48 kHz.
+ * WRITE copies exactly bytes from a user buffer and returns the byte count.
+ * A single write is bounded so the synchronous DMA operation can be polled.
+ * Unsupported hardware returns ENODEV; other formats return EINVAL. */
+#define NV_AUDIO_API_VERSION 1u
+#define NV_AUDIO_MAX_WRITE 3072u
+enum { NV_AUDIO_INFO = 1, NV_AUDIO_WRITE = 2 };
+enum { NV_AUDIO_S16LE = 1 };
+struct nv_audio_info {
+    u32 api_version, outputs, sample_rate, channels, format, max_write_bytes;
+};
+struct nv_audio_write { u32 pixels, bytes; }; /* pixels: user pointer to PCM bytes */
+_Static_assert(sizeof(struct nv_audio_info) == 24, "audio info ABI");
+_Static_assert(sizeof(struct nv_audio_write) == 8, "audio write ABI");
 /* Pointer events are relative to the caller's display coordinates. Only the
  * current pixel-screen owner may consume them; the queue is reset on acquire.
  * A zero return from POINTER_POLL means there is no pending event. */

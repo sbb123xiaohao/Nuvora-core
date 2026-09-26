@@ -1,5 +1,15 @@
 # Nuvora Core 0.9.0
 
+## 0.9.0 HDA 音频与文件管理器修订（宿主夹具验证）
+
+- 新增 PCI HDA 模拟 pin/DAC 输出，48 kHz 双声道 16-bit PCM 的版本化
+  `NV_SUB_AUDIO` 接口、用户态 `wave` WAV 播放和测试音；QEMU 可用
+  `start.py --audio` 附加 HDA 设备。仅短文件、单输出、同步分块播放。
+- 文件管理器显示路径、文件类型、字节数和真实声卡状态；`.wav` 可双击播放，
+  操作失败指出具体动作，移除演示版号和展示式配色。
+- x64 构建和 14 组 UBSan 宿主回归通过；guest 预期 139 项待 QEMU/实机运行。
+  实体 HDA、耳机插拔、连续播放和 UEFI 桌面仍未运行验证。
+
 ## 0.9.0 NVMe 数据盘与鼠标桌面扩展（宿主夹具验证）
 
 - 首个 PCIe NVMe 控制器的 512B NVM namespace 支持单扇区读/写与 Flush；

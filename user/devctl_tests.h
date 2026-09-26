@@ -35,6 +35,17 @@ static void devctl_tests(void) {
           "input version, physical pointer enumeration and request validation");
     check(nv_pointer_poll(&pointer) == -NV_EACCESS,
           "pointer reports require exclusive pixel-screen ownership");
+    struct nv_audio_info audio = {0};
+    check(nv_audio_info(&audio) == 0 && audio.api_version == NV_AUDIO_API_VERSION &&
+              audio.outputs <= 1 && audio.sample_rate == 48000 && audio.channels == 2 &&
+              audio.format == NV_AUDIO_S16LE && audio.max_write_bytes == NV_AUDIO_MAX_WRITE &&
+              devctl(NV_SUB_AUDIO, NV_AUDIO_INFO, NULL) == -NV_EFAULT &&
+              devctl(NV_SUB_AUDIO, 0, &audio) == -NV_EINVAL,
+          "optional HDA output format and audio request validation");
+    struct nv_audio_write invalid_audio = {0, 3};
+    check(devctl(NV_SUB_AUDIO, NV_AUDIO_WRITE, &invalid_audio) == -NV_EINVAL &&
+              devctl(NV_SUB_AUDIO, NV_AUDIO_WRITE, NULL) == -NV_EFAULT,
+          "PCM writes reject non-frame-aligned lengths and invalid request buffers");
     if (display == 0) {
         u32 pixel = nv_display_rgb(screen_mode.format, 0x123456);
         struct nv_display_present rect = {0, 0, 1, 1, 4, (u32)(uptr)&pixel};

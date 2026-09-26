@@ -8,8 +8,16 @@ static u32 count, selected, scroll, volumes;
 static bool help;
 static u32 pointer_x, pointer_y, pointer_buttons;
 static bool pointer_visible;
+static bool audio_ready;
 
 static void note(const char *s) { strlcpy(message, s, sizeof(message)); }
+static void note_error(const char *action, int error) {
+    strlcpy(message, action, sizeof(message));
+    usize n = strlen(message);
+    strlcpy(message + n, ": ", sizeof(message) - n);
+    n = strlen(message);
+    strlcpy(message + n, error_name(error), sizeof(message) - n);
+}
 static int refresh(void) {
     int r = getcwd_path(directory, sizeof(directory));
     if (r < 0) return r;
@@ -39,7 +47,7 @@ static void scroll_to_selection(void) {
 static int draw(u32 *tile, u32 rows) {
     struct desktop_view view = {directory, message, drive, entries,
                                 count, selected, scroll, help, volumes,
-                                pointer_visible, pointer_x, pointer_y};
+                                pointer_visible, pointer_x, pointer_y, audio_ready};
     for (u32 y = 0; y < mode.height; y += rows) {
         struct nv_canvas canvas = {tile, mode.width, y, MIN(rows, mode.height - y), mode.format};
         desktop_render(&canvas, mode.height, &view);
@@ -56,15 +64,20 @@ static bool document_name(const char *name) {
     return (len >= 4 && !strcmp(name + len - 4, ".txt")) ||
            (len >= 4 && !strcmp(name + len - 4, ".nvd"));
 }
-static int edit(const char *path) {
+static bool wave_name(const char *name) {
+    usize len = strlen(name);
+    return len >= 4 && !strcmp(name + len - 4, ".wav");
+}
+static int launch(const char *app, const char *path) {
     int r = nv_display_release();
     if (r < 0) return r;
-    int pid = spawn("/apps/folio", path);
+    int pid = spawn(app, path);
     if (pid > 0) r = wait_task(pid);
     else r = pid;
     int acquired = nv_display_acquire();
     if (acquired < 0) return acquired;
     pointer_buttons = 0;
+    if (r > 0) return -NV_EIO;
     if (r < 0) return r;
     return refresh();
 }
@@ -76,8 +89,10 @@ static int open_selected(void) {
         selected = scroll = 0;
         return refresh();
     }
-    if (!document_name(entries[selected].name)) {
-        note("No viewer for this file. Open .txt or .nvd documents.");
+    bool document = document_name(entries[selected].name);
+    bool wav = wave_name(entries[selected].name);
+    if (!document && !wav) {
+        note("No opener for this file type. Supported: .txt, .nvd, .wav.");
         return 0;
     }
     char full[NV_PATH_MAX];
@@ -89,7 +104,8 @@ static int open_selected(void) {
     }
     if (strlcpy(full + len, entries[selected].name, sizeof(full) - len) >= sizeof(full) - len)
         return -NV_E2BIG;
-    return edit(full);
+    if (wav && !audio_ready) { note("No HDA audio output. Select a supported device."); return 0; }
+    return launch(document ? "/apps/folio" : "/apps/wave", full);
 }
 static int go_place(u32 index) {
     static const char *const places[] = {"/home", "/drives/D", "/drives/E",
@@ -122,7 +138,10 @@ int user_main(const char *args) {
     if (r < 0) { report_error("Desktop: display", r); return 1; }
     pointer_x = mode.width / 2;
     pointer_y = mode.height / 2;
-    note("Select a folder or document. F1 shows keyboard controls.");
+    struct nv_audio_info audio;
+    audio_ready = nv_audio_info(&audio) == 0 && audio.api_version == NV_AUDIO_API_VERSION &&
+                  audio.outputs > 0;
+    note("");
     bool dirty = true;
     u32 last_click = 0xffffffffu, last_click_tick = 0;
     for (;;) {
@@ -141,13 +160,15 @@ int user_main(const char *args) {
             pointer_y = (u32)MAX(0, MIN(y, (i32)mode.height - 1));
             if ((event.buttons & NV_POINTER_LEFT) && !(pointer_buttons & NV_POINTER_LEFT)) {
                 struct desktop_view view = {directory, message, drive, entries,
-                    count, selected, scroll, help, volumes, true, pointer_x, pointer_y};
+                    count, selected, scroll, help, volumes, true, pointer_x, pointer_y, audio_ready};
                 struct desktop_hit hit = desktop_hit(mode.width, mode.height,
                                                       &view, pointer_x, pointer_y);
                 if (help) help = false;
                 else if (hit.kind == DESKTOP_HIT_PLACE) {
                     last_click = 0xffffffffu;
                     r = go_place(hit.index);
+                    if (r < 0) note_error("Open location", r);
+                    else note("");
                 } else if (hit.kind == DESKTOP_HIT_FILE) {
                     u32 tick = (u32)call(NV_CLOCK, 0, 0, 0);
                     bool open = last_click == hit.index && tick - last_click_tick <= 40;
@@ -155,11 +176,14 @@ int user_main(const char *args) {
                     last_click = hit.index;
                     last_click_tick = tick;
                     scroll_to_selection();
-                    if (open) { r = open_selected(); last_click = 0xffffffffu; }
+                    if (open) {
+                        r = open_selected(); last_click = 0xffffffffu;
+                        if (r < 0) note_error("Open item", r);
+                    } else note("");
                 }
             }
             pointer_buttons = event.buttons;
-            if (r < 0) { note(error_name(r)); r = 0; }
+            if (r < 0) r = 0;
             dirty = true;
         }
         int key = key_event();
@@ -175,17 +199,30 @@ int user_main(const char *args) {
         else if (k == '\b') {
             r = chdir_path("..");
             if (r >= 0) { selected = scroll = 0; r = refresh(); }
-        } else if (k == '\n') r = open_selected();
-        else if (k == NV_KEY_F2) r = edit("");
-        else if (k == NV_KEY_F5) r = refresh();
+            if (r < 0) note_error("Parent folder", r);
+            else note("");
+        } else if (k == '\n') {
+            r = open_selected();
+            if (r < 0) note_error("Open item", r);
+        } else if (k == NV_KEY_F2) {
+            r = launch("/apps/folio", "");
+            if (r < 0) note_error("New document", r);
+        } else if (k == NV_KEY_F5) {
+            r = refresh();
+            if (r < 0) note_error("Refresh folder", r);
+            else note("");
+        }
         else if (k == NV_KEY_F6) {
             r = control(NV_CTL_SYNC, 0);
-            if (r >= 0) note("Changes saved to all mounted data drives.");
+            if (r >= 0) note("Mounted drives saved.");
+            else note_error("Save drives", r);
         } else if (k >= '1' && k <= '7') {
             last_click = 0xffffffffu;
             r = go_place(k - '1');
+            if (r < 0) note_error("Open location", r);
+            else note("");
         }
-        if (r < 0) { note(error_name(r)); r = 0; }
+        if (r < 0) { if (!*message) note_error("File operation", r); r = 0; }
         scroll_to_selection();
         dirty = true;
     }

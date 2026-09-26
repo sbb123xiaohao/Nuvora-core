@@ -13,6 +13,9 @@ bool app_help(const char *name, const char *args) {
          "folio /home/report.nvd"},
         {"desktop", "desktop", "Firmware framebuffer desktop with a keyboard-operated file browser.\n"
          "F1 controls; Escape returns to Loom.", "desktop"},
+        {"wave", "wave FILE.wav | wave --test",
+         "Play 48 kHz stereo 16-bit PCM WAV through an HDA analog output.\n"
+         "--test plays a one-second tone.", "wave /home/tone.wav"},
         {"pulse", "forge pulse [quiet]",
          "Print five timed messages. quiet exits immediately with status 7.", "forge pulse"},
         {"spin", "scatter spin", "CPU-bound scheduler test; runs until terminated with quench PID.",

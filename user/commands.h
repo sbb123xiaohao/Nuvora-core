@@ -58,6 +58,8 @@ static const struct command_help commands[] = {
     {"desktop", "desktop", "Open the pixel desktop and file browser on UEFI displays.",
      "desktop", "Keyboard controls: arrows, Enter, Backspace, 1-4, F1/F2/F5/F6, Escape.\n"
      "Requires a supported firmware framebuffer; BIOS text mode remains in Loom."},
+    {"wave", "wave FILE.wav | wave --test", "Play a PCM WAV file or a test tone on HDA audio.",
+     "wave --test", "48 kHz, stereo, signed 16-bit PCM; analog HDA output required."},
     {"mirror", "mirror FROM TO", "Copy a file to a new destination.",
      "mirror /home/note.txt /home/copy.txt", "The destination must not exist."},
     {"shift", "shift FROM TO", "Move or rename a file or directory.",

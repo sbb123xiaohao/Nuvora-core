@@ -187,6 +187,8 @@ void pci_write16(u32, u32, u16);
 void pci_write32(u32, u32, u32);
 void pci_visit(void (*)(u32, u32, u32));
 void net_init(void);
+void audio_init(void);
+int audio_ioctl(u32, u32);
 void net_poll(void);
 int net_ioctl(u32, u32);
 bool net_igc_start(u32, u8 mac[6]);

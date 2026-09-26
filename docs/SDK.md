@@ -3,14 +3,14 @@
 Nuvora 的 x64 应用接口现在有公开头文件 `include/nv/abi.h`、
 `include/nv/sdk.h` 和 `include/nv/gfx.h`。外部程序可以编译为独立的
 ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像素绘制
-和 `NV_SUB_INPUT` 鼠标事件。
+和 `NV_SUB_INPUT` 鼠标事件、`NV_SUB_AUDIO` PCM 音频输出。
 `user/desktop.c` 是实际使用这些接口的桌面程序。它是文件浏览器的第一版，
 不是多窗口合成器，也不能运行 Linux、Windows 或 Qt/KDE 应用。
 
 ## 兼容约定
 
 - ABI 仍为 `NV_ABI_VERSION=1`；0–30 号调用及旧结构布局不变。新增
-  `NV_DEVCTL` 子系统 4（显示）和 5（输入），不改变旧程序调用行为。新增功能以子系统和操作号
+  `NV_DEVCTL` 子系统 4（显示）、5（输入）和 6（音频），不改变旧程序调用行为。新增功能以子系统和操作号
   扩展；结构改变时应新增操作或提高对应子系统的 `api_version`，不能覆盖
   旧字段。`NV_INFO.abi` 与 `NV_DISPLAY_INFO.api_version` 分别查询核心 ABI
   和显示协议，应用必须查询后使用。
@@ -86,17 +86,39 @@ ld -m elf_x86_64 --gc-sections -z max-page-size=4096 -T user/linker64.ld \
 `pixel_demo` 加到 Makefile 的 `APPS` 后重新 `make`。
 如果应用使用绘图字体和字符串功能，可一同链接 `common/string.o`。
 
+## PCM 音频
+
+```c
+struct nv_audio_info audio;
+if (nv_audio_info(&audio) == 0 &&
+    audio.api_version == NV_AUDIO_API_VERSION && audio.outputs) {
+    /* pcm 包含 48 kHz、16-bit little-endian、交错双声道数据；
+       一次最多 3072 字节，长度必须为 4 的倍数。 */
+    int written = nv_audio_write(pcm, bytes);
+}
+```
+
+`NV_SUB_AUDIO=6` 的 INFO 输出 24 字节：版本、输出数量（0 或 1）、
+采样率 48000、声道数 2、`NV_AUDIO_S16LE` 和单次最大写入 3072 字节。
+WRITE 接受 `{u32 pixels, u32 bytes}` 8 字节请求，把用户 PCM 复制到受保护的
+DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不完整帧、
+零字节或超长请求返回 `-NV_EINVAL`；坏用户地址返回 `-NV_EFAULT`。
+接口没有录音、混音、音量控制、设备切换和异步缓冲契约。
+`wave FILE.wav` 播放符合此格式的 RIFF/WAVE PCM 文件；`wave --test`
+产生一秒 440 Hz 测试音。文件系统的普通文件上限为 128 KiB。
+控制器、模拟和实机边界见 [DEVICES.md](DEVICES.md)。
+
 ## 桌面入口和后续边界
 
 在 Loom 输入 `desktop`。USB Boot 鼠标可单击选中文件、双击进入文件夹
-或打开 `.txt`/`.nvd` 文档；也可以用方向键选择文件，Enter 进入文件夹或以 Folio
-打开 `.txt`/`.nvd` 文档，Backspace 返回上级；1–4 进入已挂载的 C:–F:，
+或打开 `.txt`/`.nvd` 文档及 `.wav` 音频；也可以用方向键选择文件，Enter 进入文件夹，
+以 Folio 打开文档或以 Wave 播放音频；Backspace 返回上级；1–4 进入已挂载的 C:–F:，
 5–7 分别进入系统根目录、应用和临时目录；
 F1 显示操作说明，F2 创建空白文档，F5 刷新目录，F6 将数据盘快照保存，
-Esc 返回 Loom。桌面在启动 Folio 前归还像素屏，Folio 退出后重新获取；
+Esc 返回 Loom。桌面在启动 Folio/Wave 前归还像素屏，子程序退出后重新获取；
 不同程序始终不能同时直接写屏幕。
 
 当前没有触控、多个应用窗口、合成服务、Unicode 字体、
-剪贴板协议或音频 API。多窗口的下一步是定义用户态窗口消息和进程间
+剪贴板协议。多窗口的下一步是定义用户态窗口消息和进程间
 通信，由桌面进程统一合成；不应把任意应用的 GPU/MMIO 写权限放入
 这个 ABI。实机 GOP、不同显卡固件和高分辨率显示尚未验证。

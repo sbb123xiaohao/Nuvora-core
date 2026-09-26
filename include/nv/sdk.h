@@ -31,6 +31,13 @@ static inline int nv_input_info(struct nv_input_info *out) {
 static inline int nv_pointer_poll(struct nv_pointer_event *out) {
     return nv_syscall(NV_DEVCTL, NV_SUB_INPUT, NV_INPUT_POINTER_POLL, (u32)(uptr)out);
 }
+static inline int nv_audio_info(struct nv_audio_info *out) {
+    return nv_syscall(NV_DEVCTL, NV_SUB_AUDIO, NV_AUDIO_INFO, (u32)(uptr)out);
+}
+static inline int nv_audio_write(const void *samples, u32 bytes) {
+    struct nv_audio_write request = {(u32)(uptr)samples, bytes};
+    return nv_syscall(NV_DEVCTL, NV_SUB_AUDIO, NV_AUDIO_WRITE, (u32)(uptr)&request);
+}
 /* Pixel words have a fixed meaning irrespective of the firmware's channel
  * order; applications convert once when writing their own buffer. */
 static inline u32 nv_display_rgb(u32 format, u32 rgb) {

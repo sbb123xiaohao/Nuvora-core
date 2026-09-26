@@ -1,21 +1,23 @@
 # 测试与复现
 
-## 当前源码扩展：NVMe 与 USB 鼠标
+## 当前源码扩展：NVMe、USB 鼠标与 HDA 音频
 
-当前环境实际执行 x64 `make -j4` 以及 `make test-host`，通过 13 组
+当前环境实际执行 x64 `make -j4` 以及 `make test-host`，通过 14 组
 UBSan 宿主源码回归。新增 NVMe 夹具模拟控制器寄存器、PCI、队列和 DMA，
 使用真实双分区 GPT 数据镜像，验证扇区格式、读/写/Flush、非快照槽拒绝、
 队列回绕及故障停用。USB 鼠标夹具验证 Boot 报告有符号位移、按键释放、
 事件队列回绕和清空；桌面夹具检查选中命中和渲染分块一致性。
-`forge probe devctl` 在之前 135 项基础上增加 2 项输入断言，x64 guest
-运行器预期 **137 项**。当前环境没有 QEMU、OVMF、mtools 或实体硬件，
-因此没有本轮 guest/UEFI/实体 SSD 与鼠标的运行通过记录。下方较早的
+HDA 夹具验证真实驱动在模拟 MMIO、codec verb、DMA 上的路由选择、
+双描述符播放和用户缓冲校验；实际绘制 1280×800、640×480 界面截图
+并人工检查。`forge probe devctl` 在之前 137 项基础上增加 2 项音频断言，
+x64 guest 运行器预期 **139 项**。当前环境没有 QEMU、OVMF、mtools
+或实体硬件，因此没有本轮 guest/UEFI/实体 SSD、鼠标和音频的运行通过记录。下方较早的
 131 项 guest 与 8–11 组宿主数字均属以前源码的历史验证，不适用于当前扩展。
 设备范围和进一步验证要求见 [DEVICES.md](DEVICES.md)。
 
 **像素桌面扩展的验证边界：**x64 `make -j4` 已通过；宿主截图夹具
 以实际 `user/desktop_ui.h` 绘制 1280×800、640×480 的布局并人工检查；
-`make test-host` 的第 11 组对四种分辨率、两种像素格式比较整屏与分块绘制，
+`make test-host` 的桌面组对四种分辨率、两种像素格式比较整屏与分块绘制，
 并用 UBSan 检查边界与盘符选中状态。
 `forge probe devctl` 新增 4 个显示相关断言，故 QEMU 运行器将预期数从
 131 改为 135；当前环境没有 QEMU/OVMF，不能将历史的 131 项运行成绩
@@ -87,7 +89,7 @@ x64 包含 14 项设备控制断言：操作路由、保留接口的 ENOSYS、�
 - UEFI（x64，需 OVMF/edk2 固件与 mtools 生成的 ESP）：stub 完成启动（携带 .reloc 基址重定位表、多卷回退）、内核到达 Ring 3，`horizon`/`origin` 可用；anchor 后重启从数据盘恢复 `/home`，并运行完整 `trial`；UEFI El Torito ISO 光驱启动同样进入用户态。
 - 使用流程：在 Loom 中执行 `trial` 并回到提示符；模拟 PS/2 键盘输入成功；保存真实 VGA 截图。
 - USB：PCI 控制器分类、xHCI 描述符与字符串、键盘 Boot Protocol、鼠标/存储只读识别、两级 Hub、66 次根端口热插拔、拔除后的 DMA 页回收和事件/命令环回绕。`--phase usb` 单独执行这组检查。
-- 帮助：当前脚本准备逐一查询 34 个命令的 `--help`、`help`/`atlas` 别名、错误参数和字面量 `--help` 文件内容；9 个用户程序以 `forge APP --help` 正常退出。`--phase help` 单独执行这组检查，尚待本轮 QEMU 运行。
+- 帮助：当前脚本准备逐一查询 35 个命令的 `--help`、`help`/`atlas` 别名、错误参数和字面量 `--help` 文件内容；10 个用户程序以 `forge APP --help` 正常退出。`--phase help` 单独执行这组检查，尚待本轮 QEMU 运行。
 - Folio：创建 `.nvd`，输入并选择文本，应用粗体和一级标题，关闭后重新打开校验，导出 `.rtf` 并检查标题字号和粗体控制字。
 - 启动介质：从 GRUB BIOS ISO 的虚拟光驱进入用户态，成功运行一个独立 ELF 子进程；x64 另从 UEFI ISO（OVMF）进入用户态。
 

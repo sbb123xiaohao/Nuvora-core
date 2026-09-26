@@ -10,6 +10,8 @@
 - [T13 ATA drafts](https://www.t13.org/)：ATA 规范组织入口。本项目仅实现传统 PIO 子集，不声称完整符合 ATA 标准。
 - [Arch Linux qemu-system-x86 package](https://archlinux.org/packages/extra/x86_64/qemu-system-x86/)：Arch 宿主依赖名称。
 - [Rich Text Format 1.5 specification](https://www.biblioscape.com/rtf15_spec.htm)：RTF 控制字、分组、字体和段落格式的公开规范页面；Folio 只写入其中的 ASCII 子集。
+- [Intel High Definition Audio Specification rev 1.0a](https://www.intel.com/content/dam/www/public/us/en/documents/product-specifications/high-definition-audio-specification.pdf)：HDA 控制器寄存器、即时命令、codec 动词、输出流与缓冲描述符格式。当前只实现模拟 PCM 输出子集。
+- [QEMU HDA device documentation](https://github.com/qemu/qemu/blob/master/docs/qdev-device-use.txt)：`intel-hda` 与 `hda-duplex` 设备参数；用于创建可复验的虚拟声卡。
 
 GRUB 是唯一随 ISO 提供的第三方引导组件，其来源、许可证及对应源码位置见 [third_party/README.md](../third_party/README.md)。QEMU 和编译器只用于构建、运行与验证，没有放进发布包。
 

@@ -5,6 +5,7 @@ from qemu import BUILD, ARCH, find_uefi_firmware, firmware_arguments, command
 
 parser = argparse.ArgumentParser(description='Boot Nuvora Core in QEMU.')
 parser.add_argument('--window', action='store_true', help='Use a graphics window with virtual USB keyboard and mouse')
+parser.add_argument('--audio', action='store_true', help='Attach an Intel HDA controller and analog codec')
 parser.add_argument('--memory', type=int, default=64, metavar='MIB', help='Guest memory in MiB (default: 64)')
 parser.add_argument('--uefi', action='store_true', help='Boot via the UEFI stub (OVMF firmware required)')
 parser.add_argument('--no-usb', action='store_true', help='Boot without the virtual xHCI controller and USB devices')
@@ -43,6 +44,8 @@ if not args.no_usb:
     cmd += ['-device', 'qemu-xhci,id=xhci',
             '-device', 'usb-kbd,id=keyboard,bus=xhci.0,port=1',
             '-device', 'usb-mouse,id=mouse,bus=xhci.0,port=2']
+if args.audio:
+    cmd += ['-device', 'intel-hda,msi=off', '-device', 'hda-duplex']
 if args.window:
     cmd += ['-serial', 'stdio']
 else:
