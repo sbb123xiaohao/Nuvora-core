@@ -2,7 +2,9 @@
 
 ## 0.10.0 当前结果
 
-`make -j4 all` 及 `make test-host` 的 **23 组**通过（所有 C 夹具 UBSan）。
+`make -j4 all` 及 `make test-host` 的 **24 组**通过（所有 C 夹具 UBSan）。
+新增双 SATA 端口的真实 AHCI/卷识别代码夹具：前盘是外来格式、
+不支持 LBA48 或 4Kn 时，后盘仍可挂载，写入不会落到前盘。
 新增 OVMF 成对固件与 QEMU IDE/AHCI/NVMe 参数的宿主回归；在 Ubuntu
 上仍需运行 QEMU 客户机测试，不能把参数检查当成 UEFI 实际启动。
 本轮新增 AHCI 命令 FIS/高位 LBA、DMA 读写/Flush/错误停用夹具，以及

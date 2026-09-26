@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include <nv/ata.h>
 
 /* One-port, polled AHCI transport.  It deliberately uses a single 512-byte
  * bounce buffer and one command slot: this keeps the boot/storage path small,
@@ -141,7 +142,7 @@ static bool issue(u8 opcode, u64 lba, bool write, bool data) {
 static bool identify(void) {
     if (!issue(0xec, 0, false, true)) return false;
     u16 *id = phys_ptr(ahci.data_page);
-    if (!(id[49] & (1u << 9))) return false;
+    if (!(id[49] & (1u << 9)) || !nv_ata_sector_512(id)) return false;
     ahci.lba48 = (id[83] & 0xc000u) == 0x4000u && (id[83] & (1u << 10));
     if (!ahci.lba48) return false; /* transport currently issues only EXT commands */
     ahci.sectors = (u64)id[100] | ((u64)id[101] << 16) | ((u64)id[102] << 32) |
@@ -149,7 +150,8 @@ static bool identify(void) {
     return ahci.sectors >= 8192 && ahci.sectors <= (1ull << 48);
 }
 
-bool ahci_init(u64 *capacity) {
+bool ahci_init(u64 *capacity, u32 first_port, u32 *selected_port) {
+    if (first_port >= 32 || !capacity || !selected_port) return false;
     memset(&ahci, 0, sizeof(ahci));
     pci_visit(discover);
     if (!ahci.regs) return false;
@@ -157,34 +159,33 @@ bool ahci_init(u64 *capacity) {
     pci_write16(ahci.pci, 4, (u16)(command | 6u));
     /* AE is required before the HBA port registers are interpreted. */
     hw(0x04, hr(0x04) | (1u << 31));
-    u32 implemented = hr(0x0c), selected = 32;
-    for (u32 port = 0; port < 32; ++port) {
-        if (!(implemented & (1u << port))) continue;
-        ahci.port = port;
-        u32 ssts = pr(0x28), signature = pr(0x24);
-        if ((ssts & 0xfu) != 3u || ((ssts >> 8) & 0xfu) != 1u) continue;
-        if (signature && signature != 0x00000101u) continue;
-        selected = port;
-        break;
-    }
-    if (selected == 32) goto fail;
-    ahci.port = selected;
+    u32 implemented = hr(0x0c);
     ahci.command_page = page_alloc_below(AHCI_DMA_LIMIT);
     ahci.fis_page = page_alloc_below(AHCI_DMA_LIMIT);
     ahci.table_page = page_alloc_below(AHCI_DMA_LIMIT);
     ahci.data_page = page_alloc_below(AHCI_DMA_LIMIT);
     if (!ahci.command_page || !ahci.fis_page || !ahci.table_page || !ahci.data_page) goto fail;
-    if (!stop_engine() || !start_engine() || !identify()) goto fail_running;
-    ahci.online = true;
-    *capacity = ahci.sectors;
-    return true;
-
-fail_running:
-    if (!stop_engine()) {
-        pci_write16(ahci.pci, 4, (u16)(command & ~4u));
-        memset(&ahci, 0, sizeof(ahci));
-        return false; /* Keep DMA pages reserved if the HBA did not stop. */
+    for (u32 port = first_port; port < 32; ++port) {
+        if (!(implemented & (1u << port))) continue;
+        ahci.port = port;
+        u32 ssts = pr(0x28), signature = pr(0x24);
+        if ((ssts & 0xfu) != 3u || ((ssts >> 8) & 0xfu) != 1u) continue;
+        if (signature && signature != 0x00000101u) continue;
+        if (!stop_engine()) goto quarantine;
+        if (!start_engine() || !identify()) {
+            if (!stop_engine()) goto quarantine;
+            continue;
+        }
+        ahci.online = true;
+        *capacity = ahci.sectors;
+        *selected_port = port;
+        return true;
     }
+    goto fail;
+quarantine:
+    pci_write16(ahci.pci, 4, (u16)(command & ~4u));
+    memset(&ahci, 0, sizeof(ahci));
+    return false; /* Keep DMA pages reserved if the HBA did not stop. */
 fail:
     pci_write16(ahci.pci, 4, (u16)(command & ~4u));
     release_pages();

@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include <nv/ata.h>
 /* IDE primary master, ATA PIO. LBA48 is used whenever the drive reports it so
  * data images beyond 128 GiB work; LBA28 remains the fallback. The store
  * layout lives in sector 0 and describes its own slot geometry, so images can
@@ -280,7 +281,7 @@ static bool ata_identify(void) {
     for (u32 i = 0; i < 256; ++i)
         id[i] = inw(0x1f0);
     delay400();
-    if (!(id[49] & (1u << 9)))
+    if (!(id[49] & (1u << 9)) || !nv_ata_sector_512(id))
         return false;
     /* Word 83 validity signature is bits 15:14 == 01b; bit 10 declares LBA48. */
     lba48 = (id[83] & 0xc000) == 0x4000 && (id[83] & (1u << 10));
@@ -322,7 +323,9 @@ static bool scan_storage(void) {
 bool disk_init(void) {
     nvme_disk = ahci_disk = false;
     if (ata_identify() && scan_storage()) return true;
-    if (ahci_init(&sectors)) {
+    for (u32 next_port = 0, selected_port; next_port < 32;
+         next_port = selected_port + 1) {
+        if (!ahci_init(&sectors, next_port, &selected_port)) break;
         ahci_disk = true;
         identified = true;
         if (scan_storage()) return true;

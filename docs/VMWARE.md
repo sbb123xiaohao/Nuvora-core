@@ -12,7 +12,7 @@
 | 项目 | 设置 | 原因 |
 | --- | --- | --- |
 | 固件 | UEFI，Secure Boot 关闭 | 使用 `BOOTX64.EFI`；loader 尚未签名 |
-| 数据盘 | IDE（可选 NVMe） | IDE/AHCI/NVMe 均有内核路径，IDE 最保守 |
+| 数据盘 | IDE（可选 AHCI/SATA、NVMe） | IDE/AHCI/NVMe 均有内核路径，IDE 最保守 |
 | 网卡 | `e1000e`，默认 NAT | VMware 常见虚拟网卡；内核使用标准 Intel 描述符 |
 | USB | xHCI / USB 3.x | 接入 USB Boot 键盘、鼠标 |
 | 音频 | HDAudio | 落到现有 Intel HDA 播放路径 |

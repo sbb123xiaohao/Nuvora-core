@@ -18,7 +18,9 @@ static int nvme_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV
 static int nvme_flush(void) { return -NV_ENODEV; }
 static bool nvme_ready(void) { return false; }
 static void nvme_shutdown(void) {}
-static bool ahci_init(u64 *capacity) { (void)capacity; return false; }
+static bool ahci_init(u64 *capacity, u32 first, u32 *selected) {
+    (void)capacity; (void)first; (void)selected; return false;
+}
 static int ahci_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
 static int ahci_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
 static int ahci_flush(void) { return -NV_ENODEV; }
@@ -33,6 +35,12 @@ static void header(u8 *h, const char *magic, u32 version, u32 slot1, u32 count, 
     memcpy(h + (version == 1 ? 28 : 40), &crc, 4);
 }
 int main(void) {
+    u16 identify[256] = {0};
+    assert(nv_ata_sector_512(identify));
+    identify[106] = 0x6003u; /* 512e: eight 512-byte logical blocks per physical block. */
+    assert(nv_ata_sector_512(identify));
+    identify[106] = 0x5000u; identify[117] = 2048u; /* 4Kn: reject all 512-byte I/O. */
+    assert(!nv_ata_sector_512(identify));
     u8 h[512]; sectors = 1ull << 48;
     header(h, "NVSTORE2", 2, 32777, 32769, 1ull << 33);
     assert(parse_header(h) && layout.snap_cap == SNAP_CAP_MAX);
@@ -51,5 +59,5 @@ int main(void) {
     lba48 = false; nwrites = 0;
     assert(command(1ull << 28, 0x20) == -NV_ENODEV && !nwrites);
     assert(!disk_flush() && writes[0].byte == 0xe7);
-    puts("PASS ATA: 48-bit port sequence, LBA28 boundary, flush opcode, NVSTORE1/2 geometry and signature validation");
+    puts("PASS ATA: LBA48/LBA28, flush, NVSTORE headers and 512e/4Kn sector validation");
 }

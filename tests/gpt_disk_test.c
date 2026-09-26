@@ -55,7 +55,9 @@ static int nvme_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV
 static int nvme_flush(void) { return -NV_ENODEV; }
 static bool nvme_ready(void) { return false; }
 static void nvme_shutdown(void) {}
-static bool ahci_init(u64 *capacity) { (void)capacity; return false; }
+static bool ahci_init(u64 *capacity, u32 first, u32 *selected) {
+    (void)capacity; (void)first; (void)selected; return false;
+}
 static int ahci_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
 static int ahci_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
 static int ahci_flush(void) { return -NV_ENODEV; }

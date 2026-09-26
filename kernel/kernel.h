@@ -273,7 +273,7 @@ int nvme_write(u64 lba, const void *sector);
 int nvme_flush(void);
 bool nvme_ready(void);
 void nvme_shutdown(void);
-bool ahci_init(u64 *sectors);
+bool ahci_init(u64 *sectors, u32 first_port, u32 *selected_port);
 int ahci_read(u64 lba, void *sector);
 int ahci_write(u64 lba, const void *sector);
 int ahci_flush(void);

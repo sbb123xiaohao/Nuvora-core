@@ -2,7 +2,7 @@
 param(
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$')]
     [string]$Name = 'NuvoraCore',
-    [ValidateSet('ide', 'nvme')]
+    [ValidateSet('ide', 'ahci', 'nvme')]
     [string]$DiskController = 'ide',
     [string]$DiskImage,
     [string]$IsoImage,
@@ -71,6 +71,8 @@ if (-not (Test-Path -LiteralPath $Vmdk)) {
 
 $DiskLines = if ($DiskController -eq 'nvme') {
     @('nvme0.present = "TRUE"', 'nvme0:0.present = "TRUE"', "nvme0:0.fileName = `"$(Rel $Vmdk)`"", 'nvme0:0.deviceType = "disk"')
+} elseif ($DiskController -eq 'ahci') {
+    @('sata0.present = "TRUE"', 'sata0:0.present = "TRUE"', "sata0:0.fileName = `"$(Rel $Vmdk)`"", 'sata0:0.deviceType = "disk"')
 } else {
     @('ide0:0.present = "TRUE"', "ide0:0.fileName = `"$(Rel $Vmdk)`"", 'ide0:0.deviceType = "disk"')
 }

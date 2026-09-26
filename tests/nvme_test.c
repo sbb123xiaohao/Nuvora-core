@@ -46,7 +46,9 @@ static u8 inb(u16 port) { (void)port; return 0xff; }
 static u16 inw(u16 port) { (void)port; return 0; }
 static void outb(u16 port, u8 value) { (void)port; (void)value; }
 static void outw(u16 port, u16 value) { (void)port; (void)value; }
-static bool ahci_init(u64 *capacity) { (void)capacity; return false; }
+static bool ahci_init(u64 *capacity, u32 first, u32 *selected) {
+    (void)capacity; (void)first; (void)selected; return false;
+}
 static int ahci_read(u64 lba, void *out) { (void)lba; (void)out; return -NV_ENODEV; }
 static int ahci_write(u64 lba, const void *in) { (void)lba; (void)in; return -NV_ENODEV; }
 static int ahci_flush(void) { return -NV_ENODEV; }

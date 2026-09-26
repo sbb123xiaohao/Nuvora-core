@@ -2,8 +2,10 @@
 
 ## 数据盘
 
-x86-64 按 IDE primary master、首个 AHCI/SATA 端口、首个 PCIe NVMe 控制器的
-顺序寻找有效 Nuvora 数据卷。AHCI 使用一个轮询命令槽；NVMe 枚举前 16 个
+x86-64 按 IDE primary master、首个 AHCI 控制器的 SATA 端口顺序、首个
+PCIe NVMe 控制器的顺序寻找有效 Nuvora 数据卷。AHCI 跳过外来格式或
+不支持 512 字节逻辑扇区的盘，继续检查后续端口，使用一个轮询命令槽；
+NVMe 枚举前 16 个
 namespace，选择首个 512 字节扇区、无 metadata
 和保护信息的 NVM namespace。控制器使用轮询管理队列和一个 I/O 队列；
 IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。
@@ -13,6 +15,7 @@ IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。
 打开的 Nuvora 卷只允许写入自身两个快照槽；不会自动格式化硬盘。
 
 目前只选择一个数据盘；IDE 上有有效 Nuvora 卷时，不同时挂载 NVMe。
+ATA/AHCI 驱动拒绝 4Kn 逻辑扇区盘，允许 512e；当前没有 4Kn 写入支持。
 不支持 4K 原生 namespace、NVMe 多队列、中断、
 热插拔、设备休眠恢复或断电恢复验证。盘符表示 Nuvora 自有卷，
 不是 Windows 文件系统兼容承诺。可用 `partitions`、`volumes` 查看已识别卷，

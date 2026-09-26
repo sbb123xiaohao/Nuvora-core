@@ -11,7 +11,7 @@ param(
     [switch]$NoEcam,
     [ValidateSet('ide', 'ahci', 'nvme')]
     [string]$DiskBus = 'ide',
-    [ValidateSet('ide', 'nvme')]
+    [ValidateSet('ide', 'ahci', 'nvme')]
     [string]$DiskController = 'ide',
     [ValidateRange(32, 1048576)]
     [int]$Memory = 256,

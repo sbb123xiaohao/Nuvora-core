@@ -12,7 +12,7 @@ Media 支持流式 MP3、MP2、FLAC、扩展 WAV/RF64 和 MPEG-1/MP2 视频，
 去掉视频整份载入与 640×480 的额外限制。桌面显示 64 位容量和 GiB 等单位。
 MP4/MKV 等格式可通过宿主 FFmpeg 转换导入，尚非系统内原生解码。
 
-[使用、迁移、磁盘格式和验证记录](docs/STORAGE-0.10.md)。当前通过 23 组
+[使用、迁移、磁盘格式和验证记录](docs/STORAGE-0.10.md)。当前通过 24 组
 宿主回归，包含 10 GiB 稀疏文件、160 MiB 连续数据、失败回滚与 720p 解码；
 本轮没有 QEMU/实机验证。硬件、元数据、用户地址空间仍有明确边界。Windows
 使用方式见 [Ubuntu 构建与验证](docs/UBUNTU.md) 和
@@ -36,7 +36,8 @@ x86-64 新增 Intel I225/I226 与标准 Intel e1000/e1000e PCIe 有线卡、USB 
 `anchor` 依次提交各盘的独立快照。旧 NVSTORE1/2 整盘镜像仍作为 C: 使用，
 不会自动转换或重写分区表。
 
-优先扫描 IDE primary master；无有效 Nuvora 数据卷时扫描首个 AHCI/SATA 端口，
+优先扫描 IDE primary master；无有效 Nuvora 数据卷时逐一检查首个 AHCI
+控制器上的 SATA 数据端口，
 再扫描首个 PCIe NVMe 控制器
 的 512 字节 NVM namespace。最多列出 32 个 GPT 条目，最多挂载 4 个
 带有效 Nuvora 格式头的分区。其他格式只列出，不挂载或写入。项目尚无安装器，
@@ -208,7 +209,7 @@ rest
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 23 组宿主回归；C 夹具使用 UBSan
+make test-host      # 24 组宿主回归；C 夹具使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -258,7 +259,7 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | 系统调用 | x64 原创 ABI 及 DEVCTL；ARM64 仅有测试用的计算结果/退出 SVC |
 | 文件系统 | 512 个节点；NVSTORE3 为 64 位稀疏块文件，按需读写；旧盘和 /tmp 保留 64 MiB 限制 |
 | 虚拟节点 | `/dev/null`、`/dev/zero`、`/dev/console`，`/sys` 动态状态 |
-| 磁盘 | IDE 主盘 ATA PIO、首个 AHCI/SATA 端口，或首个 PCIe NVMe 控制器的 512B namespace；GPT 分区识别；NVSTORE3 双元数据根 + 全卷文件数据区；兼容 NVSTORE1/2 旧快照 |
+| 磁盘 | IDE 主盘 ATA PIO、首个 AHCI 控制器上逐端口扫描的 512B SATA 盘，或首个 PCIe NVMe 控制器的 512B namespace；GPT 分区识别；NVSTORE3 双元数据根 + 全卷文件数据区；兼容 NVSTORE1/2 旧快照 |
 | 命令环境 | 36 条 Loom 命令，统一 `--help`、引号、转义、后台进程和错误反馈 |
 | 文档 | Folio 全屏编辑器；`.nvd` 原生格式；RTF/Word 可读导出 |
 | 显示 | BIOS 下 VGA 文本；UEFI 下 GOP 线性帧缓冲加内置点阵字体；串口常开 |
@@ -266,7 +267,7 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘与鼠标、CDC-ECM 和 ESP USB Dongle CDC 控制；USB 存储仍只识别 |
 | 网络 | x64 Intel I225/I226 与 e1000/e1000e PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
 | 音视频 | x64 HDA 48 kHz 双声道输出；Media 流式 MP3/MP2/FLAC、WAV/RF64 与 MPEG-1/MP2；720p 宿主解码验证，未实机验证 |
-| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。23 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
+| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。24 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 
@@ -275,7 +276,7 @@ x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回
 - 单核、单用户研究环境；内核执行期间不被抢占，没有 SMP 锁、用户账户或完整权限模型。
 - 两个内核目前最多各管理 64 GiB 物理内存。x64 ABI v1 仍使用 1–2 GiB 用户地址窗口及 512 MiB 用户堆；USB DMA 固定使用 4 GiB 以下页。ARM64 只有单工作负载的移植基线，尚无 Loom、磁盘与完整 ABI。
 - UEFI 仅支持 x64、BIOS 启动的 ISO 之外另有纯 UEFI El Torito ISO；都没有 Secure Boot。UEFI stub 已携带基址重定位表并在启动介质上提供多卷回退，在 QEMU OVMF/edk2 验证，未在实体主板固件认证。
-- 暂无 ACPI AML/电源管理、原生 PCI Wi-Fi、TCP/IPv6、录音与多设备音频混合、GPU 加速、多窗口桌面和 Unicode 终端；AHCI 仅支持一个端口，NVMe 仅支持一个 512B namespace，USB 鼠标仅支持 Boot Protocol，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
+- 暂无 ACPI AML/电源管理、原生 PCI Wi-Fi、TCP/IPv6、录音与多设备音频混合、GPU 加速、多窗口桌面和 Unicode 终端；AHCI 同时只启用一个端口且只查首个控制器，NVMe 只选一个 512B namespace，USB 鼠标仅支持 Boot Protocol，不能挂载 USB 存储文件系统；Folio 目前使用 ASCII，不能导入 `.docx` 或外部 `.rtf`。
 - 暂无 `fork`、管道、套接字、动态链接、POSIX/Linux ABI 或通用文件系统格式支持。
 - x87/MMX/SSE 状态已经隔离；AVX/XSAVE、AVX-512/AMX、多核与微码更新尚未实现。SSE #XM 递交受 QEMU TCG 限制而明确跳过，尚未通过实机验证。
 - x64 文件系统共 512 个节点，内核元数据堆 8 MiB、每进程用户堆 512 MiB。NVSTORE3 的实际内容受磁盘/空闲块约束，单卷元数据区为 2 MiB，碎片化区间扫描尚待优化。旧盘和 `/tmp` 仍保留原文件上限；旧盘需另存迁移，扩大已有镜像不会自动扩容卷。没有 swap、通用页缓存、符号链接、ACL 或 Linux/Windows 文件系统兼容。

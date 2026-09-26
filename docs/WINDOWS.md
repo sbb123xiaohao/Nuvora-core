@@ -46,7 +46,8 @@ wsl --install -d Ubuntu
 
 输出在 `vmware\NuvoraCore\`：脚本用本机或 WSL2 的 `qemu-img` 将稀疏 raw 数据盘转成
 VMDK，并写好 UEFI、USB 3.x xHCI、HDAudio、e1000e 和 GOP 图形配置。默认
-IDE 数据盘适合当前启动路径；也可传 `-DiskController nvme` 使用标准 NVMe
+IDE 数据盘适合当前启动路径；也可传 `-DiskController ahci` 使用 SATA，
+或传 `-DiskController nvme` 使用标准 NVMe
 控制器。打开生成的 `.vmx` 后，网络可保持 NAT 或改成 Bridged。
 已有 VMDK 保留；`-Force` 只重新生成 VMX 配置，不覆盖虚拟机里的文件。
 

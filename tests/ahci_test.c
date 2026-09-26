@@ -86,8 +86,8 @@ static void sim_write(u32 offset, u32 value) {
 }
 
 int main(void) {
-    u64 capacity = 0;
-    assert(ahci_init(&capacity) && capacity == (1ull << 45));
+    u64 capacity = 0; u32 port = 32;
+    assert(ahci_init(&capacity, 0, &port) && capacity == (1ull << 45) && port == 0);
     u8 out[512]; assert(!ahci_read(0x123456789aull, out));
     for (u32 i = 0; i < sizeof(out); ++i) assert(out[i] == 0xa5);
     memset(out, 0x3c, sizeof(out)); assert(!ahci_write(8, out) && writes == 1);
