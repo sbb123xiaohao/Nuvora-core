@@ -2,12 +2,14 @@
 import os
 import pathlib
 import shutil
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARCH = os.environ.get('NV_ARCH', 'x86_64')
 BUILD = ROOT / 'build' / ARCH
 
-OVMF_FILES = ('OVMF.fd', 'OVMF_CODE_4M.fd', 'OVMF_CODE.fd', 'edk2-x86_64-code.fd')
+OVMF_CODE_FILES = ('OVMF_CODE_4M.fd', 'OVMF_CODE.fd', 'edk2-x86_64-code.fd')
+OVMF_COMBINED_FILES = ('OVMF.fd',)
 OVMF_DIRS = (
     pathlib.Path('/usr/share/qemu'),
     pathlib.Path('/usr/share/OVMF'),
@@ -21,45 +23,68 @@ def qemu_binary():
     return os.environ.get('NV_QEMU') or shutil.which('qemu-system-x86_64')
 
 
+def variables_template(code):
+    name = code.name
+    if 'CODE' in name:
+        return code.with_name(name.replace('CODE', 'VARS'))
+    if '-code' in name:
+        return code.with_name(name.replace('-code', '-vars'))
+    return None
+
+
 def find_uefi_firmware():
     """Locate an x64 UEFI firmware image (OVMF / QEMU edk2 builds)."""
     env = os.environ.get('NV_OVMF')
     if env:
         path = pathlib.Path(env)
         return path if path.is_file() else None
-    candidates = []
+    directories = []
     binary = qemu_binary()
     if binary:
         qdir = pathlib.Path(binary).resolve().parent
-        candidates += [qdir / 'share' / name for name in OVMF_FILES]
-        candidates += [qdir.parent / 'share' / 'qemu' / name for name in OVMF_FILES]
-    candidates += [d / name for d in OVMF_DIRS for name in OVMF_FILES]
+        directories += [qdir / 'share', qdir.parent / 'share' / 'qemu']
+    directories += list(OVMF_DIRS)
+    # Ubuntu ships both a combined OVMF.fd and a code/variables pair. Prefer
+    # the pair so UEFI variables live in a writable, private image.
+    candidates = [d / name for name in OVMF_CODE_FILES for d in directories]
+    candidates += [d / name for name in OVMF_COMBINED_FILES for d in directories]
     for candidate in candidates:
-        if candidate.is_file():
+        template = variables_template(candidate)
+        if candidate.is_file() and (template is None or template.is_file()):
             return candidate
     return None
 
 
 def firmware_arguments(firmware):
-    """Use split OVMF code/vars as flash; keep the supplied VARS file untouched."""
+    """Pair split OVMF images and keep the packaged VARS template untouched."""
     firmware = pathlib.Path(firmware).resolve()
     size = firmware.stat().st_size
+    template = variables_template(firmware)
+    if template is not None:
+        if not template.is_file():
+            raise RuntimeError(f'Matching UEFI VARS image missing for {firmware}: expected {template}')
+        var_size = template.stat().st_size
+        if not size or not var_size or size % 4096 or var_size % 4096:
+            raise RuntimeError('UEFI flash images must be nonempty and 4 KiB aligned')
+        BUILD.mkdir(parents=True, exist_ok=True)
+        variables = BUILD / 'ovmf-vars.fd'
+        if not variables.exists():
+            with tempfile.NamedTemporaryFile(prefix='ovmf-vars-', dir=BUILD, delete=False) as pending:
+                pending_path = pathlib.Path(pending.name)
+            try:
+                shutil.copyfile(template, pending_path)
+                pending_path.replace(variables)
+            finally:
+                pending_path.unlink(missing_ok=True)
+        if variables.stat().st_size != var_size:
+            raise RuntimeError(f'{variables} has a different size from {template}; move it aside before switching firmware')
+        code = str(firmware).replace(',', ',,')
+        var = str(variables.resolve()).replace(',', ',,')
+        return ['-drive', f'if=pflash,unit=0,format=raw,readonly=on,file={code}',
+                '-drive', f'if=pflash,unit=1,format=raw,file={var}']
     if size and size & (size - 1) == 0:
         return ['-bios', str(firmware)]
-    names = [firmware.name.replace('CODE', 'VARS'),
-             firmware.name.replace('-code', '-vars'), 'edk2-i386-vars.fd']
-    for name in names:
-        variables = firmware.with_name(name)
-        if variables == firmware or not variables.is_file():
-            continue
-        total = size + variables.stat().st_size
-        if total & (total - 1):
-            continue
-        code = str(firmware).replace(',', ',,')
-        var = str(variables).replace(',', ',,')
-        return ['-drive', f'if=pflash,unit=0,format=raw,readonly=on,file={code}',
-                '-drive', f'if=pflash,unit=1,format=raw,snapshot=on,file={var}']
-    raise RuntimeError(f'Matching UEFI VARS image missing for {firmware}')
+    raise RuntimeError(f'Unknown UEFI firmware layout: {firmware}')
 
 
 def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,

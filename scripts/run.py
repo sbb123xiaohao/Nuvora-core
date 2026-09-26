@@ -38,7 +38,10 @@ if args.uefi:
 cmd = command(memory=args.memory, disk=BUILD / 'nuvora-store.img', cpu=args.cpu, machine=args.machine,
               kernel=not args.uefi, esp=esp if args.uefi else None, disk_bus=args.disk_bus)
 if firmware:
-    cmd += firmware_arguments(firmware)
+    try:
+        cmd += firmware_arguments(firmware)
+    except (OSError, RuntimeError) as error:
+        raise SystemExit(f'UEFI firmware: {error}') from error
 if args.network:
     cmd += ['-netdev', 'user,id=nuvora_net', '-device', 'e1000e,netdev=nuvora_net']
 if args.no_ecam:

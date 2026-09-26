@@ -7,6 +7,7 @@ param(
     [string]$DiskImage,
     [string]$IsoImage,
     [string]$OutputDirectory,
+    [ValidateRange(256, 1048576)]
     [int]$Memory = 2048,
     [ValidateRange(1, 1)]
     [int]$Cpus = 1,

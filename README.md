@@ -12,10 +12,11 @@ Media 支持流式 MP3、MP2、FLAC、扩展 WAV/RF64 和 MPEG-1/MP2 视频，
 去掉视频整份载入与 640×480 的额外限制。桌面显示 64 位容量和 GiB 等单位。
 MP4/MKV 等格式可通过宿主 FFmpeg 转换导入，尚非系统内原生解码。
 
-[使用、迁移、磁盘格式和验证记录](docs/STORAGE-0.10.md)。当前通过 22 组
+[使用、迁移、磁盘格式和验证记录](docs/STORAGE-0.10.md)。当前通过 23 组
 宿主回归，包含 10 GiB 稀疏文件、160 MiB 连续数据、失败回滚与 720p 解码；
 本轮没有 QEMU/实机验证。硬件、元数据、用户地址空间仍有明确边界。Windows
-使用方式见 [Windows/VMware 指南](docs/WINDOWS.md)。
+使用方式见 [Ubuntu 构建与验证](docs/UBUNTU.md) 和
+[Windows/VMware 指南](docs/WINDOWS.md)。
 
 ## 实体与虚拟网络开发版
 
@@ -151,7 +152,7 @@ python3 start.py --machine q35
 python3 start.py --machine q35 --no-ecam
 ```
 
-`--uefi` 需要 UEFI 固件：QEMU 自带的 `edk2-x86_64-code.fd` 或发行版 OVMF 包会被自动查找，也可用 `NV_OVMF=/path/to/OVMF_CODE.fd` 指定。UEFI 运行还需要 `build/x86_64/esp.img`（构建产出，需 mtools）。`--window` 使用图形窗口和 QEMU 键盘设备，需要宿主机的 QEMU 图形后端。默认串口模式可直接在终端使用。当前命令行支持 ASCII 和美式键盘布局，中文说明在本文件和 `docs/` 中。
+`--uefi` 需要 UEFI 固件：发行版的 OVMF CODE/VARS 成对文件会优先被自动查找，也可用 `NV_OVMF=/path/to/OVMF_CODE_4M.fd` 指定 CODE 文件。首次运行会把同目录的 VARS 模板复制到 `build/x86_64/ovmf-vars.fd`，之后保留虚拟机自己的 UEFI 变量；原模板不会被修改。UEFI 运行还需要 `build/x86_64/esp.img`（构建产出，需 mtools）。`--window` 使用图形窗口和 QEMU 键盘设备，需要宿主机的 QEMU 图形后端。默认串口模式可直接在终端使用。当前命令行支持 ASCII 和美式键盘布局，中文说明在本文件和 `docs/` 中。
 
 Arch Linux 安装运行与构建依赖：
 
@@ -207,7 +208,7 @@ rest
 ```sh
 make -j4
 make esp            # x64 测试指纹包含 ESP
-make test-host      # 22 组源码边界夹具，使用 UBSan
+make test-host      # 23 组宿主回归；C 夹具使用 UBSan
 make test
 make iso            # BIOS/GRUB ISO
 make esp            # UEFI ESP 镜像（需要 mtools）
@@ -265,7 +266,7 @@ BIOS ISO 之外，x64 另有 UEFI 启动路径：`BOOTX64.EFI` 首选基址 0x02
 | USB | xHCI 描述符/Hub/热插拔、USB Boot 键盘与鼠标、CDC-ECM 和 ESP USB Dongle CDC 控制；USB 存储仍只识别 |
 | 网络 | x64 Intel I225/I226 与 e1000/e1000e PCIe DMA、USB CDC-ECM、ARP/IPv4/DHCP/UDP/ICMP 应答；PCI Wi-Fi 仅识别 |
 | 音视频 | x64 HDA 48 kHz 双声道输出；Media 流式 MP3/MP2/FLAC、WAV/RF64 与 MPEG-1/MP2；720p 宿主解码验证，未实机验证 |
-| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。22 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
+| 验证 | 旧版 x64 每次 131 项 QEMU 用户态检查；当前源码预期 139 项待复验。23 组宿主源码回归通过；ARM64 旧版在 64/256/1024/5120 MiB 配置下各 15 项 |
 
 x64 在 32、64、128、256 MiB、1 GiB 与 5 GiB 配置下执行完整内存回归；ARM64 的 EL0 自检在 64、256 MiB、1 GiB 和 5 GiB 执行。64 GiB 是两种实现各自的管理上限，并非 64 GiB 实机认证。详见 [测试说明](docs/TESTING.md)。
 

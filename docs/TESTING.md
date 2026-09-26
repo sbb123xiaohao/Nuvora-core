@@ -2,7 +2,9 @@
 
 ## 0.10.0 当前结果
 
-`make -j4 all` 及 `make test-host` 的 **22 组**通过（所有 C 夹具 UBSan）。
+`make -j4 all` 及 `make test-host` 的 **23 组**通过（所有 C 夹具 UBSan）。
+新增 OVMF 成对固件与 QEMU IDE/AHCI/NVMe 参数的宿主回归；在 Ubuntu
+上仍需运行 QEMU 客户机测试，不能把参数检查当成 UEFI 实际启动。
 本轮新增 AHCI 命令 FIS/高位 LBA、DMA 读写/Flush/错误停用夹具，以及
 e1000e 网卡选择和真实驱动收发环夹具。Windows/VMware 配置脚本未在
 Windows 或 VMware 上执行；当前环境没有 QEMU、qemu-img 或 PowerShell。

@@ -1,5 +1,13 @@
 # Nuvora Core 0.10.0
 
+## Ubuntu UEFI 启动修复
+
+- 优先选择成对的 OVMF CODE/VARS 固件，将 VARS 模板复制到构建目录并作为
+  可写 pflash 挂载；不再把 `OVMF_CODE_4M.fd` 误作整包 BIOS。已有虚拟机的
+  UEFI 变量会保留，同尺寸之外的固件切换明确报错。
+- 修正对分离式闪存大小之和的错误限制，补入单文件 OVMF 回退和
+  IDE/AHCI/NVMe 参数回归；当前共有 23 组宿主回归。
+
 ## Windows / VMware 兼容性补丁
 
 - 增加 `start.ps1` 和 `scripts/windows.ps1`：Windows PowerShell 的 doctor、

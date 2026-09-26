@@ -206,6 +206,7 @@ try {
             Invoke-BackendPython $Backend $DiskArgs
             $Vmware = Join-Path $PSScriptRoot 'vmware.ps1'
             $VmwareArgs = @{ Name = $VmName; DiskController = $DiskController }
+            if ($PSBoundParameters.ContainsKey('Memory')) { $VmwareArgs.Memory = $Memory }
             if ($Force) { $VmwareArgs.Force = $true }
             & $Vmware @VmwareArgs
             break

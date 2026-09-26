@@ -40,7 +40,8 @@ def main():
                 subprocess.run([str(output), str(raw_image), '64', 'raw'], check=True)
         subprocess.run(['python3', 'scripts/test_media_import.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'scripts/test_extent_import.py', str(pathlib.Path(directory) / 'extent')], cwd=ROOT, check=True)
-    print('ALL 22 HOST REGRESSION GROUPS PASSED (including AHCI/e1000 DMA, MP3/MPEG decode, safe media import and graphical UI, UBSan enabled)')
+        subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
+    print('ALL 23 HOST REGRESSION GROUPS PASSED (including OVMF flash pairing, AHCI/e1000 DMA, MP3/MPEG decode and safe media import; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()
