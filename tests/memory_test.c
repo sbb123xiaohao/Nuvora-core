@@ -75,6 +75,21 @@ static void dma_boundary_run(bool with_buddy) {
     munmap(ram, 4 * PAGE);
     close(fd);
 }
+static void high_memory_run(void) {
+    const uptr physical = 64ull * 1024 * 1024 * 1024;
+    u8 *ram = fixed_map(PHYS_WINDOW + physical, 2 * PAGE, -1);
+    reset_pages(physical, 2 * PAGE);
+    memset(ram, 0xa5, 2 * PAGE);
+    assert(!page_alloc_below(physical));
+    uptr p = page_alloc();
+    assert(p == physical && ram[0] == 0 && ram[PAGE] == 0xa5);
+    uptr q = page_alloc_below(physical + 2 * PAGE);
+    assert(q == physical + PAGE && ram[PAGE] == 0);
+    page_free(p);
+    page_free(q);
+    assert(pages_free() == 2);
+    munmap(ram, 2 * PAGE);
+}
 static void allocator_edges(void) {
     const uptr physical = 0x6000000u;
     const u32 count = 32;
@@ -164,7 +179,7 @@ static void slab_churn(void) {
     munmap(ram, COUNT * PAGE);
 }
 int main(void) {
-    boundary_run(); dma_boundary_run(false); dma_boundary_run(true);
+    boundary_run(); dma_boundary_run(false); dma_boundary_run(true); high_memory_run();
     allocator_edges(); heap_churn(); slab_churn();
     puts("PASS memory: boundary/DMA/fragmentation, 12000 heap operations, slab page reclaim");
 }

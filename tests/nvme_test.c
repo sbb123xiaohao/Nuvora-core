@@ -13,7 +13,7 @@ static FILE *disk_file;
 static u64 disk_sectors;
 static u8 dma[32][PAGE];
 static u32 next_page, pci_command[2], completed, flushes, writes;
-static bool multi_namespace, multi_controller;
+static bool multi_namespace, multi_controller, sparse_namespace, legacy_list;
 static bool fail_io;
 static u64 cap = 15u | 1ull << 37;
 static u32 ready;
@@ -85,8 +85,20 @@ static void sim_write(u32 offset, u32 value) {
     if (!qid && (cmd->cdw0 & 255u) == 6) {
         u8 *id = phys_ptr((uptr)cmd->prp1);
         if (cmd->cdw10 == 1) {
-            u32 n = multi_namespace && nvme.pci == 0x1000 ? 2 : 1;
+            u32 n = (multi_namespace || sparse_namespace) && nvme.pci == 0x1000 ? 2 : 1;
             memcpy(id + 516, &n, 4);
+        } else if (cmd->cdw10 == 2) {
+            if (legacy_list) done.status |= 2u; /* CNS=2 not implemented. */
+            else {
+                u32 *ids = (u32 *)id;
+                if (sparse_namespace && nvme.pci == 0x1000) {
+                    if (cmd->nsid < 7) ids[0] = 7;
+                    if (cmd->nsid < 0x100000u) ids[cmd->nsid < 7 ? 1 : 0] = 0x100000u;
+                } else if (multi_namespace && nvme.pci == 0x1000) {
+                    if (cmd->nsid < 1) ids[0] = 1;
+                    if (cmd->nsid < 2) ids[cmd->nsid < 1 ? 1 : 0] = 2;
+                } else if (!cmd->nsid) ids[0] = 1;
+            }
         } else {
             memcpy(id, &disk_sectors, 8);
             memcpy(id + 8, &disk_sectors, 8);
@@ -100,13 +112,14 @@ static void sim_write(u32 offset, u32 value) {
             assert(lba < disk_sectors);
             assert(cmd->prp1 == nvme.data_page && !cmd->prp2 && !cmd->cdw12);
             if (fail_io) done.status |= 2u;
-            else if ((multi_namespace && nvme.pci == 0x1000 && cmd->nsid == 1) ||
-                     (multi_controller && nvme.pci == 0x1000)) {
+            else if (((multi_namespace && cmd->nsid == 1) ||
+                      (sparse_namespace && cmd->nsid == 7) || multi_controller) &&
+                     nvme.pci == 0x1000) {
                 assert(opcode == 2 && lba == 0); /* foreign disk remains read-only */
                 memset(phys_ptr((uptr)cmd->prp1), 0, 512);
             }
             else {
-                assert(cmd->nsid == (multi_namespace ? 2u : 1u));
+                assert(cmd->nsid == (sparse_namespace ? 0x100000u : multi_namespace ? 2u : 1u));
                 assert(fseek(disk_file, (long)(lba * 512), SEEK_SET) == 0);
                 u8 *buffer = phys_ptr((uptr)cmd->prp1);
                 if (opcode == 1) {
@@ -125,6 +138,8 @@ int main(int argc, char **argv) {
     bool modern = argc == 4;
     multi_namespace = modern && !strcmp(argv[3], "multi");
     multi_controller = modern && !strcmp(argv[3], "controller");
+    sparse_namespace = modern && !strcmp(argv[3], "sparse");
+    legacy_list = modern && !strcmp(argv[3], "legacy-list");
     disk_file = fopen(argv[1], "r+b");
     assert(disk_file);
     disk_sectors = (u64)strtoul(argv[2], NULL, 10) * 2048;
@@ -138,7 +153,7 @@ int main(int argc, char **argv) {
     id[130] = 9; id[128] = 8; assert(!nvme_namespace(id, &blocks));
     id[128] = 0; id[29] = 1; assert(!nvme_namespace(id, &blocks));
     assert(disk_init() && nvme_disk && (pci_command[nvme.pci == 0x2000] & 6u) == 6u);
-    assert(nvme.nsid == (multi_namespace ? 2u : 1u));
+    assert(nvme.nsid == (sparse_namespace ? 0x100000u : multi_namespace ? 2u : 1u));
     assert(nvme.pci == (multi_controller ? 0x2000u : 0x1000u));
     assert(disk_volume_count() == 2 && disk_partition_count() == 2);
     assert(completed > 30); /* repeated wraps of both phase and command ID */

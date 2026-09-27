@@ -5,13 +5,16 @@
 x86-64 按 IDE primary master、所有可见 AHCI 控制器的 SATA 端口顺序、所有
 可见 PCIe NVMe 控制器的顺序寻找有效 Nuvora 数据卷。AHCI 跳过外来格式或
 不支持 512 字节逻辑扇区的盘，继续检查后续端口和控制器，使用一个轮询命令槽；
-NVMe 对每个控制器枚举前 16 个 namespace，跳过无效卷，选择 512 字节扇区、无 metadata
-和保护信息的 NVM namespace。控制器使用轮询管理队列和一个 I/O 队列；
+支持 LBA28 与 LBA48 SATA 盘。NVMe 优先读取活动 namespace 列表，处理稀疏
+编号；旧控制器未实现列表时按 IDENTIFY 的 NN 字段顺序探测（一次最多 4096 个）。
+仅选择 512 字节扇区、无 metadata 和保护信息的 NVM namespace。控制器
+使用轮询管理队列和一个 I/O 队列；
 IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。
 当前一次只处理一个 512 字节扇区，命令超时或出错后停用该 namespace。
 磁盘总容量、GPT 校验、分区与快照写入边界由现有 `kernel/disk.c` 和
 `kernel/store.c` 管理：**普通 GPT、NTFS、EFI、非 Nuvora 分区不会被写入**。
-打开的 Nuvora 卷只允许写入自身两个快照槽；不会自动格式化硬盘。
+打开的 Nuvora 旧卷只允许写入自身两个快照槽；NVSTORE3 还可写入本卷的
+数据区；不会自动格式化硬盘。
 
 目前只选择一个数据盘；IDE 上有有效 Nuvora 卷时，不同时挂载 NVMe。
 ATA/AHCI 驱动拒绝 4Kn 逻辑扇区盘，允许 512e；当前没有 4Kn 写入支持。

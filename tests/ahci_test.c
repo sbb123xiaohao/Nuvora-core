@@ -10,8 +10,8 @@
 #define AHCI_MMIO 0x3000u
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static u8 dma[8][PAGE], mmio[AHCI_MMIO];
-static u32 next_page, pci_command, port_command, port_clb, port_ci, writes;
-static bool fail_io;
+static u32 next_page, pci_command, port_command, port_clb, port_ci, writes, lba28_reads;
+static bool fail_io, lba28;
 static uptr page_alloc_below(u64 limit) {
     assert(limit >= 0x100000000ull && next_page < 4);
     ++next_page; memset(dma[next_page], 0, PAGE); return next_page * PAGE;
@@ -63,15 +63,24 @@ static void sim_write(u32 offset, u32 value) {
             assert(table[12] == 1 && table[13] == 0);
             assert(lba == (opcode == 0x25 ? 0x123456789aull : 8u));
         }
+        if (opcode == 0x20 || opcode == 0x30) {
+            u32 lba = (u32)table[4] | (u32)table[5] << 8 |
+                      (u32)table[6] << 16 | (u32)(table[7] & 15u) << 24;
+            assert(lba28 && table[12] == 1 && !table[13] &&
+                   !table[8] && !table[9] && !table[10]);
+            assert(lba == (opcode == 0x20 ? 0x1234567u : 8u));
+        }
         if (opcode == 0xec) {
             struct ahci_prdt *prdt = (struct ahci_prdt *)(table + 0x80);
             u16 *id = phys_ptr((uptr)prdt->address);
-            memset(id, 0, 512); id[49] = 1u << 9; id[83] = 0x4400;
-            id[100] = 0; id[101] = 0; id[102] = 0x2000; /* 2^45 sectors. */
-        } else if (opcode == 0x25) {
+            memset(id, 0, 512); id[49] = 1u << 9; id[83] = lba28 ? 0 : 0x4400;
+            if (lba28) { id[60] = 0; id[61] = 0x1000; }
+            else { id[100] = 0; id[101] = 0; id[102] = 0x2000; } /* 2^45 sectors. */
+        } else if (opcode == 0x25 || opcode == 0x20) {
             struct ahci_prdt *prdt = (struct ahci_prdt *)(table + 0x80);
             memset(phys_ptr((uptr)prdt->address), 0xa5, 512);
-        } else if (opcode == 0x35) {
+            if (lba28) ++lba28_reads;
+        } else if (opcode == 0x35 || opcode == 0x30) {
             ++writes;
         }
         if (fail_io) *(u32 *)(mmio + port + 0x10) = 1u << 30;
@@ -96,5 +105,12 @@ int main(void) {
     fail_io = true;
     assert(ahci_read(0x123456789aull, out) == -NV_EIO && !ahci_ready());
     assert(ahci_shutdown() && !ahci_ready());
-    puts("PASS AHCI: port discovery, command FIS, DMA bounce read/write, flush and shutdown");
+    next_page = 0; fail_io = false; lba28 = true;
+    assert(ahci_init(&capacity, 0, 0, &address, &port) && capacity == (1u << 28));
+    assert(!ahci_read(0x1234567u, out) && lba28_reads == 1);
+    assert(!ahci_write(8, out) && writes == 2);
+    assert(!ahci_flush());
+    assert(ahci_read(1ull << 28, out) == -NV_ENODEV);
+    assert(ahci_shutdown());
+    puts("PASS AHCI: LBA48/LBA28 FIS, DMA bounce read/write, flush and shutdown");
 }

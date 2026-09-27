@@ -9,7 +9,7 @@
 #define AHCI_MMIO 0x3000u
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static u8 dma[32][PAGE], mmio[2][AHCI_MMIO], nuvora_header[512];
-static u32 next_page, pci_command[2], port_command[2][2], clb[2][2], writes[2][2];
+static u32 next_page, pci_command[2], port_command[2][2], clb[2][2], writes[2][2], lba28_reads;
 static bool first_supports_lba48 = true;
 static bool first_is_4kn, second_controller, invalid_first_bar;
 static u32 controller(void);
@@ -101,7 +101,9 @@ static void sim_write(u32 offset, u32 value) {
                 id[106] = (!n && port == 0 && first_is_4kn) ? 0x5000u : 0x6003u;
                 if (!n && port == 0 && first_is_4kn) id[117] = 2048u;
                 id[100] = 8192;
-            } else if (table[2] == 0x25) {
+                id[60] = 8192;
+            } else if (table[2] == 0x25 || table[2] == 0x20) {
+                if (table[2] == 0x20) ++lba28_reads;
                 u64 lba = (u64)table[4] | (u64)table[5] << 8 | (u64)table[6] << 16 |
                           (u64)table[8] << 24 | (u64)table[9] << 32 | (u64)table[10] << 40;
                 memset(buffer, 0, 512);
@@ -136,7 +138,7 @@ int main(void) {
     first_supports_lba48 = false;
     assert(disk_init() && ahci_disk && ahci.port == 1);
     assert(!disk_read(0, buffer) && !memcmp(buffer, "NVSTORE3", 8));
-    assert(writes[0][0] == 0);
+    assert(writes[0][0] == 0 && lba28_reads > 0);
     ahci_shutdown();
     next_page = 0;
     first_supports_lba48 = true; first_is_4kn = true;
@@ -152,5 +154,5 @@ int main(void) {
     next_page = 0; invalid_first_bar = true;
     assert(disk_init() && ahci_disk && ahci.pci == 0x3000 && ahci.port == 0);
     assert(ahci_shutdown());
-    puts("PASS AHCI: foreign/LBA28/4Kn disks, later controllers and malformed BAR5 skipped");
+    puts("PASS AHCI: foreign LBA28/4Kn disks, later controllers and malformed BAR5 skipped");
 }

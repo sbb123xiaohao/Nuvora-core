@@ -10,7 +10,7 @@
 #define PAGE 4096u
 /* Managed RAM ceiling. x64 uses 2 MiB mappings above the protected kernel
  * image and uptr-wide physical page addresses. */
-#define PHYS_LIMIT (64ull * 1024 * 1024 * 1024) /* 64 GiB */
+#define PHYS_LIMIT (128ull * 1024 * 1024 * 1024) /* x64 physical allocator ceiling */
 #define USER_BASE 0x40000000u
 #define USER_IMAGE_END 0x41000000u
 #define USER_HEAP 0x50000000u

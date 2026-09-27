@@ -21,7 +21,7 @@ static int show_cpu(void) {
     println(" (single-CPU scheduler)");
     print("Physical address bits: ");
     print_u32(c.physical_bits);
-    println("; managed RAM limit: 64 GiB");
+    println("; managed RAM limit: 128 GiB");
     print("State format: ");
     println(c.fp_mode == NV_FP_FXSAVE ? "FXSAVE (512 bytes)" : "x87 FNSAVE (108 bytes)");
     print("Enabled context: x87");

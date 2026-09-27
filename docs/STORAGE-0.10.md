@@ -101,7 +101,7 @@ python3 scripts/prepare_media.py input.m4a music.flac --audio-only --disk build/
 WAV/RF64 边界。没有本轮 QEMU 启动或实体断电/音频连续性验证。
 
 当前仍是实验内核：512 个总节点、每进程 13 个普通文件句柄、每卷 2 MiB
-元数据区、8 MiB 内核元数据堆、512 MiB 用户堆、64 GiB 物理管理窗口。
+元数据区、8 MiB 内核元数据堆、512 MiB 用户堆、x64 128 GiB 物理管理窗口。
 高度碎片化的块分配/恢复需要扫描区间，尚无 B 树、块缓存、按需分页、swap、
 后台回写或扩容已有卷的工具。IDE PIO/NVMe 512B、HDA 等设备范围保持不变；
 不支持所有现代硬件、NTFS/ext4 或任意音视频编码。

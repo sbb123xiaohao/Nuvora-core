@@ -5,6 +5,8 @@
 #define NVME_DMA_LIMIT 0x100000000ull
 #define NVME_DEPTH 16u
 #define NVME_POLLS 50000000u
+#define NVME_LAST_NSID 0xfffffffeu
+#define NVME_LIST_MAX_PAGES 4096u
 struct nvme_command {
     u32 cdw0, nsid;
     u64 reserved, metadata, prp1, prp2;
@@ -25,7 +27,7 @@ static struct {
     volatile u8 *regs;
     u32 pci, nsid, stride, scan_min_pci;
     u64 sectors;
-    uptr data_page;
+    uptr data_page, list_page;
     struct nvme_queue admin, io;
     bool online;
 } nvme;
@@ -63,7 +65,7 @@ static bool nvme_release(bool stop) {
         pci_write16(nvme.pci, 4, (u16)(pci_read(nvme.pci, 4) & ~4u));
     }
     uptr pages[] = {nvme.admin.sq_page, nvme.admin.cq_page,
-                    nvme.io.sq_page, nvme.io.cq_page, nvme.data_page};
+                    nvme.io.sq_page, nvme.io.cq_page, nvme.data_page, nvme.list_page};
     for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
         if (pages[i]) page_free(pages[i]);
     memset(&nvme, 0, sizeof(nvme));
@@ -117,6 +119,46 @@ static bool nvme_namespace(const u8 *id, u64 *size) {
     return true;
 }
 
+static bool nvme_select_namespace(u32 nsid, u64 *capacity, u32 *selected_nsid) {
+    memset(phys_ptr(nvme.data_page), 0, PAGE);
+    struct nvme_command command = {.cdw0 = 0x06, .nsid = nsid,
+                                   .prp1 = nvme.data_page};
+    if (nvme_submit(&nvme.admin, 0, &command, NULL) < 0 ||
+        !nvme_namespace(phys_ptr(nvme.data_page), &nvme.sectors)) return false;
+    nvme.nsid = nsid;
+    nvme.online = true;
+    *capacity = nvme.sectors;
+    *selected_nsid = nsid;
+    return true;
+}
+
+/* CNS=2 returns sorted, active namespace IDs greater than the command NSID.
+ * A separate DMA page keeps the list intact while each candidate is identified. */
+static bool nvme_scan_list(u32 first_nsid, u64 *capacity, u32 *selected_nsid,
+                           bool *supported) {
+    u32 cursor = first_nsid - 1;
+    for (u32 page = 0; page < NVME_LIST_MAX_PAGES; ++page) {
+        memset(phys_ptr(nvme.list_page), 0, PAGE);
+        struct nvme_command command = {.cdw0 = 0x06, .nsid = cursor,
+                                       .prp1 = nvme.list_page, .cdw10 = 2};
+        if (nvme_submit(&nvme.admin, 0, &command, NULL) < 0) {
+            *supported = false;
+            return false;
+        }
+        *supported = true;
+        const u32 *ids = phys_ptr(nvme.list_page);
+        for (u32 i = 0; i < PAGE / sizeof(u32); ++i) {
+            u32 nsid = ids[i];
+            if (!nsid) return false;
+            if (nsid <= cursor || nsid > NVME_LAST_NSID) return false;
+            cursor = nsid;
+            if (nvme_select_namespace(nsid, capacity, selected_nsid)) return true;
+        }
+        if (cursor == NVME_LAST_NSID) return false;
+    }
+    return false;
+}
+
 static void nvme_discover(u32 address, u32 id, u32 class_code) {
     (void)id;
     if (nvme.regs || address < nvme.scan_min_pci ||
@@ -150,8 +192,11 @@ static bool nvme_open(u64 *capacity, u32 first_nsid, u32 *selected_nsid) {
     nvme.io.sq_page = page_alloc_below(NVME_DMA_LIMIT);
     nvme.io.cq_page = page_alloc_below(NVME_DMA_LIMIT);
     nvme.data_page = page_alloc_below(NVME_DMA_LIMIT);
+    nvme.list_page = page_alloc_below(NVME_DMA_LIMIT);
     if (!nvme.admin.sq_page || !nvme.admin.cq_page || !nvme.io.sq_page ||
-        !nvme.io.cq_page || !nvme.data_page) { nvme_release(false); return false; }
+        !nvme.io.cq_page || !nvme.data_page || !nvme.list_page) {
+        nvme_release(false); return false;
+    }
     /* The queues are available before bus mastering. Reset any firmware queue
      * and wait until the controller has stopped accessing its old pages. */
     pci_write16(nvme.pci, 4, (u16)(pci_read(nvme.pci, 4) | 6u));
@@ -185,18 +230,16 @@ static bool nvme_open(u64 *capacity, u32 first_nsid, u32 *selected_nsid) {
     u8 *id = phys_ptr(nvme.data_page);
     u32 namespaces;
     memcpy(&namespaces, id + 516, sizeof(namespaces));
-    namespaces = MIN(namespaces, 16u);
-    for (u32 nsid = first_nsid; nsid <= namespaces; ++nsid) {
-        memset(id, 0, PAGE);
-        command = (struct nvme_command){.cdw0 = 0x06, .nsid = nsid,
-                                        .prp1 = nvme.data_page};
-        if (nvme_submit(&nvme.admin, 0, &command, NULL) < 0) continue;
-        if (!nvme_namespace(id, &nvme.sectors)) continue;
-        nvme.nsid = nsid;
-        nvme.online = true;
-        *capacity = nvme.sectors;
-        *selected_nsid = nsid;
+    if (!namespaces) { nvme_release(true); return false; }
+    bool list_supported = false;
+    if (nvme_scan_list(first_nsid, capacity, selected_nsid, &list_supported))
         return true;
+    if (!list_supported && !(nr32(0x1c) & 2u)) {
+        /* Early NVMe controllers may not implement CNS=2. Probe their
+         * reported sequential namespace range with a finite work budget. */
+        u32 end = MIN(namespaces, 4096u);
+        for (u32 nsid = first_nsid; nsid <= end; ++nsid)
+            if (nvme_select_namespace(nsid, capacity, selected_nsid)) return true;
     }
     nvme_release(true);
     return false;
@@ -205,6 +248,7 @@ static bool nvme_open(u64 *capacity, u32 first_nsid, u32 *selected_nsid) {
 bool nvme_init(u64 *capacity, u32 first_pci, u32 first_nsid,
                u32 *selected_pci, u32 *selected_nsid) {
     if (!capacity || !selected_pci || !selected_nsid || !first_nsid ||
+        first_nsid > NVME_LAST_NSID ||
         first_pci > 0x00ffff00u) return false;
     while (first_pci <= 0x00ffff00u) {
         memset(&nvme, 0, sizeof(nvme));

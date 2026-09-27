@@ -88,18 +88,19 @@ int main(int argc, char **argv) {
     map[0].type = EFI_RUNTIME_SERVICES_DATA;
     assert(convert_memory_map(map, sizeof(map), sizeof(map[0])));
     assert(bi.mem_count == 2 && bi.mem[0].type == 0); /* retry replaced the old map */
-    struct efi_memory_descriptor fragmented[256] = {0};
-    for (u32 i = 0; i < 256; ++i)
+    struct efi_memory_descriptor fragmented[768] = {0};
+    for (u32 i = 0; i < ARRAY_LEN(fragmented); ++i)
         fragmented[i] = (struct efi_memory_descriptor){
             .type = i & 1 ? EFI_RUNTIME_SERVICES_DATA : EFI_CONVENTIONAL,
             .physical_start = 0x20000000ull + (u64)i * 4096,
             .number_of_pages = 1};
     assert(convert_memory_map(fragmented, sizeof(fragmented), sizeof(fragmented[0])));
-    assert(bi.mem_count == 256 && bi.mem[255].type == 0);
-    for (u32 i = 0; i < 256; ++i)
+    assert(bi.mem_count == ARRAY_LEN(fragmented) && bi.mem[767].type == 0);
+    for (u32 i = 0; i < ARRAY_LEN(fragmented); ++i)
         fragmented[i].type = EFI_RESERVED;
     assert(convert_memory_map(fragmented, sizeof(fragmented), sizeof(fragmented[0])));
-    assert(bi.mem_count == 1 && bi.mem[0].type == 0 && bi.mem[0].length == 256 * 4096);
+    assert(bi.mem_count == 1 && bi.mem[0].type == 0 &&
+           bi.mem[0].length == ARRAY_LEN(fragmented) * 4096);
     assert(!convert_memory_map(map, sizeof(map), 8));
     map[0].physical_start = ~0ull - 4095;
     assert(!convert_memory_map(map, sizeof(map), sizeof(map[0])));

@@ -347,8 +347,8 @@ bool disk_init(void) {
          * controller before giving the queued DMA pages back to RAM. */
         bool stopped = nvme_shutdown();
         nvme_disk = false;
-        next_pci = stopped && selected_nsid < 16 ? selected_pci : selected_pci + 0x100u;
-        next_nsid = stopped && selected_nsid < 16 ? selected_nsid + 1 : 1;
+        next_pci = stopped && selected_nsid < 0xfffffffeu ? selected_pci : selected_pci + 0x100u;
+        next_nsid = stopped && selected_nsid < 0xfffffffeu ? selected_nsid + 1 : 1;
     }
     owned = false;
     return false;
