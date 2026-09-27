@@ -2,6 +2,13 @@
 
 处理器和标准格式相关实现参考下列公开文档。项目自己的代码、命令名称、ABI 编排和快照格式在本次工作中编写，没有将 Linux 内核源码改名包装。
 
+本轮存储核对使用用户提供的 `linux-7.2.8.tar.xz` 中的
+`block/partitions/efi.c`（GPT 主备校验与保护 MBR）和
+`drivers/ata/libata-core.c`、`drivers/ata/libahci.c`（ATA 能力、AHCI
+任务文件状态与命令完成路径）。Nuvora 的 GPT
+边界校验与 AHCI 完成判断在自己的存储接口中独立实现；该源码不参与构建，
+也不进入项目压缩包。
+
 - [Intel 64 and IA-32 Software Developer Manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)：保护模式、长模式、描述符、分页、权限与异常的处理器规范入口。0.3.0/0.4.0 的内核栈保护、x64 IST 和 i686 双重故障 task gate 对应 Volume 3A 的分页、异常与任务管理章节。
 - [GNU Multiboot header fields](https://www.gnu.org/software/grub/manual/multiboot/html_node/Header-magic-fields.html)：启动头标识和校验关系。实现使用 Multiboot v1，进入后由本内核自行初始化。
 - [System V ABI — ELF Header](https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html)：ELF32/ELF64 头部布局和机器类别。

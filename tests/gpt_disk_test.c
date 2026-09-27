@@ -12,7 +12,9 @@ static u64 disk_size, selected_lba;
 static u8 high[3], low[3], sector_data[512];
 static u32 words;
 static bool identifying;
-static bool break_primary, break_backup;
+static bool break_primary, break_backup, misplaced_primary, misplaced_backup;
+static bool wrong_alternate, invalid_pmbr, second_pmbr;
+static u32 misplaced_reads;
 static u8 inb(u16 port) { return port == 0x1f7 ? 0x48 : 0; }
 static u16 inw(u16 port) {
     assert(port == 0x1f0);
@@ -43,6 +45,20 @@ static void outb(u16 port, u8 value) {
         assert(selected_lba < disk_size);
         assert(fseek(disk_file, (long)(selected_lba * 512), SEEK_SET) == 0);
         assert(fread(sector_data, 1, 512, disk_file) == 512);
+        if (selected_lba >= 2048 && selected_lba < 2080) ++misplaced_reads;
+        if (!selected_lba && invalid_pmbr) sector_data[454] = 0;
+        if (!selected_lba && second_pmbr) {
+            memcpy(sector_data + 462, sector_data + 446, 16);
+            memset(sector_data + 446, 0, 16);
+        }
+        if ((selected_lba == 1 && (misplaced_primary || wrong_alternate)) ||
+            (selected_lba == disk_size - 1 && misplaced_backup)) {
+            u64 value = wrong_alternate ? 1u : 2048u;
+            memcpy(sector_data + (wrong_alternate ? 32 : 72), &value, 8);
+            memset(sector_data + 16, 0, 4);
+            u32 crc = crc32(sector_data, 92);
+            memcpy(sector_data + 16, &crc, 4);
+        }
         if ((selected_lba == 1 && break_primary) ||
             (selected_lba == disk_size - 1 && break_backup))
             sector_data[16] ^= 1; /* corrupt only the in-memory GPT header CRC */
@@ -91,6 +107,12 @@ int main(int argc, char **argv) {
     assert(disk_volume_read(0, volumes[0].length, b) == -NV_ENODEV);
     assert(disk_volume_write(0, 0, b) == -NV_EACCESS);
     assert(disk_write(8, b) == -NV_EINVAL); /* GPT metadata is never a slot. */
+    /* Cloning a disk to a larger device leaves the old backup GPT location
+     * in the valid primary header; the existing partitions remain readable. */
+    volume_count = partition_count = 0;
+    disk_size += 4096; sectors = disk_size;
+    assert(scan_gpt_at(1) && disk_volume_count() == 2);
+    disk_size -= 4096; sectors = disk_size;
     volume_count = partition_count = 0;
     break_primary = true;
     assert(!scan_gpt_at(1) && scan_gpt_at(disk_size - 1));
@@ -99,6 +121,21 @@ int main(int argc, char **argv) {
     break_backup = true;
     assert(!scan_gpt_at(1) && !scan_gpt_at(disk_size - 1));
     assert(!disk_volume_count());
+    break_primary = break_backup = false;
+    misplaced_primary = true; misplaced_reads = 0;
+    assert(!scan_gpt_at(1) && misplaced_reads == 0);
+    assert(scan_gpt_at(disk_size - 1) && disk_volume_count() == 2);
+    misplaced_primary = false; volume_count = partition_count = 0;
+    misplaced_backup = true; misplaced_reads = 0;
+    assert(!scan_gpt_at(disk_size - 1) && misplaced_reads == 0);
+    misplaced_backup = false;
+    wrong_alternate = true;
+    assert(!scan_gpt_at(1) && !disk_volume_count());
+    wrong_alternate = false;
+    invalid_pmbr = true;
+    assert(!scan_storage() && !disk_volume_count() && !owned);
+    invalid_pmbr = false; second_pmbr = true;
+    assert(scan_storage() && disk_volume_count() == 2 && owned);
     fclose(disk_file);
-    puts("PASS GPT: partition detection, volume geometry, drive separation and write boundary");
+    puts("PASS GPT: primary/backup recovery, protected table placement and write boundaries");
 }

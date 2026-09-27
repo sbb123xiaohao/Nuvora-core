@@ -112,6 +112,7 @@ static void sim_write(u32 offset, u32 value) {
             } else if (table[2] == 0x35) {
                 ++writes[n][port];
             }
+            h->bytes = h->prdt_count ? 512u : 0;
             return;
         }
     }

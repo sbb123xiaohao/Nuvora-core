@@ -205,19 +205,41 @@ static bool parse_header_size(const u8 *header, u64 capacity, struct store_layou
 static bool parse_header(const u8 *header) {
     return parse_header_size(header, sectors, &layout);
 }
+static bool protective_mbr(const u8 *sector) {
+    if (sector[510] != 0x55 || sector[511] != 0xaa) return false;
+    for (u32 i = 0; i < 4; ++i) {
+        const u8 *entry = sector + 446 + 16 * i;
+        if (entry[4] == 0xee && le32(entry + 8) == 1) return true;
+    }
+    return false;
+}
 static bool scan_gpt_at(u64 header_lba) {
     u8 h[512];
     if (disk_read(header_lba, h) < 0 || memcmp(h, "EFI PART", 8)) return false;
     u32 size = le32(h + 12), saved = le32(h + 16);
-    if (le32(h + 8) != 0x00010000 || size < 92 || size > 512 ||
-        le64(h + 24) != header_lba || le64(h + 32) >= sectors ||
+    if (le32(h + 8) != 0x00010000 || size < 92 || size > 512 || le32(h + 20) ||
+        (header_lba != 1 && header_lba != sectors - 1) ||
+        le64(h + 24) != header_lba ||
         le64(h + 40) < 34 || le64(h + 48) >= sectors - 33 ||
         le64(h + 40) > le64(h + 48) || le32(h + 80) != 128 ||
         le32(h + 84) != 128) return false;
+    /* A cloned disk may be larger than the GPT's original backup location.
+     * Accept that primary header if its alternate remains beyond all usable
+     * sectors with room for the backup entry array. */
+    u64 alternate = le64(h + 32);
+    if (header_lba == 1 ?
+        (alternate < le64(h + 48) + 33 || alternate >= sectors) :
+        alternate != 1) return false;
     memset(h + 16, 0, 4);
     if (crc32(h, size) != saved) return false;
     u64 entries_lba = le64(h + 72);
-    if (entries_lba < 2 || entries_lba > sectors - 32) return false;
+    /* 128 entries occupy 32 sectors. Keep both copies outside the entire
+     * writable partition range, including when the backup header is used. */
+    if (header_lba == 1) {
+        if (entries_lba < 2 || entries_lba > le64(h + 40) - 32) return false;
+    } else if (entries_lba <= le64(h + 48) || entries_lba > sectors - 33) {
+        return false;
+    }
     for (u32 i = 0; i < 32; ++i)
         if (disk_read(entries_lba + i, gpt_entries + 512 * i) < 0) return false;
     if (crc32(gpt_entries, sizeof(gpt_entries)) != le32(h + 88)) return false;
@@ -312,7 +334,7 @@ static bool scan_storage(void) {
         partitions[0] = (struct nv_partition_info){
             .number = 1, .flags = NV_PART_NUVORA | NV_PART_MOUNTED | NV_PART_LEGACY,
             .letter = 'C', .sectors_low = (u32)sectors, .sectors_high = (u32)(sectors >> 32)};
-    } else if (header[510] == 0x55 && header[511] == 0xaa && header[450] == 0xee &&
+    } else if (protective_mbr(header) &&
                (scan_gpt_at(1) || scan_gpt_at(sectors - 1))) {
         /* The backup header is read-only recovery for a damaged primary. */
     }

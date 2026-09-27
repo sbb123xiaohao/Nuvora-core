@@ -2,6 +2,11 @@
 
 ## 0.10.0 当前结果
 
+本轮补测扩容后主表指向旧备表位置、带有效 CRC 但分区项数组落入数据区、
+错误主备头部指针、无效保护 MBR 与备表恢复；AHCI 夹具注入短 DMA 和
+taskfile 错误。异常表被拒绝，
+不会先读取其指向的数据区；短读写不会返回成功。
+
 `make -j4 all` 及 `make test-host` 的 **27 组**通过（所有 C 夹具 UBSan）。
 本轮新增 64 GiB 以上的页分配与 768 项 UEFI 内存图样本；AHCI 夹具覆盖
 LBA28/LBA48 命令 FIS、读写和 Flush；NVMe 夹具覆盖稀疏活动 namespace

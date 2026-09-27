@@ -139,7 +139,13 @@ static bool issue(u8 opcode, u64 lba, bool write, bool data) {
             pw(0x10, status);
             return false;
         }
-        if (!(pr(0x38) & 1u)) return true;
+        if (!(pr(0x38) & 1u)) {
+            /* Command issue can clear after an ATA error or a short DMA.
+             * Neither completion is safe to report as a successful sector. */
+            if ((pr(0x20) & (0x01u | 0x20u)) ||
+                (data && header->bytes != 512u)) return false;
+            return true;
+        }
         pause_cpu();
     }
     return false;

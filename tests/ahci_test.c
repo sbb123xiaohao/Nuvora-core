@@ -11,7 +11,7 @@
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static u8 dma[8][PAGE], mmio[AHCI_MMIO];
 static u32 next_page, pci_command, port_command, port_clb, port_ci, writes, lba28_reads;
-static bool fail_io, lba28;
+static bool fail_io, lba28, short_dma, taskfile_error;
 static uptr page_alloc_below(u64 limit) {
     assert(limit >= 0x100000000ull && next_page < 4);
     ++next_page; memset(dma[next_page], 0, PAGE); return next_page * PAGE;
@@ -83,7 +83,9 @@ static void sim_write(u32 offset, u32 value) {
         } else if (opcode == 0x35 || opcode == 0x30) {
             ++writes;
         }
+        header->bytes = header->prdt_count ? (short_dma ? 256 : 512) : 0;
         if (fail_io) *(u32 *)(mmio + port + 0x10) = 1u << 30;
+        if (taskfile_error) *(u32 *)(mmio + port + 0x20) = 1u;
         port_ci = 0;
         return;
     }
@@ -102,6 +104,17 @@ int main(void) {
     for (u32 i = 0; i < sizeof(out); ++i) assert(out[i] == 0xa5);
     memset(out, 0x3c, sizeof(out)); assert(!ahci_write(8, out) && writes == 1);
     assert(!ahci_flush() && ahci_ready());
+    short_dma = true;
+    assert(ahci_read(0x123456789aull, out) == -NV_EIO && !ahci_ready());
+    assert(ahci_shutdown());
+    next_page = 0; short_dma = false;
+    assert(ahci_init(&capacity, 0, 0, &address, &port) && ahci_ready());
+    taskfile_error = true;
+    assert(ahci_read(0x123456789aull, out) == -NV_EIO && !ahci_ready());
+    assert(ahci_shutdown());
+    next_page = 0; taskfile_error = false;
+    *(u32 *)(mmio + 0x120) = 0; /* Replaced controller after an ATA error. */
+    assert(ahci_init(&capacity, 0, 0, &address, &port));
     fail_io = true;
     assert(ahci_read(0x123456789aull, out) == -NV_EIO && !ahci_ready());
     assert(ahci_shutdown() && !ahci_ready());
@@ -112,5 +125,5 @@ int main(void) {
     assert(!ahci_flush());
     assert(ahci_read(1ull << 28, out) == -NV_ENODEV);
     assert(ahci_shutdown());
-    puts("PASS AHCI: LBA48/LBA28 FIS, DMA bounce read/write, flush and shutdown");
+    puts("PASS AHCI: LBA48/LBA28 FIS, exact DMA completion, taskfile errors, flush and shutdown");
 }
