@@ -106,7 +106,10 @@ if (nv_audio_info(&audio) == 0 &&
 WRITE 接受 `{u32 pixels, u32 bytes}` 8 字节请求，把用户 PCM 复制到受保护的
 DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不完整帧、
 零字节或超长请求返回 `-NV_EINVAL`；坏用户地址返回 `-NV_EFAULT`。
-接口没有录音、混音、音量控制、设备切换和异步缓冲契约。
+`nv_audio_get_volume(&level)` 和 `nv_audio_set_volume(0..100)` 控制全局 PCM
+输出衰减；100 保留原样，0 静音；它作用于所有使用该 PCM 接口的程序，
+不改变用户缓冲区。超出范围返回 `-NV_EINVAL`。
+接口没有录音、多音源混合、按应用音量、设备切换和异步缓冲契约。
 `wave FILE.wav` 播放符合此格式的 RIFF/WAVE PCM 文件；`wave --test`
 产生一秒 440 Hz 测试音。图形 `media` 应用另用 minimp3 和 pl_mpeg
 流式解码 MP3、MP2、FLAC、WAV/RF64 与 MPEG-1/MP2，再写入同一 PCM 接口；其代码示例见

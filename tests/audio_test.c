@@ -126,6 +126,28 @@ int main(void) {
     assert(bdl[0].address == hda.data_page && bdl[0].length == 3000 && !bdl[0].flags);
     assert(bdl[1].address == hda.data_page + 3000 && bdl[1].length == HDA_SILENCE && bdl[1].flags == 1);
     assert(!memcmp(phys_ptr(hda.data_page), user_page + 64, 3000));
+    struct nv_audio_volume *volume = (void *)(user_page + 40);
+    assert(audio_ioctl(NV_AUDIO_GET_VOLUME, (u32)(uptr)volume) == 0 &&
+           volume->percent == 100);
+    volume->percent = 101;
+    assert(audio_ioctl(NV_AUDIO_SET_VOLUME, (u32)(uptr)volume) == -NV_EINVAL);
+    assert(audio_ioctl(NV_AUDIO_SET_VOLUME, 0) == -NV_EFAULT);
+    volume->percent = 50;
+    assert(audio_ioctl(NV_AUDIO_SET_VOLUME, (u32)(uptr)volume) == 0);
+    short pcm[] = {32767, -32768, 100, -101};
+    memcpy(user_page + 64, pcm, sizeof(pcm));
+    request->bytes = sizeof(pcm);
+    assert(audio_ioctl(NV_AUDIO_WRITE, (u32)(uptr)request) == (int)sizeof(pcm));
+    short expected[] = {16383, -16384, 50, -50};
+    assert(!memcmp(phys_ptr(hda.data_page), expected, sizeof(expected)));
+    assert(!memcmp(user_page + 64, pcm, sizeof(pcm)));
+    volume->percent = 0;
+    assert(audio_ioctl(NV_AUDIO_SET_VOLUME, (u32)(uptr)volume) == 0);
+    assert(audio_ioctl(NV_AUDIO_WRITE, (u32)(uptr)request) == (int)sizeof(pcm));
+    short silence[4] = {0};
+    assert(!memcmp(phys_ptr(hda.data_page), silence, sizeof(silence)));
+    assert(audio_ioctl(NV_AUDIO_GET_VOLUME, (u32)(uptr)volume) == 0 &&
+           volume->percent == 0);
     request->bytes = 3;
     assert(audio_ioctl(NV_AUDIO_WRITE, (u32)(uptr)request) == -NV_EINVAL);
     request->bytes = NV_AUDIO_MAX_WRITE + 4;

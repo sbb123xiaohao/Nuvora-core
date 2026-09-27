@@ -3,6 +3,7 @@
 /* Original, bounded xHCI driver. All DMA memory is page-aligned and below 4 GiB.
  * Polling runs in kernel thread/syscall context, never in an interrupt handler.
  * Device DMA pages are released only after Disable Slot has completed. */
+#include "rndis.h"
 #define MMIO_SIZE 65536u
 #define USB_DMA_LIMIT 0x100000000ull /* conservative DMA mask, like Linux dma_alloc_coherent */
 #define MAX_PORTS 255u /* full eight-bit HCS MaxPorts field */
@@ -43,6 +44,8 @@ struct device {
     u32 cdc_in_packet, cdc_out_packet, cdc_interface, cdc_control;
     u32 cdc_in_wait, cdc_out_wait;
     u8 ecm_mac[6];
+    bool rndis;
+    u32 rndis_xid;
     u32 keyboard_ep, keyboard_interface, keyboard_packet, keyboard_interval;
     u32 mouse_ep, mouse_interface, mouse_packet, mouse_interval, mouse_wait;
     u32 interrupt_wait, repeat_at, hub_ports, hub_ttt;
@@ -263,7 +266,10 @@ static void events(struct host *h) {
                     d->ecm_in_wait = 0;
                     if (code == 1 || code == 13) {
                         u32 length = 2048 - MIN(status & 0xffffffu, 2048u);
-                        if (length >= 14 && length <= 1514)
+                        if (d->rndis)
+                            (void)rndis_packets(phys_ptr(d->ecm_in_buf),length,
+                                                net_usb_receive);
+                        else if (length >= 14 && length <= 1514)
                             net_usb_receive(phys_ptr(d->ecm_in_buf), length);
                         ecm_arm(d);
                     } else { d->dead = true; h->changed = true; }
@@ -458,6 +464,46 @@ static int configure_mouse(struct device *d) {
     mouse_arm(d);
     return 0;
 }
+static int rndis_command(struct device *d, u32 type, u32 length, u32 *received) {
+    u8 *buffer=phys_ptr(d->buffer);
+    u32 xid=++d->rndis_xid;
+    rndis_put(buffer,0,type);
+    rndis_put(buffer,4,length);
+    rndis_put(buffer,8,xid);
+    if (control(d,0x21,0,0,(u16)d->ecm_control,(u16)length)!=(int)length)
+        return -NV_EIO;
+    for (u32 attempt=0;attempt<10;++attempt) {
+        int got=control(d,0xa1,1,0,(u16)d->ecm_control,1024);
+        if (got>=16 && rndis_reply(buffer,(u32)got,type,xid)) {
+            *received=(u32)got;
+            return 0;
+        }
+        if (d->dead) return -NV_EIO;
+        delay_ms(40);
+    }
+    return -NV_EIO;
+}
+static int rndis_start(struct device *d) {
+    u8 *buffer=phys_ptr(d->buffer);
+    u32 got;
+    memset(buffer,0,80);
+    rndis_put(buffer,12,1); /* RNDIS 1.0 */
+    rndis_put(buffer,20,2048); /* bounded receive transfer */
+    if (rndis_command(d,2,24,&got)<0 || got<40 ||
+        rndis_word(buffer,36)<RNDIS_FRAME_MAX+RNDIS_PACKET_HEADER) return -NV_EIO;
+    memset(buffer,0,80);
+    rndis_put(buffer,12,0x01010101); /* permanent Ethernet address */
+    rndis_put(buffer,16,48); /* devices expecting a nonempty query payload */
+    rndis_put(buffer,20,20);
+    if (rndis_command(d,4,76,&got)<0 || !rndis_query_data(buffer,got,d->ecm_mac))
+        return -NV_EIO;
+    memset(buffer,0,32);
+    rndis_put(buffer,12,0x0001010e); /* current packet filter */
+    rndis_put(buffer,16,4);
+    rndis_put(buffer,20,20);
+    rndis_put(buffer,28,1u|8u); /* directed and broadcast */
+    return rndis_command(d,5,32,&got);
+}
 static int configure_ecm(struct device *d) {
     if (!d->ecm_in_ep || !d->ecm_out_ep || ecm_device) return 0;
     if (!ring_init(&d->ecm_in) || !ring_init(&d->ecm_out) ||
@@ -491,8 +537,9 @@ static int configure_ecm(struct device *d) {
     out[2] = d->ecm_out.page | 1u;
     out[4] = 2048u;
     if (command(d->host, 12, d->input, d->slot << 24) < 0 ||
-        control(d, 1, 11, 1, (u16)d->ecm_interface, 0) < 0 ||
-        control(d, 0x21, 0x43, 3, (u16)d->ecm_control, 0) < 0)
+        (d->rndis ? rndis_start(d) < 0 :
+         control(d, 1, 11, 1, (u16)d->ecm_interface, 0) < 0 ||
+         control(d, 0x21, 0x43, 3, (u16)d->ecm_control, 0) < 0))
         return -NV_EIO;
     if (d->cdc_in_ep) {
         u8 *line = phys_ptr(d->buffer);
@@ -607,10 +654,17 @@ static int identify(struct device *d) {
             if (cfg[off + 5] == 2 && cfg[off + 6] == 6 && cfg[off + 3] == 0) {
                 ecm_control = true; d->ecm_control = interface_number;
             }
+            if (cfg[off+3]==0 &&
+                ((cfg[off+5]==2 && cfg[off+6]==2 && cfg[off+7]==0xff) ||
+                 (cfg[off+5]==0xe0 && cfg[off+6]==1 && cfg[off+7]==3))) {
+                ecm_control=true; d->ecm_control=interface_number;
+                d->rndis=true;
+            }
             if (cfg[off + 5] == 2 && cfg[off + 6] == 2 && cfg[off + 3] == 0) {
                 cdc_control = true; d->cdc_control = interface_number;
             }
-            ecm_data = ecm_control && cfg[off + 5] == 10 && cfg[off + 3] == 1;
+            ecm_data = ecm_control && cfg[off + 5] == 10 &&
+                       cfg[off + 3] == (d->rndis ? 0 : 1);
             cdc_data = cdc_control && cfg[off + 5] == 10 && cfg[off + 3] == 0;
             if (ecm_data) d->ecm_interface = interface_number;
             if (cdc_data) d->cdc_interface = interface_number;
@@ -687,7 +741,9 @@ static int identify(struct device *d) {
         d->mouse_interval = tablet_interval;
         d->mouse_absolute = true;
     }
-    if (ecm_control && ecm_mac_string && d->ecm_in_ep && d->ecm_out_ep) {
+    if (d->rndis && d->ecm_in_ep && d->ecm_out_ep) {
+        /* The MAC is supplied by RNDIS after device configuration. */
+    } else if (ecm_control && ecm_mac_string && d->ecm_in_ep && d->ecm_out_ep) {
         char value[16];
         string_descriptor(d, ecm_mac_string, language, value, sizeof(value));
         if (strlen(value) == 12) {
@@ -1127,8 +1183,14 @@ int usb_ecm_send(const void *packet, u32 length) {
     if (length < 14 || length > 1514) return -NV_EINVAL;
     struct device *d = ecm_device;
     if (d->ecm_out_wait) return -NV_EAGAIN;
-    memcpy(phys_ptr(d->ecm_out_buf), packet, length);
-    bool zlp = length % d->ecm_out_packet == 0;
+    if (d->rndis) {
+        length=rndis_packet(phys_ptr(d->ecm_out_buf),packet,length);
+        if (!length) return -NV_EINVAL;
+        /* RNDIS peers can misinterpret a terminating USB zero-length packet. */
+        if (length%d->ecm_out_packet==0)
+            ((u8 *)phys_ptr(d->ecm_out_buf))[length++]=0;
+    } else memcpy(phys_ptr(d->ecm_out_buf), packet, length);
+    bool zlp = !d->rndis && length % d->ecm_out_packet == 0;
     u32 first = ring_put(&d->ecm_out, d->ecm_out_buf, 0, length,
                          TYPE(1) | (zlp ? 1u << 4 : 1u << 5));
     d->ecm_out_wait = zlp ? ring_put(&d->ecm_out, d->ecm_out_buf, 0, 0,

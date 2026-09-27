@@ -16,7 +16,7 @@ def main():
         create_gpt_disk(extent_image, size_mib=128, partitions=2)
         raw_image = pathlib.Path(directory) / 'raw-extent.img'
         create_raw_disk(raw_image, size_mib=64)
-        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'audio', 'display', 'pointer', 'media', 'media_formats']:
+        for name in ['address', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'rndis', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'audio', 'display', 'pointer', 'media', 'media_formats']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -47,7 +47,7 @@ def main():
         subprocess.run(['python3', 'scripts/test_extent_import.py', str(pathlib.Path(directory) / 'extent')], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
-    print('ALL 28 HOST REGRESSION GROUPS PASSED (including HTTP parsing, ICMP/TCP frames, GPT UEFI media, AHCI multicontroller, PCI ECAM, xHCI DMA, OVMF flash pairing, e1000 DMA and media import; C fixtures use UBSan)')
+    print('ALL 29 HOST REGRESSION GROUPS PASSED (including RNDIS framing, HTTP parsing, ICMP/TCP frames, GPT UEFI media, AHCI multicontroller, PCI ECAM, xHCI DMA, OVMF flash pairing, e1000 DMA and media import; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

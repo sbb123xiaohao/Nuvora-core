@@ -16,6 +16,7 @@ static struct {
     u8 codec, dac, pin, group;
     bool ready;
 } hda;
+static u32 volume_percent = 100;
 
 #ifndef HDA_READ8
 #define HDA_READ8(offset) (*(volatile u8 *)(hda.regs + (offset)))
@@ -182,6 +183,7 @@ static bool stream_reset(void) {
 }
 void audio_init(void) {
     memset(&hda, 0, sizeof(hda));
+    volume_percent = 100;
     pci_visit(discover);
     if (!hda.regs) { kprintf("[audio] no HDA controller\n"); return; }
     u16 gcap = h16(0);
@@ -217,6 +219,15 @@ static int play(const void *samples, u32 bytes) {
     u8 *data = phys_ptr(hda.data_page);
     struct hda_bdl *bdl = phys_ptr(hda.bdl_page);
     memcpy(data, samples, bytes);
+    /* Mix at the DMA boundary so every PCM client sees the same desktop
+     * setting. Use signed 32-bit arithmetic: -32768 remains representable. */
+    if (volume_percent != 100)
+        for (u32 i = 0; i < bytes; i += 2) {
+            short sample;
+            memcpy(&sample, data + i, sizeof(sample));
+            sample = (short)((i32)sample * (i32)volume_percent / 100);
+            memcpy(data + i, &sample, sizeof(sample));
+        }
     memset(data + bytes, 0, HDA_SILENCE);
     bdl[0] = (struct hda_bdl){hda.data_page, bytes, 0};
     /* Drain a short silent tail before stopping the stream. Completion is
@@ -249,7 +260,22 @@ static int play(const void *samples, u32 bytes) {
     return complete && hda.ready ? (int)bytes : -NV_EIO;
 }
 int audio_ioctl(u32 op, u32 pointer) {
-    if (op != NV_AUDIO_INFO && op != NV_AUDIO_WRITE) return -NV_EINVAL;
+    if (op != NV_AUDIO_INFO && op != NV_AUDIO_WRITE &&
+        op != NV_AUDIO_GET_VOLUME && op != NV_AUDIO_SET_VOLUME) return -NV_EINVAL;
+    if (op == NV_AUDIO_GET_VOLUME || op == NV_AUDIO_SET_VOLUME) {
+        if (!user_range(current->pd, pointer, sizeof(struct nv_audio_volume),
+                        op == NV_AUDIO_GET_VOLUME)) return -NV_EFAULT;
+        struct nv_audio_volume setting;
+        if (op == NV_AUDIO_SET_VOLUME) {
+            memcpy(&setting, (const void *)(uptr)pointer, sizeof(setting));
+            if (setting.percent > 100) return -NV_EINVAL;
+            volume_percent = setting.percent;
+        } else {
+            setting.percent = volume_percent;
+            memcpy((void *)(uptr)pointer, &setting, sizeof(setting));
+        }
+        return 0;
+    }
     if (op == NV_AUDIO_INFO) {
         if (!user_range(current->pd, pointer, sizeof(struct nv_audio_info), true))
             return -NV_EFAULT;

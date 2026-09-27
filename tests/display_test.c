@@ -48,7 +48,8 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     const char *sample="An editable text window\nSecond line with 0123456789\n";
     struct desktop_view v={.path="/home",.message="",.drive="4 drives",
         .entries=files,.count=24,.selected=4,.scroll=2,.volumes=4,
-        .pointer=true,.pointer_x=width/2,.pointer_y=height/2,.audio_ready=true,
+        .pointer=true,.pointer_x=width/2,.pointer_y=height/2,
+        .audio_ready=true,.volume_percent=72,
         .windows=windows,.order=order,.active=DESKTOP_FILES,
         .shortcut_selected=0xffffffffu,
         .editor_path="/home/note.txt",.editor_text=sample,.editor_length=strlen(sample),
@@ -105,6 +106,24 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     assert(!memcmp(full+1,tiled+1,(usize)n*sizeof(u32)));
     assert(full[0]==0x9173ace4 && full[n+1]==0x27607845);
     assert(tiled[0]==0x9173ace4 && tiled[n+1]==0x27607845);
+    u32 previous_x=v.pointer_x, previous_y=v.pointer_y;
+    v.pointer_x+=27*s; v.pointer_y+=18*s;
+    desktop_render(&all,height,&v);
+    struct nv_canvas repair={tiled+1,width,0,height,format};
+    struct desktop_clip old_cursor={previous_x,previous_y,previous_x+8*s,previous_y+10*s};
+    struct desktop_clip new_cursor={v.pointer_x,v.pointer_y,v.pointer_x+8*s,v.pointer_y+10*s};
+    desktop_render_clip(&repair,height,&v,old_cursor);
+    desktop_render_clip(&repair,height,&v,new_cursor);
+    assert(!memcmp(full+1,tiled+1,(usize)n*sizeof(u32)));
+    v.volume_open=true; v.volume_percent=37;
+    struct desktop_hit volume_hit=desktop_hit(width,height,&v,
+        (sw-100)*s,(sh-62)*s);
+    if (sw>=640) assert(volume_hit.kind==DESKTOP_HIT_VOLUME_SLIDER);
+    if (width==1280 && height==800 && !all_open && format==NV_DISPLAY_BGRX8) {
+        desktop_render(&all,height,&v);
+        preview(getenv("NV_VOLUME_PREVIEW"),full+1,width,height);
+    }
+    v.volume_open=false;
     struct desktop_hit hit=desktop_hit(width,height,&v,25*s,height-15*s);
     assert(hit.kind==DESKTOP_HIT_START);
     hit=desktop_hit(width,height,&v,100*s,height-15*s);

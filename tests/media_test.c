@@ -53,7 +53,8 @@ static void check_ui(plm_frame_t *frame) {
     full[length + 1] = tiled[length + 1] = 0x48793421;
     struct media_view v = {
         .title = "clip.mpg", .playing = true, .video = true, .frame = frame,
-        .pointer = true, .pointer_x = 125, .pointer_y = 100};
+        .pointer = true, .pointer_x = 125, .pointer_y = 100,
+        .audio_ready = true, .volume_percent = 72};
     struct nv_canvas all = {full + 1, width, 0, height, NV_DISPLAY_BGRX8};
     media_render(&all, height, &v);
     for (u32 y = 0; y < height; y += 31) {
@@ -66,6 +67,8 @@ static void check_ui(plm_frame_t *frame) {
     assert(tiled[0] == 0x12341234 && tiled[length + 1] == 0x48793421);
     assert(media_hit(width, height, &v, 15, 12).kind == MEDIA_HIT_BACK);
     assert(media_hit(width, height, &v, 40, 470).kind == MEDIA_HIT_PAUSE);
+    struct media_hit level = media_hit(width, height, &v, 400, 470);
+    assert(level.kind == MEDIA_HIT_VOLUME && level.index == 73);
     free(full); free(tiled);
 }
 static void got_frame(plm_t *plm, plm_frame_t *frame, void *user) {

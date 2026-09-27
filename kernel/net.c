@@ -122,7 +122,7 @@ void net_usb_attach(u32 vendor, u32 product, const u8 *mac) {
     memcpy(n->mac, mac, 6);
     usb_index = index;
     if (active == NV_NET_MAX) active = usb_index;
-    kprintf("[net] USB CDC-ECM interface attached\n");
+    kprintf("[net] USB Ethernet interface attached\n");
 }
 void net_usb_detach(void) {
     if (usb_index >= count) return;

@@ -19,6 +19,8 @@
 - [Rich Text Format 1.5 specification](https://www.biblioscape.com/rtf15_spec.htm)：RTF 控制字、分组、字体和段落格式的公开规范页面；Folio 只写入其中的 ASCII 子集。
 - [Intel High Definition Audio Specification rev 1.0a](https://www.intel.com/content/dam/www/public/us/en/documents/product-specifications/high-definition-audio-specification.pdf)：HDA 控制器寄存器、即时命令、codec 动词、输出流与缓冲描述符格式。当前只实现模拟 PCM 输出子集。
 - [QEMU HDA device documentation](https://github.com/qemu/qemu/blob/master/docs/qdev-device-use.txt)：`intel-hda` 与 `hda-duplex` 设备参数；用于创建可复验的虚拟声卡。
+- [Linux USB RNDIS host driver](https://github.com/torvalds/linux/blob/master/drivers/net/usb/rndis_host.c) 与 [CDC 请求定义](https://github.com/torvalds/linux/blob/master/include/uapi/linux/usb/cdc.h)：核对封装、初始化、查询设备地址、数据帧和控制请求的边界；本项目独立编写有界的 USB 实现，未复制驱动代码。
+- [Linux wireless subsystem documentation](https://docs.kernel.org/driver-api/80211/index.html)：区分可枚举的 PCI 无线控制器与真正支持固件、802.11 链路和认证的原生驱动；当前未实现这些组件。
 
 GRUB 是唯一随 ISO 提供的第三方引导组件，其来源、许可证及对应源码位置见 [third_party/README.md](../third_party/README.md)。QEMU 和编译器只用于构建、运行与验证，没有放进发布包。
 

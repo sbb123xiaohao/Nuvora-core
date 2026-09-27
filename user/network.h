@@ -67,7 +67,7 @@ static int net_list(void) {
             print("\n");
         }
     }
-    if (!devices) println("No PCI network device or configured USB CDC-ECM adapter found.");
+    if (!devices) println("No PCI network device or configured USB ECM/RNDIS adapter found.");
     println("* active interface. Supported PCI wired: Intel I225-V/LM, I226-V/LM.");
     println("Supported ESP USB Wi-Fi Dongle: net wifi scan, net wifi join SSID.");
     println("Built-in PCI Wi-Fi has no driver; detection does not mean connection.");

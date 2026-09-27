@@ -16,6 +16,7 @@ static char path[NV_PATH_MAX], status[160], title[NV_NAME_MAX + 1];
 static bool audio_ready, stop_playback;
 static u32 paused_ticks;
 static u32 pointer_buttons;
+static bool volume_drag;
 static i16 decoded[MINIMP3_MAX_SAMPLES_PER_FRAME];
 static u8 compressed[16384];
 
@@ -85,10 +86,16 @@ static int pointer_input(bool *clicked) {
     int r = nv_pointer_poll(&event);
     if (r <= 0) return r;
     view.pointer = true;
-    view.pointer_x = (u32)MAX(0, MIN((i32)view.pointer_x + event.dx, (i32)mode.width - 1));
-    view.pointer_y = (u32)MAX(0, MIN((i32)view.pointer_y + event.dy, (i32)mode.height - 1));
+    if (event.buttons&NV_POINTER_ABSOLUTE) {
+        view.pointer_x=(u32)((u64)(u32)MAX(0,MIN(32767,event.dx))*(mode.width-1)/32767);
+        view.pointer_y=(u32)((u64)(u32)MAX(0,MIN(32767,event.dy))*(mode.height-1)/32767);
+    } else {
+        view.pointer_x = (u32)MAX(0, MIN((i32)view.pointer_x + event.dx, (i32)mode.width - 1));
+        view.pointer_y = (u32)MAX(0, MIN((i32)view.pointer_y + event.dy, (i32)mode.height - 1));
+    }
     *clicked = !!((event.buttons & NV_POINTER_LEFT) && !(pointer_buttons & NV_POINTER_LEFT));
     pointer_buttons = event.buttons;
+    if (!(pointer_buttons&NV_POINTER_LEFT)) volume_drag=false;
     return 1;
 }
 struct audio_sink {
@@ -144,10 +151,35 @@ static int meter(void) {
     view.seconds = (u32)(sound.played_frames / 48000);
     return draw();
 }
+static int set_volume(u32 value) {
+    if (!audio_ready || value>100 || value==view.volume_percent) return 0;
+    int r=nv_audio_set_volume(value);
+    if (r==0) view.volume_percent=value;
+    return r;
+}
+static int volume_key(u32 key) {
+    if (key=='+' || key=='=') return set_volume(MIN(100u,view.volume_percent+5));
+    if (key=='-' || key=='_') return set_volume(view.volume_percent<5?0:view.volume_percent-5);
+    return 0;
+}
+static int volume_pointer(bool clicked) {
+    if (clicked) {
+        struct media_hit hit=media_hit(mode.width,mode.height,&view,
+                                        view.pointer_x,view.pointer_y);
+        if (hit.kind==MEDIA_HIT_VOLUME && audio_ready) volume_drag=true;
+    }
+    if (!volume_drag || !(pointer_buttons&NV_POINTER_LEFT)) return 0;
+    u32 s=media_scale(mode.width,mode.height), start=145*s, span=mode.width-245*s;
+    u32 value=view.pointer_x<=start?0:
+              view.pointer_x>=start+span-1?100:(view.pointer_x-start)*100/(span-1);
+    return set_volume(value);
+}
 static int transport(void) {
     bool clicked = false;
     int mouse = pointer_input(&clicked);
     if (mouse < 0) return mouse;
+    int change=volume_pointer(clicked);
+    if (change<0) return change;
     if (clicked) {
         struct media_hit hit = media_hit(mode.width, mode.height, &view,
                                          view.pointer_x, view.pointer_y);
@@ -159,6 +191,8 @@ static int transport(void) {
         u32 k = (u32)key & 4095u;
         if (k == 27) stop_playback = true;
         if (k == ' ' || k == '\n') view.paused = !view.paused;
+        change=volume_key(k);
+        if (change<0) return change;
     } else if (key != -NV_EAGAIN) return key;
     u32 pause_begin = clock_ticks();
     bool had_pause = view.paused;
@@ -174,6 +208,8 @@ static int transport(void) {
         nap(25);
         mouse = pointer_input(&clicked);
         if (mouse < 0) return mouse;
+        change=volume_pointer(clicked);
+        if (change<0) return change;
         if (clicked) {
             struct media_hit hit = media_hit(mode.width, mode.height, &view,
                                              view.pointer_x, view.pointer_y);
@@ -185,6 +221,8 @@ static int transport(void) {
             u32 k = (u32)key & 4095u;
             if (k == 27) stop_playback = true;
             if (k == ' ' || k == '\n') view.paused = false;
+            change=volume_key(k);
+            if (change<0) return change;
         } else if (key != -NV_EAGAIN) return key;
     }
     if (had_pause) paused_ticks += clock_ticks() - pause_begin;
@@ -463,6 +501,9 @@ int user_main(const char *args) {
                   audio.outputs && audio.sample_rate == 48000 && audio.channels == 2 &&
                   audio.format == NV_AUDIO_S16LE && audio.max_write_bytes >= NV_AUDIO_MAX_WRITE;
     view.audio_ready = audio_ready;
+    struct nv_audio_volume setting;
+    view.volume_percent=nv_audio_get_volume(&setting)==0 && setting.percent<=100 ?
+                        setting.percent : 100;
     tile_rows = mode.max_copy_bytes / (mode.width * 4);
     tile = grow((mode.max_copy_bytes + NV_PAGE - 1) / NV_PAGE);
     if ((iptr)tile < 0) { report_error("Media buffer", (int)(iptr)tile); return 1; }

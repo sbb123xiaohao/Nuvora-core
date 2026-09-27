@@ -9,12 +9,13 @@
 struct media_view {
     const char *path, *message, *title;
     const struct nv_dirent *entries;
-    u32 count, selected, scroll, seconds, peak_left, peak_right;
+    u32 count, selected, scroll, seconds, peak_left, peak_right, volume_percent;
     bool playing, paused, video, audio_ready, pointer;
     u32 pointer_x, pointer_y;
     const plm_frame_t *frame;
 };
-enum { MEDIA_HIT_NONE, MEDIA_HIT_BACK, MEDIA_HIT_ITEM, MEDIA_HIT_PAUSE };
+enum { MEDIA_HIT_NONE, MEDIA_HIT_BACK, MEDIA_HIT_ITEM, MEDIA_HIT_PAUSE,
+       MEDIA_HIT_VOLUME };
 struct media_hit { u32 kind, index; };
 static u32 media_scale(u32 width, u32 height) {
     return width >= 1440 && height >= 720 ? 3 : 2;
@@ -27,7 +28,13 @@ static struct media_hit media_hit(u32 width, u32 height,
     u32 s = media_scale(width, height);
     if (x < 75 * s && y < 26 * s) return (struct media_hit){MEDIA_HIT_BACK, 0};
     if (v->playing) {
-        if (y >= height - 31 * s) return (struct media_hit){MEDIA_HIT_PAUSE, 0};
+        if (y >= height - 31 * s) {
+            u32 start=145*s, span=width>245*s?width-245*s:0;
+            if (v->audio_ready && span && x>=start && x<start+span)
+                return (struct media_hit){MEDIA_HIT_VOLUME,
+                    (x-start)*100/(span-1)};
+            return (struct media_hit){MEDIA_HIT_PAUSE, 0};
+        }
         return (struct media_hit){MEDIA_HIT_NONE, 0};
     }
     u32 top = 54 * s, row = y >= top ? (y - top) / (16 * s) : ~0u;
@@ -53,15 +60,19 @@ static void media_picture(struct nv_canvas *c, u32 height, u32 s,
     u32 h = MIN(area_h, (u32)((u64)w * frame->height / frame->width));
     u32 left = (c->width - w) / 2, top = 46 * s + (area_h - h) / 2;
     if (!w || !h) return;
+    u32 xwhole=frame->width/w, xpart=frame->width%w;
     for (u32 py = MAX(top, c->y0); py < MIN(top + h, c->y0 + c->rows); ++py) {
         u32 sy = (u32)((u64)(py - top) * frame->height / h);
         u32 *dst = c->pixels + (py - c->y0) * c->width + left;
+        u32 luma_row=sy*frame->y.width, chroma_row=(sy/2)*frame->cb.width;
+        u32 sx=0, remainder=0;
         for (u32 px = 0; px < w; ++px) {
-            u32 sx = (u32)((u64)px * frame->width / w);
-            u32 chroma = (sy / 2) * frame->cb.width + sx / 2;
-            u32 rgb = media_rgb(frame->y.data[sy * frame->y.width + sx],
+            u32 chroma = chroma_row + sx / 2;
+            u32 rgb = media_rgb(frame->y.data[luma_row + sx],
                                 frame->cb.data[chroma], frame->cr.data[chroma]);
             dst[px] = nv_display_rgb(c->format, rgb);
+            sx+=xwhole; remainder+=xpart;
+            if (remainder>=w) { ++sx; remainder-=w; }
         }
     }
 }
@@ -96,6 +107,15 @@ static void media_render(struct nv_canvas *c, u32 height, const struct media_vie
         nv_gfx_text(c, 16 * s, height - 25 * s,
                     v->paused ? "PLAY  Space" : "PAUSE Space",
                     v->paused ? 11 : 11, s, 0xf3f2ed);
+        if (v->audio_ready && c->width>245*s) {
+            u32 start=145*s, span=c->width-245*s;
+            nv_gfx_text(c,100*s,height-25*s,"VOL",3,s,0xa6b7be);
+            nv_gfx_fill(c,start,height-22*s,span,4*s,0x4b6169);
+            nv_gfx_fill(c,start,height-22*s,span*v->volume_percent/100,4*s,0xb9814c);
+            char level[8]; number(level,v->volume_percent,10);
+            strlcpy(level+strlen(level),"%",sizeof(level)-strlen(level));
+            nv_gfx_text(c,c->width-96*s,height-25*s,level,strlen(level),s,0xe3ebea);
+        }
         char clock[16], a[12], b[12];
         number(a, v->seconds / 60, 10); number(b, v->seconds % 60, 10);
         u32 n = 0;

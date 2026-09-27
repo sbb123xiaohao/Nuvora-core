@@ -24,7 +24,8 @@ struct desktop_view {
     bool pointer;
     u32 pointer_x, pointer_y;
     u32 shortcut_selected;
-    bool audio_ready, menu;
+    bool audio_ready, menu, volume_open;
+    u32 volume_percent;
     u32 menu_selected;
     const struct desktop_window *windows;
     const u8 *order;
@@ -84,13 +85,15 @@ enum { DESKTOP_HIT_NONE, DESKTOP_HIT_START, DESKTOP_HIT_MENU,
        DESKTOP_HIT_FILE_NEW_FOLDER, DESKTOP_HIT_FILE_NEW_TEXT,
        DESKTOP_HIT_FILE_DIALOG,
        DESKTOP_HIT_EDITOR_SAVE, DESKTOP_HIT_EDITOR_NEW, DESKTOP_HIT_EDITOR_TEXT,
-       DESKTOP_HIT_EDITOR_DIALOG, DESKTOP_HIT_TERMINAL, DESKTOP_HIT_MEDIA };
+       DESKTOP_HIT_EDITOR_DIALOG, DESKTOP_HIT_TERMINAL, DESKTOP_HIT_MEDIA,
+       DESKTOP_HIT_VOLUME, DESKTOP_HIT_VOLUME_SLIDER };
 struct desktop_hit { u32 kind, index, window; };
 static struct desktop_hit desktop_hit(u32 width, u32 height,
                                       const struct desktop_view *v, u32 px, u32 py) {
     u32 s = desktop_scale(width, height), sh = height/s, sw=width/s;
     u32 x = px/s, y = py/s;
     if (y >= sh - 30) {
+        if (sw >= 640 && x >= sw-70) return (struct desktop_hit){DESKTOP_HIT_VOLUME,0,0};
         if (x >= 8 && x < 78) return (struct desktop_hit){DESKTOP_HIT_START, 0, 0};
         for (u32 i = 0; i < DESKTOP_WINDOW_COUNT; ++i)
             if (x >= 88 + i*98 && x < 184 + i*98)
@@ -98,6 +101,13 @@ static struct desktop_hit desktop_hit(u32 width, u32 height,
         if (sw>=580 && x >= 88 + 3*98 && x < 184 + 3*98)
             return (struct desktop_hit){DESKTOP_HIT_MEDIA, 0, 0};
         return (struct desktop_hit){DESKTOP_HIT_NONE, 0, 0};
+    }
+    if (v->volume_open && sw >= 640) {
+        if (x >= sw-174 && x < sw-18 && y >= sh-79 && y < sh-47)
+            return (struct desktop_hit){DESKTOP_HIT_VOLUME_SLIDER,
+                MIN(100u,(x-(sw-174))*100/155),0};
+        if (x >= sw-193 && y >= sh-117 && y < sh-30)
+            return (struct desktop_hit){DESKTOP_HIT_VOLUME,0,0};
     }
     if (v->menu) {
         u32 top = sh - 30 - 190;
@@ -230,12 +240,14 @@ static void desktop_label(struct nv_canvas *c, struct desktop_clip clip,
 }
 static u32 desktop_chars(u32 pixels, u32 s) { return pixels/(6*s); }
 
-static void desktop_window_render(struct nv_canvas *c, u32 s, u32 sh,
-                                  const struct desktop_view *v, u32 id) {
+static void desktop_window_render(struct nv_canvas *c, u32 s,
+                                  const struct desktop_view *v, u32 id,
+                                  struct desktop_clip repaint) {
     const struct desktop_window *w = &v->windows[id];
     u32 x = (u32)w->x*s, y = (u32)w->y*s, width = w->w*s, height = w->h*s;
-    struct desktop_clip screen = {0,0,c->width,sh*s};
-    struct desktop_clip clip = {x+s,y+s,MIN(x+width-s,c->width),MIN(y+height-s,sh*s)};
+    struct desktop_clip screen = repaint;
+    struct desktop_clip clip = {MAX(x+s,repaint.left),MAX(y+s,repaint.top),
+        MIN(x+width-s,repaint.right),MIN(y+height-s,repaint.bottom)};
     bool focus = v->active == id;
     desktop_box(c,screen,x+3*s,y+4*s,width,height,0x203741);
     desktop_box(c,screen,x,y,width,height,focus ? 0x214d5d : 0x80949d);
@@ -422,21 +434,25 @@ static void desktop_window_render(struct nv_canvas *c, u32 s, u32 sh,
     if (!w->maximized) desktop_box(c,clip,x+width-8*s,y+height-8*s,6*s,6*s,0x8ca1a8);
 }
 
-static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop_view *v) {
+static void desktop_render_clip(struct nv_canvas *c, u32 height,
+                                const struct desktop_view *v,
+                                struct desktop_clip repaint) {
     u32 s=desktop_scale(c->width,height), sw=c->width/s, sh=height/s;
-    struct desktop_clip screen={0,0,c->width,height};
+    struct desktop_clip screen=repaint;
     desktop_box(c,screen,0,0,c->width,height,0x263f4a);
     desktop_box(c,screen,(sw*59/100)*s,0,c->width-(sw*59/100)*s,height-30*s,0x2b4954);
     desktop_box(c,screen,(sw*59/100)*s,0,2*s,height-30*s,0x42636c);
-    /* A quiet geometric N keeps the workspace recognizable behind windows. */
-    u32 mark_x=sw-184, mark_y=sh-226;
-    desktop_box(c,screen,mark_x*s,mark_y*s,24*s,144*s,0x385964);
-    desktop_box(c,screen,(mark_x+132)*s,mark_y*s,24*s,144*s,0x385964);
-    for (u32 row=0;row<144;++row)
-        desktop_box(c,screen,(mark_x+19+row*113/144)*s,(mark_y+row)*s,
-                    26*s,s,0x385964);
-    desktop_box(c,screen,(sw-170)*s,(sh-59)*s,24*s,3*s,0xb98866);
-    desktop_text(c,screen,(sw-139)*s,(sh-64)*s,"NUVORA",6,s,0xb3c9ca);
+    /* A small stamped monogram, with an open diagonal and a copper register. */
+    u32 mark_x=sw-122, mark_y=sh-136;
+    desktop_box(c,screen,(mark_x-20)*s,(mark_y-16)*s,124*s,s,0x54717a);
+    for (u32 row=0;row<56;++row) {
+        desktop_box(c,screen,mark_x*s,(mark_y+row)*s,7*s,s,0x9bb3b3);
+        desktop_box(c,screen,(mark_x+64)*s,(mark_y+row)*s,7*s,s,0x9bb3b3);
+        desktop_box(c,screen,(mark_x+6+row)*s,(mark_y+row)*s,9*s,s,0xc1d1ca);
+    }
+    desktop_box(c,screen,(mark_x+77)*s,(mark_y+49)*s,7*s,7*s,0xc08d69);
+    desktop_text(c,screen,(sw-140)*s,(sh-67)*s,"NUVORA",6,s,0xd0ded7);
+    desktop_text(c,screen,(sw-140)*s,(sh-51)*s,"CORE",4,s,0x9ab4b5);
     const char *shortcuts[]={"Files","Text Editor","Terminal","Media"};
     for (u32 i=0;i<4;++i) {
         u32 top=28+i*70, icon_x=29, icon_y=top+5;
@@ -471,7 +487,7 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
     for (u32 z=0;z<DESKTOP_WINDOW_COUNT;++z) {
         u32 id=v->order[z];
         if (v->windows[id].open && !v->windows[id].minimized)
-            desktop_window_render(c,s,sh,v,id);
+            desktop_window_render(c,s,v,id,screen);
     }
     if (*v->message && (!v->windows[DESKTOP_FILES].open ||
                         v->windows[DESKTOP_FILES].minimized)) {
@@ -499,8 +515,13 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
     if (sw>=640) {
         desktop_box(c,screen,(sw-140)*s,(sh-25)*s,s,20*s,0xb5c3c4);
         desktop_label(c,screen,(sw-129)*s,(sh-21)*s,v->drive,10,s,0x38525b);
-        desktop_text(c,screen,(sw-62)*s,(sh-21)*s,
-                     v->audio_ready?"Audio":"No audio",v->audio_ready?5:8,s,0x38525b);
+        desktop_box(c,screen,(sw-63)*s,(sh-18)*s,7*s,8*s,0x38525b);
+        desktop_box(c,screen,(sw-56)*s,(sh-22)*s,3*s,16*s,0x38525b);
+        if (v->audio_ready) {
+            char level[8]; number(level,v->volume_percent,10);
+            strlcpy(level+strlen(level),"%",sizeof(level)-strlen(level));
+            desktop_text(c,screen,(sw-47)*s,(sh-21)*s,level,strlen(level),s,0x38525b);
+        } else desktop_text(c,screen,(sw-47)*s,(sh-21)*s,"--",2,s,0x38525b);
     } else {
         desktop_box(c,screen,(sw-86)*s,(sh-25)*s,s,20*s,0xb5c3c4);
         desktop_label(c,screen,(sw-76)*s,(sh-21)*s,v->drive,10,s,0x38525b);
@@ -522,6 +543,20 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
             desktop_text(c,screen,x+19*s,y+5*s,apps[i],strlen(apps[i]),s,0x2c4651);
         }
     }
+    if (v->volume_open && sw >= 640) {
+        u32 x=(sw-193)*s,y=(sh-117)*s;
+        desktop_box(c,screen,x+3*s,y+3*s,175*s,87*s,0x1d323b);
+        desktop_box(c,screen,x,y,175*s,87*s,0xf6f5f0);
+        desktop_box(c,screen,x,y,175*s,3*s,0xb98866);
+        desktop_text(c,screen,x+15*s,y+14*s,"Output volume",13,s,0x304a54);
+        desktop_box(c,screen,(sw-174)*s,(sh-63)*s,156*s,4*s,0xc4d2d2);
+        if (v->audio_ready) {
+            desktop_box(c,screen,(sw-174)*s,(sh-63)*s,
+                        v->volume_percent*156/100*s,4*s,0x31718a);
+            desktop_box(c,screen,(sw-174+v->volume_percent*148/100)*s,
+                        (sh-70)*s,8*s,18*s,0x244d60);
+        } else desktop_text(c,screen,x+15*s,y+48*s,"No HDA output",13,s,0x786d67);
+    }
     if (v->pointer) {
         for (u32 i=0;i<10;++i) {
             u32 width=(i<7?i+1:4)*s;
@@ -530,5 +565,9 @@ static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop
                 desktop_box(c,screen,v->pointer_x+s,v->pointer_y+i*s,(i-1)*s,s,0xffffff);
         }
     }
+}
+static void desktop_render(struct nv_canvas *c, u32 height, const struct desktop_view *v) {
+    struct desktop_clip full={0,0,c->width,height};
+    desktop_render_clip(c,height,v,full);
 }
 #endif

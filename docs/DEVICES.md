@@ -62,7 +62,10 @@ x86-64 枚举 PCI class 04:03 的 Intel High Definition Audio 控制器，从
 当前版本用 HDA 的可选 immediate-command 通道，固件/控制器不支持时
 明确报告无输出；不解析长格式或范围编码的 codec 连接列表。只选第一个
 符合条件的模拟 line-out、speaker 或 headphone 路径，没有插拔自动切换、
-HDMI/DisplayPort 数字音频、USB 声卡、蓝牙、录音、混音和音量设置。
+HDMI/DisplayPort 数字音频、USB 声卡、蓝牙、录音和多音源混合。
+全局 0–100 音量在 DMA 拷贝后对 S16LE 样本做软件衰减；桌面任务栏
+点击扬声器可拖动滑块，Media 播放页可点滑条或按 `+` / `-` 调整。
+它不改动 codec 的模拟放大器，也不控制宿主系统音量。
 每次写入同步播放最多 3072 字节，分块重新启动 DMA 会在块间产生短暂间隙
 （静音尾部缩为 128 字节）。`wave FILE.wav` 仍是原有短 PCM 测试工具；
 图形 `media` 流式解码 MP3/MP2/FLAC、WAV/RF64 和 MPEG-1/MP2 视频，

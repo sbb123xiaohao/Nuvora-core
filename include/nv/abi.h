@@ -73,14 +73,18 @@ enum nv_subsystem {
  * Unsupported hardware returns ENODEV; other formats return EINVAL. */
 #define NV_AUDIO_API_VERSION 1u
 #define NV_AUDIO_MAX_WRITE 3072u
-enum { NV_AUDIO_INFO = 1, NV_AUDIO_WRITE = 2 };
+enum { NV_AUDIO_INFO = 1, NV_AUDIO_WRITE = 2,
+       NV_AUDIO_GET_VOLUME = 3, NV_AUDIO_SET_VOLUME = 4 };
 enum { NV_AUDIO_S16LE = 1 };
 struct nv_audio_info {
     u32 api_version, outputs, sample_rate, channels, format, max_write_bytes;
 };
 struct nv_audio_write { u32 pixels, bytes; }; /* pixels: user pointer to PCM bytes */
+/* Global output attenuation, 0 (silent) through 100 (unchanged PCM). */
+struct nv_audio_volume { u32 percent; };
 _Static_assert(sizeof(struct nv_audio_info) == 24, "audio info ABI");
 _Static_assert(sizeof(struct nv_audio_write) == 8, "audio write ABI");
+_Static_assert(sizeof(struct nv_audio_volume) == 4, "audio volume ABI");
 /* Pointer events normally carry signed relative dx/dy. If ABSOLUTE is set in
  * buttons, dx/dy instead carry unsigned coordinates in the 0..32767 HID
  * range; the consumer scales them to its display. Only the pixel-screen owner

@@ -50,6 +50,13 @@ static inline int nv_audio_write(const void *samples, u32 bytes) {
     struct nv_audio_write request = {(u32)(uptr)samples, bytes};
     return nv_syscall(NV_DEVCTL, NV_SUB_AUDIO, NV_AUDIO_WRITE, (u32)(uptr)&request);
 }
+static inline int nv_audio_get_volume(struct nv_audio_volume *out) {
+    return nv_syscall(NV_DEVCTL, NV_SUB_AUDIO, NV_AUDIO_GET_VOLUME, (u32)(uptr)out);
+}
+static inline int nv_audio_set_volume(u32 percent) {
+    struct nv_audio_volume request = {percent};
+    return nv_syscall(NV_DEVCTL, NV_SUB_AUDIO, NV_AUDIO_SET_VOLUME, (u32)(uptr)&request);
+}
 /* Pixel words have a fixed meaning irrespective of the firmware's channel
  * order; applications convert once when writing their own buffer. */
 static inline u32 nv_display_rgb(u32 format, u32 rgb) {

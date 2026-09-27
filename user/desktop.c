@@ -14,7 +14,8 @@ static u32 count, selected, scroll, volumes;
 static u32 file_mode;
 static char file_input[32], file_target[NV_PATH_MAX], file_base[NV_PATH_MAX];
 static u32 pointer_x, pointer_y, pointer_buttons, menu_selected;
-static bool pointer_visible, audio_ready, menu, quit_requested;
+static bool pointer_visible, audio_ready, menu, volume_open, quit_requested;
+static u32 volume_percent = 100;
 static u32 drag_window, drag_kind;
 static char editor_text[EDITOR_CAP+1], editor_scratch[EDITOR_CAP+1];
 static char editor_path[NV_PATH_MAX], editor_input[NV_PATH_MAX], editor_next_path[NV_PATH_MAX];
@@ -118,6 +119,7 @@ static struct desktop_view view(void) {
     v.pointer=pointer_visible; v.pointer_x=pointer_x; v.pointer_y=pointer_y;
     v.shortcut_selected=shortcut_selected;
     v.audio_ready=audio_ready; v.menu=menu; v.menu_selected=menu_selected;
+    v.volume_open=volume_open; v.volume_percent=volume_percent;
     v.windows=windows; v.order=order; v.active=active;
     v.editor_path=*editor_path?editor_path:"Untitled.txt";
     v.editor_text=editor_text; v.editor_input=editor_input;
@@ -129,17 +131,25 @@ static struct desktop_view view(void) {
     v.terminal_count=terminal_count; v.terminal_first=terminal_first;
     return v;
 }
-static int draw(u32 *tile, u32 rows) {
+static int draw_region(u32 *tile, u32 rows, u32 x, u32 y, u32 width, u32 height) {
+    if (x>=mode.width || y>=mode.height || !width || !height) return 0;
+    width=MIN(width,mode.width-x); height=MIN(height,mode.height-y);
     struct desktop_view v=view();
-    for (u32 y=0;y<mode.height;y+=rows) {
-        struct nv_canvas canvas={tile,mode.width,y,MIN(rows,mode.height-y),mode.format};
-        desktop_render(&canvas,mode.height,&v);
-        struct nv_display_present rect={.x=0,.y=y,.width=mode.width,
-            .height=canvas.rows,.stride=mode.width*4,.pixels=(u32)(uptr)tile};
+    struct desktop_clip clip={x,y,x+width,y+height};
+    for (u32 row=y;row<y+height;row+=rows) {
+        struct nv_canvas canvas={tile,mode.width,row,MIN(rows,y+height-row),mode.format};
+        if (x==0 && y==0 && width==mode.width && height==mode.height)
+            desktop_render(&canvas,mode.height,&v);
+        else desktop_render_clip(&canvas,mode.height,&v,clip);
+        struct nv_display_present rect={.x=x,.y=row,.width=width,
+            .height=canvas.rows,.stride=mode.width*4,.pixels=(u32)(uptr)(tile+x)};
         int r=nv_display_present(&rect);
         if (r<0) return r;
     }
     return 0;
+}
+static int draw(u32 *tile, u32 rows) {
+    return draw_region(tile,rows,0,0,mode.width,mode.height);
 }
 static void focus_window(u32 id) {
     if (id>=DESKTOP_WINDOW_COUNT) return;
@@ -643,6 +653,9 @@ int user_main(const char *args) {
     struct nv_audio_info audio;
     audio_ready=nv_audio_info(&audio)==0 && audio.api_version==NV_AUDIO_API_VERSION &&
                 audio.outputs>0;
+    struct nv_audio_volume setting;
+    if (nv_audio_get_volume(&setting)==0 && setting.percent<=100)
+        volume_percent=setting.percent;
     bool dirty=true;
     u32 last_file=0xffffffffu,last_file_tick=0;
     u32 last_shortcut=0xffffffffu,last_shortcut_tick=0;
@@ -653,6 +666,8 @@ int user_main(const char *args) {
         int mouse=nv_pointer_poll(&event);
         if (mouse<0) { r=mouse; break; }
         if (mouse==1) {
+            u32 previous_x=pointer_x, previous_y=pointer_y;
+            bool had_pointer=pointer_visible;
             pointer_visible=true;
             bool absolute=(event.buttons&NV_POINTER_ABSOLUTE)!=0;
             u32 oldx=pointer_x/s, oldy=pointer_y/s;
@@ -660,25 +675,42 @@ int user_main(const char *args) {
             pointer_y=desktop_pointer_axis(pointer_y,event.dy,mode.height,absolute);
             u32 x=pointer_x/s,y=pointer_y/s;
             if ((event.buttons&NV_POINTER_LEFT) && (pointer_buttons&NV_POINTER_LEFT) && drag_kind) {
-                struct desktop_window *w=&windows[drag_window];
-                if (drag_kind==DESKTOP_HIT_TITLE && !w->maximized) {
-                    w->x=MAX(0,MIN((i32)sw-(i32)w->w,w->x+(i32)x-(i32)oldx));
-                    w->y=MAX(0,MIN((i32)sh-58,w->y+(i32)y-(i32)oldy));
-                } else if (drag_kind==DESKTOP_HIT_RESIZE) {
-                    w->w=MAX(300u,MIN(sw-(u32)w->x,x>(u32)w->x?x-(u32)w->x:300u));
-                    w->h=MAX(160u,MIN(sh-30-(u32)w->y,y>(u32)w->y?y-(u32)w->y:160u));
-                    if (drag_window==DESKTOP_EDITOR) editor_ensure_visible();
-                    if (drag_window==DESKTOP_FILES) scroll_to_selection();
+                if (drag_kind==DESKTOP_HIT_VOLUME_SLIDER) {
+                    u32 level=x<=sw-174?0:x>=sw-19?100:(x-(sw-174))*100/155;
+                    if (level!=volume_percent) {
+                        r=nv_audio_set_volume(level);
+                        if (r<0) note_error("Volume",r);
+                        else volume_percent=level;
+                    }
+                } else {
+                    struct desktop_window *w=&windows[drag_window];
+                    if (drag_kind==DESKTOP_HIT_TITLE && !w->maximized) {
+                        w->x=MAX(0,MIN((i32)sw-(i32)w->w,w->x+(i32)x-(i32)oldx));
+                        w->y=MAX(0,MIN((i32)sh-58,w->y+(i32)y-(i32)oldy));
+                    } else if (drag_kind==DESKTOP_HIT_RESIZE) {
+                        w->w=MAX(300u,MIN(sw-(u32)w->x,x>(u32)w->x?x-(u32)w->x:300u));
+                        w->h=MAX(160u,MIN(sh-30-(u32)w->y,y>(u32)w->y?y-(u32)w->y:160u));
+                        if (drag_window==DESKTOP_EDITOR) editor_ensure_visible();
+                        if (drag_window==DESKTOP_FILES) scroll_to_selection();
+                    }
                 }
             }
             if ((event.buttons&NV_POINTER_LEFT) && !(pointer_buttons&NV_POINTER_LEFT)) {
                 struct desktop_view v=view();
                 struct desktop_hit hit=desktop_hit(mode.width,mode.height,&v,pointer_x,pointer_y);
-                if (hit.kind==DESKTOP_HIT_START) menu=!menu;
+                if (hit.kind==DESKTOP_HIT_VOLUME) volume_open=!volume_open;
+                else if (hit.kind==DESKTOP_HIT_VOLUME_SLIDER && audio_ready) {
+                    r=nv_audio_set_volume(hit.index);
+                    if (r<0) note_error("Volume",r);
+                    else volume_percent=hit.index;
+                    drag_kind=DESKTOP_HIT_VOLUME_SLIDER;
+                }
+                else if (hit.kind==DESKTOP_HIT_START) { menu=!menu; volume_open=false; }
                 else if (hit.kind==DESKTOP_HIT_MENU) {
                     r=start_app(hit.index);
                     if (r<0) note_error("Start",r);
-                } else if (menu) {
+                } else if (volume_open) volume_open=false;
+                else if (menu) {
                     menu=false;
                     if (hit.kind==DESKTOP_HIT_TASK) focus_window(hit.index);
                 }
@@ -756,12 +788,21 @@ int user_main(const char *args) {
                 else if (hit.kind==DESKTOP_HIT_NONE) shortcut_selected=0xffffffffu;
             }
             if (!(event.buttons&NV_POINTER_LEFT)) drag_kind=0;
+            bool changed_buttons=(pointer_buttons^event.buttons)&NV_POINTER_LEFT;
             pointer_buttons=event.buttons&(NV_POINTER_LEFT|NV_POINTER_RIGHT|NV_POINTER_MIDDLE);
-            dirty=true;
+            if (changed_buttons || drag_kind || dirty) dirty=true;
+            else if (!had_pointer || previous_x!=pointer_x || previous_y!=pointer_y) {
+                if (had_pointer) {
+                    r=draw_region(tile,rows,previous_x,previous_y,8*s,10*s);
+                    if (r<0) break;
+                }
+                r=draw_region(tile,rows,pointer_x,pointer_y,8*s,10*s);
+                if (r<0) break;
+            }
         }
         if (quit_requested) break;
         int event_key=key_event();
-        if (event_key==-NV_EAGAIN) { nap(25); continue; }
+        if (event_key==-NV_EAGAIN) { nap(10); continue; }
         if (event_key<0) { r=event_key; break; }
         u32 key=(u32)event_key&4095u, flags=(u32)event_key&~4095u;
         if (active==DESKTOP_EDITOR && editor_mode!=DESKTOP_EDIT_NORMAL) {
@@ -781,7 +822,7 @@ int user_main(const char *args) {
             else if (key=='\n') { r=start_app(menu_selected); if (r<0) note_error("Start",r); }
             dirty=true; continue;
         }
-        if (key==NV_KEY_F10) { menu=true; menu_selected=0; }
+        if (key==NV_KEY_F10) { menu=true; volume_open=false; menu_selected=0; }
         else if ((flags&NV_KEY_ALT) && key=='\t') {
             for (u32 i=1;i<=DESKTOP_WINDOW_COUNT;++i) {
                 u32 id=(active+i)%DESKTOP_WINDOW_COUNT;
