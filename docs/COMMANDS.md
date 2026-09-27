@@ -17,7 +17,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `net [wifi ... | dhcp ... | static ... | send ... | recv ...]` | 查看网卡、连接特定 USB Wi-Fi 桥并配置 IPv4/UDP | `net wifi scan` |
 | `ping HOST [COUNT]` | 对 IPv4 地址或经 DNS 解析的主机发送 echo | `ping 10.0.2.2 4` |
 | `wget [-O FILE] http://HOST[:PORT]/PATH` | 经网卡下载 HTTP 文件，完成后尝试提交数据卷 | `wget -O /home/a.txt http://10.0.2.2:8000/a.txt` |
-| `exit` | 从桌面终端返回桌面 | `exit` |
+| `exit` | 关闭桌面终端窗口，或从完整 Loom 返回桌面 | `exit` |
 | `where` | 查看当前目录 | `where` |
 | `step PATH` | 切换目录 | `step /home` |
 | `glance [PATH]` | 列出目录 | `glance /apps` |
@@ -26,7 +26,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `stitch FILE TEXT` | 追加一行文本 | `stitch /home/note "second"` |
 | `unfold FILE` | 输出文件内容 | `unfold /home/note` |
 | `folio [FILE]` | 打开全文编辑器和 Word 可读 RTF 排版编辑器 | `folio /home/report.nvd` |
-| `desktop` | 打开 UEFI 像素桌面，支持鼠标与开始菜单 | `desktop` |
+| `desktop` | 打开 UEFI 窗口桌面 | `desktop` |
 | `media [FILE]` | 图形 MP3、PCM WAV 和 MPEG-1/MP2 播放器 | `media /home/clip.mpg` |
 | `wave FILE.wav \| wave --test` | HDA 模拟输出的 PCM WAV 播放与测试音 | `wave --test` |
 | `mirror FROM TO` | 复制到新文件，拒绝覆盖已有目标 | `mirror /home/note /home/copy` |
@@ -45,11 +45,19 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `rest` | 关闭虚拟机，不自动保存 | `rest` |
 | `renew` | 重启虚拟机，不自动保存 | `renew` |
 
-`forge` 和 `scatter` 接收不带 `/` 的名称时，在 `/apps/` 查找。内置程序同样支持 `forge APP --help`：`loom` 是命令行，`desktop` 是像素文件管理器，`folio` 是全文与格式编辑器，`media` 播放 MP3、PCM WAV 和 MPEG-1/MP2，`wave` 播放 PCM 音频，`pulse` 输出五次时间，`spin` 是抢占测试死循环，`fault` 故意触发 CPU 异常，`probe` 执行集成检查，`relay` 是内核回归辅助程序。
+`forge` 和 `scatter` 接收不带 `/` 的名称时，在 `/apps/` 查找。内置程序同样支持 `forge APP --help`：`loom` 是完整命令行，`desktop` 管理图形窗口，`folio` 是全文与格式编辑器，`media` 播放 MP3、PCM WAV 和 MPEG-1/MP2，`wave` 播放 PCM 音频，`pulse` 输出五次时间，`spin` 是抢占测试死循环，`fault` 故意触发 CPU 异常，`probe` 执行集成检查，`relay` 是内核回归辅助程序。
 
 `ports` 会列出 PCI 控制器的总线地址、厂商/产品 ID、xHCI/UHCI/OHCI/EHCI 状态，以及真实 USB 设备的速度、VID/PID、USB 类、Hub 父子关系、厂商、产品和序列号。xHCI 设备枚举读取标准描述符；Hub 会递归扫描，USB Boot Protocol 键盘输入进入 Loom 和 Folio，CDC-ECM 网卡会显示 `Ethernet=active`。Boot 鼠标和 QEMU USB Tablet 会显示 `input=active`；U 盘等尚未启用的设备标注为“identification only”，本版本仍没有 USB 大容量存储块读写或文件系统挂载。
 
-`net`、`ping`、`wget` 的网卡支持、DNS、HTTP 限制及 Wi-Fi 口令输入见 [NETWORK.md](NETWORK.md)。有 GOP 的 UEFI 机器启动后默认进入桌面；F10 打开开始菜单，选 Terminal 进入 Loom，输入 `exit` 返回桌面。BIOS 文本模式直接进入 Loom。
+`net`、`ping`、`wget` 的网卡支持、DNS、HTTP 限制及 Wi-Fi 口令输入见 [NETWORK.md](NETWORK.md)。有 GOP 的 UEFI 机器启动后默认进入桌面；F10 打开开始菜单，选 Terminal 打开窗口终端。窗口终端含常用文件和网络命令；`loom` 切换到完整字符界面，`exit` 返回桌面。Wi-Fi 密码在完整 Loom 中输入。BIOS 文本模式直接进入 Loom。
+
+## 桌面窗口
+
+Files、Text Editor、Terminal 都在桌面中运行。双击桌面图标或从开始菜单打开；任务栏可切换、最小化和恢复窗口，Alt-Tab 在已打开的窗口间切换。拖动标题栏移动窗口，双击标题栏或点方框按钮最大化/还原；右下角可调整大小，`_` 最小化，`x` 关闭。F10 打开开始菜单，`Return to Loom` 回到完整命令环境。
+
+Files 中双击进入目录/打开文件，Backspace 返回上级，数字 `1`–`7` 切换卷与常用目录；上方 `+ Folder` 新建文件夹，`+ Text` 创建纯文本文档；F2 改名，Delete 经确认后删除，F5 刷新，F6 保存数据卷。键盘 `Ctrl-N` 可新建文件夹，`Ctrl-T` 可创建文本。文件管理器的修改会尝试提交到数据卷；`/tmp` 只在内存中。
+
+双击 `.txt` 或 `.md` 会在 Text Editor 窗口打开。Ctrl-S 保存、Ctrl-Shift-S 另存、Ctrl-N 新建；关闭或切换文档时如有未保存内容会询问。窗口编辑器每份文档最多读取 128 KiB 的纯文本，不限制数据卷里其他文件的大小；格式排版使用 `folio` 和 `.nvd`。`.nvd`、Media 音视频仍以全屏方式运行，关闭程序后桌面窗口保持原位。桌面终端支持 `help`、`pwd`/`ls`/`cd`/`cat`/`mkdir`/`rm`、`net`/`ping`/`wget`、`anchor`、`media`、`folio` 等；输入 `loom` 可使用所有命令。
 
 `ports --scan` 立即重试端口并处理拔插；后台还会定期扫描。xHCI 控制器发生不可恢复错误时会停止并显示 `failed`，不会把损坏 DMA 页重新交给用户进程。UHCI/OHCI/EHCI 控制器目前只报告 `unsupported`，不会伪造设备列表。
 
@@ -57,7 +65,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 ## Folio 全文编辑器
 
-在开始菜单选 Folio 或在 Loom 中输入 `folio` 打开新文档，`folio /home/report.nvd` 打开已有文档。Folio 使用 80×25 的全屏字符界面，带工具行、文档区、行号和状态栏；`.nvd` 保存格式信息，`.txt` 和 `.md` 保存纯文本。
+在桌面终端或 Loom 中输入 `folio` 打开新文档，`folio /home/report.nvd` 打开已有文档。Folio 使用 80×25 的全屏字符界面，带工具行、文档区、行号和状态栏；`.nvd` 保存格式信息，`.txt` 和 `.md` 保存纯文本。
 
 | 快捷键 | 作用 |
 | --- | --- |

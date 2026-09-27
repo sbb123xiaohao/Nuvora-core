@@ -62,10 +62,11 @@ static const struct command_help commands[] = {
      "Ctrl-S saves, Ctrl-Q closes, F1 shows shortcuts.\n"
      "Use .nvd for formatted documents or .txt for plain text.\n"
      "Folio saves /home to the Nuvora data disk when it is available."},
-    {"desktop", "desktop", "Open the pixel desktop and file browser on UEFI displays.",
-     "desktop", "Keyboard controls: arrows, Enter, Backspace, 1-4, F1/F2/F3/F5/F6/F10, Escape.\n"
-     "Requires a supported firmware framebuffer; BIOS text mode remains in Loom."},
-    {"exit", "exit", "Return from the desktop terminal to the graphical session.", "exit",
+    {"desktop", "desktop", "Open windowed Files, text editor and terminal on UEFI displays.",
+     "desktop", "Drag a title bar or resize corner; taskbar minimizes/restores; F10 opens Start.\n"
+     "F2 renames; Delete confirms removal; Alt-Tab switches windows.\n"
+     "Requires a supported framebuffer; BIOS text mode remains in Loom."},
+    {"exit", "exit", "Close the desktop terminal window or return from full Loom.", "exit",
      "In the primary shell, use rest to power off or desktop to open the desktop."},
     {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
      "Open the graphical audio and video player.", "media /home/clip.mpg",

@@ -11,8 +11,10 @@ bool app_help(const char *name, const char *args) {
          "Full-screen text and formatted-document editor.\nCtrl-S saves; Ctrl-Q closes; F1 shows "
          "editor shortcuts.",
          "folio /home/report.nvd"},
-        {"desktop", "desktop", "Firmware framebuffer desktop with mouse and keyboard file browsing.\n"
-         "F1 controls; F3 opens Media; F10 opens Start and Terminal; Escape returns to Loom.", "desktop"},
+        {"desktop", "desktop", "Windowed desktop: Files, plain-text editor and terminal.\n"
+         "Drag title bars; double-click to maximize; use the taskbar to minimize/restore.\n"
+         "F10 opens Start; Alt-Tab switches windows; F2 renames a file; Delete confirms removal.\n"
+         "Media and Folio use the full screen; Return to Loom is in Start.", "desktop"},
         {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
          "Graphical MP3/MP2/FLAC, WAV/RF64 and MPEG-1/MP2 player. File picker opens from C:.\n"
          "Space pauses; Escape returns to the library. Large files stream from the data volume.",

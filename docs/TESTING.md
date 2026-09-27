@@ -2,16 +2,19 @@
 
 ## 0.10.0 当前结果
 
-本次桌面与网络增量：`make all` 和 `make test-host` 的 28 组宿主回归通过。
-桌面栅格夹具覆盖 640×480、1280×800、2560×720、2560×1440 的整屏与分块
-一致性、菜单命中与边界；已查看实际绘制的 1280×800 画面。网络夹具运行
+本次窗口桌面增量：`make all` 和 `make test-host` 的 28 组宿主回归通过。
+桌面栅格夹具覆盖 640×480、1280×800、1600×900、1920×1080、
+2560×720、2560×1000、2560×1440 的整屏与分块一致性、任务栏/标题栏/文件
+操作/编辑器弹窗命中与边界；人工查看 Files、开始菜单、编辑器未保存提示和
+终端窗口的 1280×800 实际绘制画面。网络夹具运行
 内核实际 IPv4 代码与模拟网卡，验证 DHCP、ARP、UDP、主动 ICMP 校验和与
 回包、TCP SYN/SYN-ACK/ACK、数据收发、重复片段、FIN、进程清理和失链；
 另有 HTTP URL、状态行与长度溢出解析夹具。
-构建环境缺少 QEMU、OVMF 与 mtools，`make esp` 因 mtools 缺失而停止；
-因此没有本次 `ping`/`wget` 的虚拟机实时 DNS、HTTP 下载或实体机运行记录。
-请在 Ubuntu 装齐依赖后使用 `make esp`、`python3 start.py --uefi --window
---network`，在桌面开始菜单的 Terminal 中试 `net`、`ping 10.0.2.2` 和
+构建环境缺少 QEMU、OVMF 与 mtools，未执行本次 UEFI 客户机窗口交互或
+实体机验证。请在 Ubuntu 装齐依赖后使用 `make esp`、
+`python3 start.py --uefi --window --network --audio`，在桌面中验证双击文件、
+窗口拖动/缩放、任务栏、编辑器保存/取消、文件改名/删除与终端命令。
+终端可试 `net`、`ping 10.0.2.2` 和
 `wget -O /home/test.txt http://可访问的HTTP主机/文件`，再检查下载文件。
 
 本轮增加 NVSTORE3 最终 Flush 失败后的文件树检查：新建、截断、删除、

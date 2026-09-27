@@ -99,6 +99,10 @@ static bool has_text(const char *buffer, u32 length, const char *needle) {
         if (!memcmp(buffer + pos, needle, size)) return true;
     return false;
 }
+#ifndef NV_NETWORK_OUTPUT
+#define NV_NETWORK_OUTPUT(data,length) emit(1,data,length)
+#define NV_NETWORK_OUTPUT_DEFAULT
+#endif
 static int wifi_send(const char *message, u32 length) {
     struct nv_net_wifi_command io = {0};
     if (length > sizeof(io.text)) return -NV_E2BIG;
@@ -116,7 +120,7 @@ static int wifi_read_response(u32 duration, bool print_response, bool *connected
         int got = devctl(NV_SUB_NET, NV_NET_WIFI_READ, &io);
         if (got < 0) return got;
         if (got) {
-            if (print_response) emit(1, io.text, io.length);
+            if (print_response) NV_NETWORK_OUTPUT(io.text, io.length);
             u32 copy = MIN(io.length, sizeof(response) - size);
             memcpy(response + size, io.text, copy); size += copy;
             if (connected && (has_text(response, size, "connect success") ||
@@ -240,10 +244,14 @@ static int network_command(int n, char **v) {
             if (r < 0) return r;
             print("from "); show_ipv4(packet.address); print(":");
             print_u32(packet.port); print("  ");
-            emit(1, packet.data, packet.length); print("\n");
+            NV_NETWORK_OUTPUT(packet.data, packet.length); print("\n");
             return 0;
         }
         return -NV_EAGAIN;
     }
     return -NV_EINVAL;
 }
+#ifdef NV_NETWORK_OUTPUT_DEFAULT
+#undef NV_NETWORK_OUTPUT
+#undef NV_NETWORK_OUTPUT_DEFAULT
+#endif
