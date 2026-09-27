@@ -81,12 +81,14 @@ struct nv_audio_info {
 struct nv_audio_write { u32 pixels, bytes; }; /* pixels: user pointer to PCM bytes */
 _Static_assert(sizeof(struct nv_audio_info) == 24, "audio info ABI");
 _Static_assert(sizeof(struct nv_audio_write) == 8, "audio write ABI");
-/* Pointer events are relative to the caller's display coordinates. Only the
- * current pixel-screen owner may consume them; the queue is reset on acquire.
- * A zero return from POINTER_POLL means there is no pending event. */
+/* Pointer events normally carry signed relative dx/dy. If ABSOLUTE is set in
+ * buttons, dx/dy instead carry unsigned coordinates in the 0..32767 HID
+ * range; the consumer scales them to its display. Only the pixel-screen owner
+ * may consume events; the queue is reset on acquire. */
 #define NV_INPUT_API_VERSION 1u
 enum { NV_INPUT_INFO = 1, NV_INPUT_POINTER_POLL = 2 };
-enum { NV_POINTER_LEFT = 1, NV_POINTER_RIGHT = 2, NV_POINTER_MIDDLE = 4 };
+enum { NV_POINTER_LEFT = 1, NV_POINTER_RIGHT = 2, NV_POINTER_MIDDLE = 4,
+       NV_POINTER_ABSOLUTE = 0x80000000u };
 struct nv_input_info { u32 api_version, pointer_devices, flags, reserved; };
 struct nv_pointer_event { i32 dx, dy, wheel; u32 buttons; };
 _Static_assert(sizeof(struct nv_input_info) == 16, "input info ABI");

@@ -79,4 +79,4 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 
 ## DEVCTL 扩展分发
 
-`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络/显示/输入子系统分别为 1/2/3/4/5；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。`NV_SUB_DISPLAY` 有独立的固件帧缓冲像素路径，**不代表 GPU modesetting 已启用**。`NV_SUB_INPUT` 查询输入版本和设备计数，像素屏持有者可获取相对鼠标事件。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)，显示及输入契约见 [SDK.md](SDK.md)。
+`NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络/显示/输入子系统分别为 1/2/3/4/5；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。`NV_SUB_DISPLAY` 有独立的固件帧缓冲像素路径，**不代表 GPU modesetting 已启用**。`NV_SUB_INPUT` 查询输入版本和设备计数，像素屏持有者可获取相对或绝对鼠标事件（见 [SDK.md](SDK.md)）。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)，显示及输入契约见 [SDK.md](SDK.md)。

@@ -48,7 +48,7 @@ struct device {
     u32 interrupt_wait, repeat_at, hub_ports, hub_ttt;
     u32 attempted[15];
     u8 previous[8], repeat_key;
-    bool dead, multi_tt;
+    bool dead, multi_tt, mouse_absolute;
 };
 static struct host hosts[NV_USB_CONTROLLER_MAX];
 static struct device devices[NV_USB_DEVICE_MAX];
@@ -144,19 +144,21 @@ static void keyboard_arm(struct device *d) {
 }
 static void mouse_arm(struct device *d) {
     if (d->dead || !d->mouse_ep || d->host->info.state != NV_USB_RUNNING) return;
-    memset(phys_ptr(d->mouse_page), 0, 3);
-    d->mouse_wait = ring_put(&d->mouse_ring, d->mouse_page, 0, 3, TYPE(1) | (1u << 5));
+    u32 length = d->mouse_absolute ? 6u : 3u;
+    memset(phys_ptr(d->mouse_page), 0, length);
+    d->mouse_wait = ring_put(&d->mouse_ring, d->mouse_page, 0, length, TYPE(1) | (1u << 5));
     barrier();
     write32(d->host, d->host->doorbell + d->slot * 4, d->mouse_ep);
 }
-/* HID boot protocol: three bytes of buttons, signed X and signed Y. Other
- * HID report layouts require descriptor parsing and must not reach here. */
+/* A boot mouse has a three-byte relative report. QEMU's identified tablet
+ * has a six-byte absolute report. Unknown HID layouts must not reach here. */
 static void mouse_report(struct device *d, u32 remaining) {
     if (remaining) return;
     barrier();
     const u8 *report = phys_ptr(d->mouse_page);
     struct nv_pointer_event event;
-    if (!pointer_boot_report(report, 3, &event)) return;
+    if (d->mouse_absolute ? !pointer_tablet_report(report, 6, &event) :
+                            !pointer_boot_report(report, 3, &event)) return;
     console_pointer_report(event.dx, event.dy, event.buttons);
     ++d->info.reports;
 }
@@ -445,9 +447,9 @@ static int configure_mouse(struct device *d) {
     ep[0] = interval << 16;
     ep[1] = (3u << 1) | (7u << 3) | (d->mouse_packet << 16);
     ep[2] = d->mouse_ring.page | 1u;
-    ep[4] = 3u | (d->mouse_packet << 16);
+    ep[4] = (d->mouse_absolute ? 6u : 3u) | (d->mouse_packet << 16);
     if (command(d->host, 12, d->input, d->slot << 24) < 0 ||
-        control(d, 0x21, 11, 0, (u16)d->mouse_interface, 0) < 0)
+        (!d->mouse_absolute && control(d, 0x21, 11, 0, (u16)d->mouse_interface, 0) < 0))
         return -NV_EIO;
     control(d, 0x21, 10, 0, (u16)d->mouse_interface, 0);
     if (d->dead) return -NV_EIO;
@@ -581,7 +583,9 @@ static int identify(struct device *d) {
         return -NV_EINVAL;
     u8 config_value = cfg[5];
     d->info.interfaces = cfg[4];
-    bool keyboard_interface = false, mouse_interface = false, first_interface = true;
+    bool keyboard_interface = false, mouse_interface = false;
+    bool tablet_interface = false, first_interface = true;
+    u32 tablet_ep = 0, tablet_number = 0, tablet_packet = 0, tablet_interval = 0;
     bool ecm_control = false, ecm_data = false, cdc_control = false, cdc_data = false;
     u8 ecm_mac_string = 0;
     u32 interface_number = 0;
@@ -596,6 +600,9 @@ static int identify(struct device *d) {
                 cfg[off + 3] == 0 && cfg[off + 5] == 3 && cfg[off + 6] == 1 && cfg[off + 7] == 1;
             mouse_interface =
                 cfg[off + 3] == 0 && cfg[off + 5] == 3 && cfg[off + 6] == 1 && cfg[off + 7] == 2;
+            tablet_interface =
+                cfg[off + 3] == 0 && cfg[off + 5] == 3 && cfg[off + 6] == 0 && cfg[off + 7] == 0 &&
+                d->info.vendor == 0x0627 && d->info.product == 0x0001;
             interface_number = cfg[off + 2];
             if (cfg[off + 5] == 2 && cfg[off + 6] == 6 && cfg[off + 3] == 0) {
                 ecm_control = true; d->ecm_control = interface_number;
@@ -634,6 +641,13 @@ static int identify(struct device *d) {
                 d->mouse_packet = size;
                 d->mouse_interval = cfg[off + 6];
             }
+            if (tablet_interface && !tablet_ep && (ep & 0x80) && (ep & 15) && !(ep & 0x70) &&
+                (cfg[off + 3] & 3) == 3 && size >= 6 && size <= 64) {
+                tablet_ep = (ep & 15) * 2 + 1;
+                tablet_number = interface_number;
+                tablet_packet = size;
+                tablet_interval = cfg[off + 6];
+            }
             if (ecm_data && (ep & 15) && !(ep & 0x70) && (cfg[off + 3] & 3) == 2 &&
                 (size == 64 || size == 512 || size == 1024)) {
                 if ((ep & 0x80) && !d->ecm_in_ep) {
@@ -666,6 +680,13 @@ static int identify(struct device *d) {
     string_descriptor(d, desc[14], language, d->info.manufacturer, sizeof(d->info.manufacturer));
     string_descriptor(d, desc[15], language, d->info.product_name, sizeof(d->info.product_name));
     string_descriptor(d, desc[16], language, d->info.serial, sizeof(d->info.serial));
+    if (tablet_ep && !d->mouse_ep && !strcmp(d->info.product_name, "QEMU USB Tablet")) {
+        d->mouse_ep = tablet_ep;
+        d->mouse_interface = tablet_number;
+        d->mouse_packet = tablet_packet;
+        d->mouse_interval = tablet_interval;
+        d->mouse_absolute = true;
+    }
     if (ecm_control && ecm_mac_string && d->ecm_in_ep && d->ecm_out_ep) {
         char value[16];
         string_descriptor(d, ecm_mac_string, language, value, sizeof(value));

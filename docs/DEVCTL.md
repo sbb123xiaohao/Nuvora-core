@@ -24,7 +24,7 @@ ABI 版本保持 1，原有 0–27 号系统调用不变，追加 `NV_DEVCTL=28`
 | `NV_SUB_GPU=2` | `SET_MODE=2`、`PRESENT=3`、`SUBMIT=4` | `-NV_ENOSYS`，不读写请求缓冲区 |
 | `NV_SUB_NET=3` | INFO、DHCP、STATIC、UDP_SEND、UDP_RECV、SELECT、WIFI_COMMAND、WIFI_READ | 见 [实体网络说明](NETWORK.md)；具体缓冲区见 `include/nv/abi.h` |
 | `NV_SUB_DISPLAY=4` | INFO、ACQUIRE、PRESENT、RELEASE | 独占像素显示；契约、样例与桌面见 [SDK.md](SDK.md) |
-| `NV_SUB_INPUT=5` | INFO、POINTER_POLL | 16 字节版本/设备信息或 16 字节相对鼠标事件；像素租约限制见 [SDK.md](SDK.md) |
+| `NV_SUB_INPUT=5` | INFO、POINTER_POLL | 16 字节版本/设备信息或 16 字节鼠标事件（相对/绝对标记）；像素租约限制见 [SDK.md](SDK.md) |
 | `NV_SUB_AUDIO=6` | INFO、WRITE | 48 kHz 双声道 16-bit PCM；固定格式、最大 3072 字节/次，见 [SDK.md](SDK.md) |
 | 未知子系统或未知 GPU 操作 | — | `-NV_EINVAL` |
 

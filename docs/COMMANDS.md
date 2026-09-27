@@ -44,7 +44,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 `forge` 和 `scatter` 接收不带 `/` 的名称时，在 `/apps/` 查找。内置程序同样支持 `forge APP --help`：`loom` 是命令行，`desktop` 是像素文件管理器，`folio` 是全文与格式编辑器，`media` 播放 MP3、PCM WAV 和 MPEG-1/MP2，`wave` 播放 PCM 音频，`pulse` 输出五次时间，`spin` 是抢占测试死循环，`fault` 故意触发 CPU 异常，`probe` 执行集成检查，`relay` 是内核回归辅助程序。
 
-`ports` 会列出 PCI 控制器的总线地址、厂商/产品 ID、xHCI/UHCI/OHCI/EHCI 状态，以及真实 USB 设备的速度、VID/PID、USB 类、Hub 父子关系、厂商、产品和序列号。xHCI 设备枚举读取标准描述符；Hub 会递归扫描，USB Boot Protocol 键盘输入进入 Loom 和 Folio，CDC-ECM 网卡会显示 `Ethernet=active`。USB 鼠标、U 盘等设备会被识别并标注为“identification only”，本版本没有鼠标指针、USB 大容量存储块读写或文件系统挂载。
+`ports` 会列出 PCI 控制器的总线地址、厂商/产品 ID、xHCI/UHCI/OHCI/EHCI 状态，以及真实 USB 设备的速度、VID/PID、USB 类、Hub 父子关系、厂商、产品和序列号。xHCI 设备枚举读取标准描述符；Hub 会递归扫描，USB Boot Protocol 键盘输入进入 Loom 和 Folio，CDC-ECM 网卡会显示 `Ethernet=active`。Boot 鼠标和 QEMU USB Tablet 会显示 `input=active`；U 盘等尚未启用的设备标注为“identification only”，本版本仍没有 USB 大容量存储块读写或文件系统挂载。
 
 `net` 的具体网卡支持清单、Wi-Fi 命令、密码输入和限制见 [NETWORK.md](NETWORK.md)。
 

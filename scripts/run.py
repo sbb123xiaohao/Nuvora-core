@@ -47,9 +47,10 @@ if args.network:
 if args.no_ecam:
     cmd += ['-append', 'nv.no-ecam=1']
 if not args.no_usb:
+    mouse_model = 'usb-tablet' if args.window else 'usb-mouse'
     cmd += ['-device', 'qemu-xhci,id=xhci',
             '-device', 'usb-kbd,id=keyboard,bus=xhci.0,port=1',
-            '-device', 'usb-mouse,id=mouse,bus=xhci.0,port=2']
+            '-device', f'{mouse_model},id=mouse,bus=xhci.0,port=2']
 if args.audio:
     cmd += ['-device', 'intel-hda,msi=off', '-device', 'hda-duplex']
 if args.window:

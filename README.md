@@ -29,7 +29,7 @@ Windows 10/11 在 PowerShell 中运行 `./start.ps1 doctor`、`./start.ps1 build
 | 数据盘 | IDE、SATA/AHCI 的 512B 与 512e 盘（LBA28/LBA48），以及 512B NVMe namespace；按活动命名空间列表识别稀疏编号，旧控制器回退顺序枚举 |
 | 文件 | GPT 默认一个 Nuvora 卷；NVSTORE3 支持 64 位文件大小、稀疏块和双元数据根；旧 NVSTORE1/2 可读取，解除旧容量限制需迁移 |
 | 桌面与媒体 | UEFI GOP 桌面、文件管理、Folio；Media 流式播放 MP3/MP2/FLAC、WAV/RF64 和 MPEG-1/MP2 视频；HDA 模拟音频输出 |
-| 外设与网络 | xHCI Boot 键盘/鼠标、USB CDC-ECM、部分 Intel 有线网卡；特定 ESP USB Dongle 固件提供 Wi-Fi 桥接 |
+| 外设与网络 | xHCI Boot 键盘/鼠标、QEMU USB Tablet、USB CDC-ECM、部分 Intel 有线网卡；特定 ESP USB Dongle 固件提供 Wi-Fi 桥接 |
 
 在 Loom 中运行 `desktop` 打开桌面；使用 `volumes`、`partitions` 查看数据卷，修改文件后运行 `anchor` 才会提交到数据镜像。可在虚拟机关机后用 `scripts/import_media.py` 导入文件。操作细节见[命令手册](docs/COMMANDS.md)、[设备范围](docs/DEVICES.md)和[存储与迁移](docs/STORAGE-0.10.md)。
 

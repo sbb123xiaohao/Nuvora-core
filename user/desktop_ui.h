@@ -47,6 +47,15 @@ static u32 desktop_scale(u32 width, u32 height) {
 static u32 desktop_visible(u32 height, u32 scale) {
     return height > 128 * scale ? MAX(1u, (height - 128 * scale) / (14 * scale)) : 1;
 }
+static u32 desktop_pointer_axis(u32 current, i32 value, u32 extent, bool absolute) {
+    if (!extent) return 0;
+    if (absolute) {
+        u32 axis = (u32)MAX(0, MIN(value, 32767));
+        return (u32)((u64)axis * (extent - 1) / 32767u);
+    }
+    i64 next = (i64)current + value;
+    return next < 0 ? 0 : next >= extent ? extent - 1 : (u32)next;
+}
 enum { DESKTOP_HIT_NONE, DESKTOP_HIT_PLACE, DESKTOP_HIT_FILE,
        DESKTOP_HIT_START, DESKTOP_HIT_MENU, DESKTOP_HIT_MEDIA };
 struct desktop_hit { u32 kind, index; };

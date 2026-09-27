@@ -46,8 +46,10 @@ xHCI 枚举 HID Boot Mouse 接口（class 3、subclass 1、protocol 2）及
 Interrupt IN 端点，切换到 Boot Protocol，接收三个字节的按键与 X/Y
 相对位移。`NV_SUB_INPUT` 向像素屏租约的应用提供事件；`desktop` 使用
 单击选中和双击打开。拔出鼠标后清除按键状态和设备计数。
-目前只配置第一只鼠标；滚轮、多点触控、非 Boot HID 报告和 PS/2 鼠标
-尚不支持。没有有效 UEFI 像素帧缓冲时，图形桌面不可用。
+QEMU 图形窗口使用 USB Tablet 的六字节绝对坐标报告，避免宿主鼠标与
+虚拟机指针偏移；普通 Boot 鼠标仍使用相对坐标。目前只配置第一只鼠标；
+滚轮、多点触控、其他非 Boot HID 报告和 PS/2 鼠标尚不支持。
+没有有效 UEFI 像素帧缓冲时，图形桌面不可用。
 
 ## 音频输出
 

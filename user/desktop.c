@@ -181,9 +181,9 @@ int user_main(const char *args) {
         if (mouse < 0) { r = mouse; break; }
         if (mouse == 1) {
             pointer_visible = true;
-            i32 x = (i32)pointer_x + event.dx, y = (i32)pointer_y + event.dy;
-            pointer_x = (u32)MAX(0, MIN(x, (i32)mode.width - 1));
-            pointer_y = (u32)MAX(0, MIN(y, (i32)mode.height - 1));
+            bool absolute = (event.buttons & NV_POINTER_ABSOLUTE) != 0;
+            pointer_x = desktop_pointer_axis(pointer_x, event.dx, mode.width, absolute);
+            pointer_y = desktop_pointer_axis(pointer_y, event.dy, mode.height, absolute);
             if ((event.buttons & NV_POINTER_LEFT) && !(pointer_buttons & NV_POINTER_LEFT)) {
                 struct desktop_view view = {directory, message, drive, entries,
                     count, selected, scroll, help, volumes, true, pointer_x, pointer_y, audio_ready,
@@ -218,7 +218,7 @@ int user_main(const char *args) {
                     } else note("");
                 }
             }
-            pointer_buttons = event.buttons;
+            pointer_buttons = event.buttons & (NV_POINTER_LEFT | NV_POINTER_RIGHT | NV_POINTER_MIDDLE);
             if (r < 0) r = 0;
             dirty = true;
         }

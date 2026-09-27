@@ -59,12 +59,15 @@ UEFI GOP 在内核中以 supervisor-only 映射，最长 64 MiB；该映射
 
 ## 鼠标输入
 
-USB xHCI 上的 Boot Protocol 鼠标通过 `NV_SUB_INPUT=5` 提供相对坐标。
+USB xHCI 上的 Boot Protocol 鼠标通过 `NV_SUB_INPUT=5` 提供相对坐标；
+QEMU 图形窗口使用 USB Tablet，提供绝对坐标。
 `nv_input_info(&info)` 返回 16 字节，`api_version=1`，`pointer_devices`
 为当前可用设备数（现为 0 或 1）。`nv_pointer_poll(&event)` 也写入
 16 字节：有事件返回 1，无事件返回 0；只有像素屏租约持有者可读取，
-否则返回 `-NV_EACCESS`。`dx`、`dy` 为有符号相对移动，`wheel` 目前为 0；
-`buttons` 的低三位分别是左/右/中键。按下、释放和移动均保留为独立事件；
+否则返回 `-NV_EACCESS`。`buttons` 的低三位分别是左/右/中键；最高位
+`NV_POINTER_ABSOLUTE` 表示 `dx`、`dy` 是 0–32767 的绝对坐标，
+应用应将其缩放至显示尺寸。不带标记时是有符号相对位移。
+`wheel` 目前为 0。连续同按键状态的移动合并，按键变化保留独立事件；
 缓冲满时丢弃最旧事件。获取或释放显示租约会清空待处理事件。
 接口号与结构定义见 `include/nv/abi.h`，包装函数见 `include/nv/sdk.h`。
 

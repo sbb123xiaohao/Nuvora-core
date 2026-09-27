@@ -95,6 +95,12 @@ static void menu_render(void) {
 }
 
 int main(void) {
+    assert(desktop_pointer_axis(50, 100, 100, false) == 99);
+    assert(desktop_pointer_axis(50, -100, 100, false) == 0);
+    assert(desktop_pointer_axis(50, 16384, 1280, true) == 639);
+    assert(desktop_pointer_axis(50, 32767, 1280, true) == 1279);
+    assert(desktop_pointer_axis(50, 0, 1280, true) == 0);
+    assert(desktop_pointer_axis(50, 20000, 1, true) == 0);
     char size[32]; desktop_size(size, 10ull*1024*1024*1024); assert(!strcmp(size,"10GiB"));
     desktop_size(size, NV_FILE_MAX64); assert(strlen(size)<=7);
     assert(nv_display_rgb(NV_DISPLAY_BGRX8, 0x123456) == 0x123456);

@@ -9,6 +9,8 @@ static void usb_hex16(u32 value) {
 static const char *usb_kind(const struct nv_usb_device *d) {
     if (d->state == NV_USB_KEYBOARD)
         return "keyboard";
+    if (d->state == NV_USB_MOUSE || d->state == NV_USB_COMPOSITE_INPUT)
+        return "mouse";
     if (d->class_code == 3)
         return d->subclass == 1 && d->protocol == 2 ? "mouse" : "HID";
     switch (d->class_code) {
@@ -69,7 +71,8 @@ static int show_ports(void) {
         if (d.manufacturer[0]) { print("    maker: "); println(d.manufacturer); }
         if (d.serial[0]) { print("    serial: "); println(d.serial); }
         print("    class="); usb_hex16(d.class_code); print(" interfaces="); print_u32(d.interfaces);
-        if (d.state == NV_USB_KEYBOARD) {
+        if (d.state == NV_USB_KEYBOARD || d.state == NV_USB_MOUSE ||
+            d.state == NV_USB_COMPOSITE_INPUT) {
             print(" input=active reports="); print_u32(d.reports);
         } else if (d.state == NV_USB_ETHERNET)
             print(" Ethernet=active");

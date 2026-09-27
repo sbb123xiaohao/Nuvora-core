@@ -159,6 +159,7 @@ void console_pointer_report(i32, i32, u32);
 u32 usb_pointer_count(void);
 void pointer_reset(void);
 void pointer_push(i32, i32, u32);
+bool pointer_tablet_report(const u8 *, u32, struct nv_pointer_event *);
 int pointer_next(struct nv_pointer_event *);
 bool pointer_boot_report(const u8 *, u32, struct nv_pointer_event *);
 int display_ioctl(u32, u32);

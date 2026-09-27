@@ -32,7 +32,8 @@ PML4 槽 3 映射固件提供的像素帧缓冲，不再从低端物理 RAM 挖�
 
 PCIe NVMe 数据盘使用 4 GiB 以下的专用 DMA 页、一个管理队列和一个轮询
 I/O 队列；IDE 主盘的有效 Nuvora 卷优先，均通过相同 GPT 和快照边界检查。
-xHCI Boot 鼠标的相对事件经过仅供像素屏持有者消费的 `NV_SUB_INPUT` 队列。
+xHCI Boot 鼠标的相对事件和已识别的 QEMU USB Tablet 绝对事件经过仅供
+像素屏持有者消费的 `NV_SUB_INPUT` 队列。
 HDA 音频输出的 codec 动词和流描述符由内核驱动处理，`NV_SUB_AUDIO`
 只复制定长 PCM 到内核私有 DMA 页；同步等待传输时允许 PIT/键盘中断。
 设备条件和未支持的硬件类型见 [DEVICES.md](DEVICES.md)。
