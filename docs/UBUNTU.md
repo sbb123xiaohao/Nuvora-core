@@ -13,6 +13,9 @@ make iso-uefi media
 python3 start.py --uefi --window --audio --network --disk-bus ahci --memory 1024
 ```
 
+修改内核后须重新运行 `make -j"$(nproc)" all && make esp`，再启动虚拟机；
+UEFI 固件从 `esp.img` 读取新生成的内核。BIOS 测试可去掉启动命令中的 `--uefi`。
+
 没有图形窗口时去掉 `--window`，在终端串口输入 Loom 命令。启动后可输入
 `net`、`net dhcp`，检查 e1000e 的链路及 DHCP；输入 `partitions` 和
 `volumes` 查看数据盘。第一次创建数据盘可以加 `--disk-size 16384`

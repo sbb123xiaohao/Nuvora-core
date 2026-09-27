@@ -58,7 +58,7 @@ UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
 .PHONY: all clean run window test test-host iso iso-uefi esp media disk check FORCE
-all: $(BUILD)/boot.elf $(BUILD)/BOOTX64.EFI
+all: $(BUILD)/boot.elf $(BUILD)/nuvora-uefi.elf $(BUILD)/BOOTX64.EFI
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -76,7 +76,7 @@ $(BUILD)/uefi.elf: $(BUILD)/arch/x86_64/uefi.o $(BUILD)/arch/x86_64/uefi-string.
 	$(LD) -m $(MACHINE) --emit-relocs -z max-page-size=4096 -T arch/x86_64/uefi.ld -Map $(BUILD)/uefi.map -o $@ $(filter %.o,$^)
 $(BUILD)/BOOTX64.EFI: $(BUILD)/uefi.elf
 	$(PYTHON) scripts/mkuefi.py $< $@
-$(BUILD)/esp.img: $(BUILD)/BOOTX64.EFI $(BUILD)/nuvora.elf scripts/mkesp.py FORCE
+$(BUILD)/esp.img: $(BUILD)/BOOTX64.EFI $(BUILD)/nuvora-uefi.elf scripts/mkesp.py FORCE
 	$(PYTHON) scripts/mkesp.py $@
 esp: $(BUILD)/esp.img
 $(BUILD)/nuvora-uefi-media.img: $(BUILD)/esp.img scripts/mkmedia.py scripts/mkgptdisk.py
@@ -96,6 +96,9 @@ $(BUILD)/archive.o: $(BUILD)/archive.S
 	$(CC) $(ASFLAGS) -c $< -o $@
 $(BUILD)/nuvora.elf: $(KOBJS) $(BUILD)/archive.o arch/$(ARCHDIR)/linker.ld
 	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 -T arch/$(ARCHDIR)/linker.ld -Map $(BUILD)/nuvora.map -o $@ $(filter %.o,$^)
+	$(PYTHON) scripts/check_image.py $@
+$(BUILD)/nuvora-uefi.elf: $(KOBJS) $(BUILD)/archive.o arch/$(ARCHDIR)/linker.ld
+	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 --defsym=UEFI_KERNEL_BASE=0x01000000 -T arch/$(ARCHDIR)/linker.ld -Map $(BUILD)/nuvora-uefi.map -o $@ $(filter %.o,$^)
 	$(PYTHON) scripts/check_image.py $@
 $(BUILD)/boot.elf: $(BUILD)/nuvora.elf
 	$(OBJCOPY) -O elf32-i386 $< $@

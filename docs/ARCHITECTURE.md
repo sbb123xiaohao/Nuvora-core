@@ -4,7 +4,7 @@
 
 `arch/x86_64` 提供 PC 启动和中断入口，`kernel/` 提供 x64 内核，`user/` 生成独立 ELF 应用并嵌入归档。`arch/aarch64` 提供 QEMU virt 上的 Image、设备树、页分配、EL1 页表与单个 EL0/NEON 程序。i686 构建和启动源码已移除；两种 64 位架构的当前功能范围见 [ARM64-AI.md](ARM64-AI.md)。
 
-x64 内核从 1 MiB 物理地址链接；其 BIOS 与 UEFI 路径最终进入 `kernel_start`。Multiboot v1 先进入 32 位汇编入口，检查 CPU 能力；x64 建立临时映射、启用长模式后在 C 中转换有界的启动信息。x64 UEFI 路径已有固件建立的长模式环境：stub 校验完整 ELF 和固件内存所有权，记录 EFI 内存图、GOP 与 RSDP，每次 `ExitBootServices` 重试都重新转换内存图；退出成功后切到 stub 自有栈，完成需要延后的段复制，再通过 `uefi_entry` 切到内核自有栈。`kernel_uefi_main` 在更换页表前复制 `boot_info`，后续不再依赖固件栈或原移交对象的映射。两条路径均检查必要 CPU 特性；x64 包括 FPU、CMOV、MSR、PAE、FXSR、SSE/SSE2、长模式与 NX。C 初始化阶段建立正式页表。
+x64 BIOS 内核从 1 MiB、UEFI 内核从 16 MiB 物理地址链接；两个镜像的启动路径最终进入 `kernel_start`。Multiboot v1 先进入 32 位汇编入口，检查 CPU 能力；x64 建立临时映射、启用长模式后在 C 中转换有界的启动信息。x64 UEFI 路径已有固件建立的长模式环境：stub 校验完整 ELF 和固件内存所有权，记录 EFI 内存图、GOP 与 RSDP，每次 `ExitBootServices` 重试都重新转换内存图；退出成功后切到 stub 自有栈，完成需要延后的段复制，再通过 `uefi_entry` 切到内核自有栈。`kernel_uefi_main` 在更换页表前复制 `boot_info`，后续不再依赖固件栈或原移交对象的映射。两条路径均检查必要 CPU 特性；x64 包括 FPU、CMOV、MSR、PAE、FXSR、SSE/SSE2、长模式与 NX。C 初始化阶段建立正式页表。
 
 x64 的可调试内核是 ELF64。为适配只接受 ELF32 的 Multiboot 加载器，`objcopy` 另外生成 ELF32 启动容器，装载地址和已链接机器码保持不变。测试同时验证容器启动、ELF64 用户程序和高 32 位寄存器保存，因此 x64 支持不依赖 32 位兼容执行模式。UEFI 路径由 `scripts/mkuefi.py` 把以 `--emit-relocs` 链接的 stub ELF 转成 PE32+（`BOOTX64.EFI`，首选基址 0x02000000，携带由绝对重定位合成的基址重定位表），内核 ELF 放在 ESP 的 `\EFI\NUVORA\NUVORA.ELF`；若固件在启动介质句柄上没有暴露文件系统，stub 会枚举所有 SimpleFileSystem 卷再试。
 
@@ -13,7 +13,7 @@ x64 的可调试内核是 ELF64。为适配只接受 ELF32 的 Multiboot 加载�
 | 区域 | 范围 / 上限 |
 | --- | --- |
 | 物理管理范围 | x64 最高 128 GiB；ARM64 自 0x40000000 起最高 64 GiB，按各自启动内存图分配 |
-| 内核链接基址 | x64 `0x00100000`；ARM64 `0x40080000` |
+| 内核链接基址 | x64 BIOS `0x00100000`、UEFI `0x01000000`；ARM64 `0x40080000` |
 | x64 内核堆 | 8 MiB，在虚拟地址 1 TiB 映射 2048 个可分散的物理页；16 字节对齐，较大对象空闲块合并；小对象由 slab 分配 |
 | 帧缓冲窗口 | PML4 槽 3（虚拟基址 1.5 TiB），最多 64 MiB supervisor 映射，只映射 GOP 实际有效页面；物理帧缓冲仍保留在分配器外 |
 | 用户 ELF 映像窗口 | `0x40000000`–`0x41000000` |

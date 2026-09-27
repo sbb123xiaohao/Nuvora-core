@@ -3,7 +3,9 @@ OUTPUT_ARCH(i386:x86-64)
 ENTRY(_start)
 PHDRS { text PT_LOAD FLAGS(5); rodata PT_LOAD FLAGS(4); data PT_LOAD FLAGS(6); }
 SECTIONS {
-    . = 0x00100000;
+    /* Keep the legacy Multiboot load address, but place the UEFI build above
+     * low firmware allocations. The EFI stub is linked at 32 MiB. */
+    . = DEFINED(UEFI_KERNEL_BASE) ? UEFI_KERNEL_BASE : 0x00100000;
     kernel_begin = .;
     .multiboot : { KEEP(*(.multiboot)) } :text
     .text ALIGN(4096) : { *(.text.boot) *(.text .text.*) } :text

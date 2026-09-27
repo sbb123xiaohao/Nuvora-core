@@ -123,9 +123,11 @@ int main(int argc, char **argv) {
     ph[eh->phnum - 1].offset = saved;
     deny_pages = true;
     assert(load_kernel(&bs, elf, length, 0x2000000, 0x10000, &entry) && allocations == 1);
+    assert(kernel_first == 0x01000000ull && kernel_limit < 0x02000000ull);
     assert(!kernel_pages_owned && !kernel_destination_ready());
-    bi.mem_count = 1;
-    bi.mem[0] = (struct boot_mem_entry){kernel_first, kernel_limit - kernel_first, 1};
+    bi.mem_count = 2;
+    bi.mem[0] = (struct boot_mem_entry){0x100000, 0xf00000, 0};
+    bi.mem[1] = (struct boot_mem_entry){kernel_first, kernel_limit - kernel_first, 1};
     assert(kernel_destination_ready());
     bi.mem[bi.mem_count++] = (struct boot_mem_entry){kernel_first + 4096, 4096, 0};
     assert(!kernel_destination_ready());
@@ -137,7 +139,7 @@ int main(int argc, char **argv) {
         for (u64 j = ph[i].filesz; j < ph[i].memsz; ++j)
             assert(!((u8 *)(uptr)ph[i].paddr)[j]);
     }
-    assert(!munmap((void *)KERNEL_LOAD_BASE, mapped_length));
+    assert(!munmap((void *)(uptr)kernel_first, mapped_length));
     free(elf);
     puts("PASS UEFI: partial reads/rewind, memory-map replacement, malformed ELF, page ownership, segment copy/BSS");
     return 0;

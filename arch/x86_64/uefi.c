@@ -163,7 +163,7 @@ _Static_assert(offsetof(struct efi_gop, mode) == 24, "GOP layout");
 _Static_assert(offsetof(struct efi_sfs, open_volume) == 8, "simple file system layout");
 _Static_assert(offsetof(struct efi_file, read) == 32, "file protocol layout");
 _Static_assert(offsetof(struct efi_file, set_position) == 56, "file protocol layout");
-/* The kernel ELF is placed at 1 MiB and must stay below the stub image. */
+/* The UEFI ELF is linked at 16 MiB and must stay below the stub image. */
 #define KERNEL_LOAD_BASE 0x100000ull
 #define KERNEL_LOAD_LIMIT 0x02000000ull
 struct elf64_ehdr {
@@ -664,6 +664,14 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
         }
         if (!kernel_destination_ready()) {
             loader_text("kernel load address intersects reserved firmware memory\n");
+            loader_status("kernel start: 0x", kernel_first);
+            loader_status("kernel end:   0x", kernel_limit);
+            for (u32 i = 0; i < bi.mem_count; ++i)
+                if (!bi.mem[i].type && range_overlaps(kernel_first, kernel_limit,
+                        bi.mem[i].base, bi.mem[i].base + bi.mem[i].length)) {
+                    loader_status("reserved at:  0x", bi.mem[i].base);
+                    break;
+                }
             return EFI_LOAD_ERROR;
         }
         /* Reconvert every retry: only the map matching the successful exit

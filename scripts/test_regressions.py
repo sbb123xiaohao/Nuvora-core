@@ -25,7 +25,7 @@ def main():
                    str(ROOT / 'tests' / f'{name}_test.c'), 'common/string.c',
                    'common/page_buddy.c', 'common/slab.c', '-o', str(output)]
             subprocess.run(cmd, cwd=ROOT, check=True)
-            args = [str(output)] + ([str(ROOT / 'build/x86_64/nuvora.elf')] if name == 'uefi' else [])
+            args = [str(output)] + ([str(ROOT / 'build/x86_64/nuvora-uefi.elf')] if name == 'uefi' else [])
             if name in ('gpt_disk', 'nvme'):
                 args += [str(disk_image), '128']
             if name == 'media':

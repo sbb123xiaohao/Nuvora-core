@@ -22,7 +22,7 @@ def main() -> None:
             raise SystemExit(f'UEFI ESP build needs mtools ({tool} not found). '
                              'BIOS/GRUB builds keep working without it.')
     bootx64 = BUILD / 'BOOTX64.EFI'
-    kernel = BUILD / 'nuvora.elf'
+    kernel = BUILD / 'nuvora-uefi.elf'
     for required in (bootx64, kernel):
         if not required.is_file():
             raise SystemExit(f'Missing build artifact: {required}')
