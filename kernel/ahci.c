@@ -34,7 +34,7 @@ static struct {
     u32 pci, port, scan_min_pci;
     uptr command_page, fis_page, table_page, data_page;
     u64 sectors;
-    bool lba48, online;
+    bool lba48, flush_ext, online;
 } ahci;
 
 #ifndef AHCI_REG_READ
@@ -156,6 +156,7 @@ static bool identify(void) {
     u16 *id = phys_ptr(ahci.data_page);
     if (!(id[49] & (1u << 9)) || !nv_ata_sector_512(id)) return false;
     ahci.lba48 = (id[83] & 0xc000u) == 0x4000u && (id[83] & (1u << 10));
+    ahci.flush_ext = ahci.lba48 && nv_ata_flush_ext(id);
     ahci.sectors = ahci.lba48 ?
         ((u64)id[100] | ((u64)id[101] << 16) | ((u64)id[102] << 32) |
          ((u64)id[103] << 48)) : ((u32)id[60] | ((u32)id[61] << 16));
@@ -224,7 +225,7 @@ static int transfer(u64 lba, void *buffer, bool write) {
 int ahci_read(u64 lba, void *buffer) { return transfer(lba, buffer, false); }
 int ahci_write(u64 lba, const void *buffer) { return transfer(lba, (void *)buffer, true); }
 int ahci_flush(void) {
-    if (!ahci.online || !issue(ahci.lba48 ? 0xea : 0xe7, 0, false, false)) {
+    if (!ahci.online || !issue(ahci.flush_ext ? 0xea : 0xe7, 0, false, false)) {
         ahci.online = false;
         return -NV_EIO;
     }

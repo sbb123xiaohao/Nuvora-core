@@ -7,6 +7,8 @@ x86-64 按 IDE primary master、所有可见 AHCI 控制器的 SATA 端口顺序
 不支持 512 字节逻辑扇区的盘，继续检查后续端口和控制器，使用一个轮询命令槽；
 支持 LBA28 与 LBA48 SATA 盘。NVMe 优先读取活动 namespace 列表，处理稀疏
 编号；旧控制器未实现列表时按 IDENTIFY 的 NN 字段顺序探测（一次最多 4096 个）。
+IDE/AHCI 仅在设备声明支持 FLUSH CACHE EXT 时使用扩展刷盘命令；
+否则使用普通 FLUSH CACHE，命令出错仍向提交方报告失败。
 仅选择 512 字节扇区、无 metadata 和保护信息的 NVM namespace。控制器
 使用轮询管理队列和一个 I/O 队列；
 IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。

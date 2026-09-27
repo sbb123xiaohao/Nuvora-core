@@ -134,6 +134,18 @@ int main(int argc, char **argv) {
     seek64(fd, 0); assert(fs_write(&task, fd, "new", 3) == 3);
     flush_after = 2; assert(store_sync() == -NV_EIO); flush_after = -1;
     assert(fs_write(&task, fd, "bad", 3) == -NV_EIO);
+    u64 frozen_size = nodes[fs_lookup(home_node, "stream.bin")].size;
+    assert(fs_open(&task, "stream.bin", NV_WRITE | NV_TRUNC) == -NV_EIO);
+    assert(nodes[fs_lookup(home_node, "stream.bin")].size == frozen_size);
+    assert(fs_open(&task, "fresh.bin", NV_WRITE | NV_CREATE) == -NV_EIO);
+    assert(fs_mkdir(home_node, "newdir") == -NV_EIO);
+    assert(fs_move(home_node, "stream.bin", "renamed.bin") == -NV_EIO);
+    assert(!fs_close(&task, fd));
+    assert(fs_remove(home_node, "stream.bin") == -NV_EIO);
+    assert(fs_replace(home_node, "stream.bin", "big.bin") == -NV_EIO);
+    assert(fs_lookup(home_node, "stream.bin") > 0 &&
+           fs_lookup(home_node, "fresh.bin") == -NV_ENOENT);
+    assert(!fs_mkdir(0, "/tmp/working") && !fs_remove(0, "/tmp/working"));
     reset(); fd = fs_open(&task, "stream.bin", NV_READ|NV_WRITE);
     expect(fd, 0, "new", 3);
     /* Exhaustion and allocation failure do not modify visible file content. */

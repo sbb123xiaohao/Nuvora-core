@@ -9,4 +9,9 @@
 static inline bool nv_ata_sector_512(const u16 *id) {
     return (id[106] & 0xd000u) != 0x5000u;
 }
+/* IDENTIFY word 83 bit 13 advertises FLUSH CACHE EXT. LBA48 alone does
+ * not imply support for opcode EA; bit 12 is the non-EXT FLUSH command. */
+static inline bool nv_ata_flush_ext(const u16 *id) {
+    return (id[83] & 0xc000u) == 0x4000u && (id[83] & (1u << 13));
+}
 #endif

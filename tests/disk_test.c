@@ -47,6 +47,9 @@ int main(void) {
     assert(nv_ata_sector_512(identify));
     identify[106] = 0x5000u; identify[117] = 2048u; /* 4Kn: reject all 512-byte I/O. */
     assert(!nv_ata_sector_512(identify));
+    identify[83] = 0x5400u; assert(!nv_ata_flush_ext(identify));
+    identify[83] = 0x7400u; assert(nv_ata_flush_ext(identify));
+    identify[83] = 0xb400u; assert(!nv_ata_flush_ext(identify));
     u8 h[512]; sectors = 1ull << 48;
     header(h, "NVSTORE2", 2, 32777, 32769, 1ull << 33);
     assert(parse_header(h) && layout.snap_cap == SNAP_CAP_MAX);
@@ -55,15 +58,17 @@ int main(void) {
     header(h, "NVSTORE2", 2, 16, 8, 24); assert(parse_header(h) && layout.snap_cap == 3584);
     header(h, "NVSTORE2", 2, 16, 8, 23); assert(!parse_header(h));
     header(h, "NVSTORE2", 2, 0, 0xfffffff8u, 1ull << 33); assert(!parse_header(h));
-    identified = owned = lba48 = true;
+    identified = owned = lba48 = flush_ext = true;
     assert(!command(0x123456789abcull, 0x30));
     const u8 expected[] = {0, 0x56, 0x34, 0x12, 1, 0xbc, 0x9a, 0x78, 0x40, 0x34};
     assert(nwrites == sizeof(expected));
     for (u32 i = 0; i < nwrites; ++i) assert(writes[i].byte == expected[i]);
     assert(command(1ull << 48, 0x20) == -NV_ENODEV);
     nwrites = 0; assert(!disk_flush() && writes[0].port == 0x1f7 && writes[0].byte == 0xea);
+    flush_ext = false; nwrites = 0;
+    assert(!disk_flush() && writes[0].byte == 0xe7); /* LBA48 without FLUSH EXT. */
     lba48 = false; nwrites = 0;
     assert(command(1ull << 28, 0x20) == -NV_ENODEV && !nwrites);
     assert(!disk_flush() && writes[0].byte == 0xe7);
-    puts("PASS ATA: LBA48/LBA28, flush, NVSTORE headers and 512e/4Kn sector validation");
+    puts("PASS ATA: LBA48/LBA28, advertised FLUSH EXT, NVSTORE headers and 512e/4Kn validation");
 }

@@ -4,7 +4,7 @@
  * data images beyond 128 GiB work; LBA28 remains the fallback. The store
  * layout lives in sector 0 and describes its own slot geometry, so images can
  * be larger than the historical fixed 8 MiB. */
-static bool identified, owned, lba48, nvme_disk, ahci_disk;
+static bool identified, owned, lba48, flush_ext, nvme_disk, ahci_disk;
 static u64 sectors;
 static struct store_layout layout;
 /* Primary and backup GPT entry arrays have at most 128 entries of 128 bytes.
@@ -110,7 +110,7 @@ int disk_flush(void) {
     if (ahci_disk) return ahci_flush();
     if (wait_ready(false) < 0)
         return -NV_EIO;
-    outb(0x1f7, lba48 ? 0xea : 0xe7);
+    outb(0x1f7, flush_ext ? 0xea : 0xe7);
     delay400();
     return wait_ready(false);
 }
@@ -307,6 +307,7 @@ static bool ata_identify(void) {
         return false;
     /* Word 83 validity signature is bits 15:14 == 01b; bit 10 declares LBA48. */
     lba48 = (id[83] & 0xc000) == 0x4000 && (id[83] & (1u << 10));
+    flush_ext = lba48 && nv_ata_flush_ext(id);
     if (lba48) {
         sectors = (u64)id[100] | ((u64)id[101] << 16) | ((u64)id[102] << 32) | ((u64)id[103] << 48);
     } else {

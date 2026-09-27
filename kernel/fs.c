@@ -15,6 +15,7 @@ struct node {
 struct file_extent { u64 logical, physical, blocks; struct file_extent *next; };
 static struct node nodes[FS_NODES];
 static int volume_for(int);
+static int mutation_error(int);
 static bool extent_enabled[NV_VOLUME_MAX];
 static void extent_free(struct file_extent *);
 static int extent_read(const struct node *, u64, void *, u32);
@@ -290,6 +291,11 @@ int fs_open(struct task *t, const char *path, u32 flags) {
     if (n == -NV_ENOENT && (flags & NV_CREATE)) {
         if (*path && path[strlen(path) - 1] == '/')
             return -NV_ENOTDIR;
+        char name[32];
+        int parent = parent_for(t->cwd, path, name);
+        if (parent < 0) return parent;
+        int error = mutation_error(parent);
+        if (error < 0) return error;
         n = create_node(t->cwd, path, NV_FILE);
     }
     if (n < 0)
@@ -300,6 +306,8 @@ int fs_open(struct task *t, const char *path, u32 flags) {
         (nodes[n].kind == NV_PROC || (nodes[n].locked && nodes[n].kind != NV_DEVICE)))
         return -NV_EACCESS;
     if ((flags & NV_TRUNC) && nodes[n].kind == NV_FILE) {
+        int error = mutation_error(n);
+        if (error < 0) return error;
         release_file(&nodes[n]);
         nodes[n].size = 0;
     }
@@ -583,6 +591,11 @@ int fs_list(int cwd, const char *path, u32 index, struct nv_dirent *out) {
     return 0;
 }
 int fs_mkdir(int cwd, const char *path) {
+    char name[32];
+    int parent = parent_for(cwd, path, name);
+    if (parent < 0) return parent;
+    int error = mutation_error(parent);
+    if (error < 0) return error;
     int n = create_node(cwd, path, NV_DIR);
     return n < 0 ? n : 0;
 }
@@ -596,6 +609,8 @@ int fs_remove(int cwd, const char *path) {
         return n;
     if (nodes[n].locked || nodes[nodes[n].parent].locked)
         return -NV_EACCESS;
+    int error = mutation_error(n);
+    if (error < 0) return error;
     if (nodes[n].refs || task_cwd_in_use(n))
         return -NV_EBUSY;
     for (int i = 1; i < FS_NODES; ++i)
@@ -661,6 +676,12 @@ static int volume_for(int node) {
         if (descendant(node, volume_nodes[i])) return (int)i;
     return -1;
 }
+static int mutation_error(int node) {
+    int v = volume_for(node);
+    /* Volatile /home remains writable without a data disk. A mounted
+     * NVSTORE3 volume is frozen after an ambiguous commit until remount. */
+    return v >= 0 && extent_enabled[v] ? store_write_error((u32)v) : 0;
+}
 int fs_move(int cwd, const char *src, const char *dst) {
     int n = fs_lookup(cwd, src);
     if (n < 0)
@@ -685,6 +706,8 @@ int fs_move(int cwd, const char *src, const char *dst) {
         return 0;
     if (other >= 0)
         return -NV_EEXIST;
+    int error = mutation_error(n);
+    if (error < 0) return error;
     int oldparent = nodes[n].parent;
     char oldname[32];
     strlcpy(oldname, nodes[n].name, 32);
@@ -729,6 +752,8 @@ int fs_replace(int cwd, const char *src, const char *dst) {
         return -NV_EACCESS;
     if (nodes[n].refs || (other >= 0 && nodes[other].refs))
         return -NV_EBUSY;
+    int error = mutation_error(n);
+    if (error < 0) return error;
     int r = fs_path(p, full, sizeof(full));
     if (r < 0 || strlen(full) + 1 + strlen(name) >= NV_PATH_MAX)
         return -NV_E2BIG;
