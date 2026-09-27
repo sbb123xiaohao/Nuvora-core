@@ -5,17 +5,17 @@ bool app_help(const char *name, const char *args) {
     static const struct {
         const char *name, *syntax, *purpose, *example;
     } apps[] = {
-        {"loom", "forge loom", "Interactive command shell. Type help for every command.",
+        {"loom", "forge loom [--terminal]", "Interactive command shell. Type help for every command.",
          "help ports"},
         {"folio", "folio [FILE]",
          "Full-screen text and formatted-document editor.\nCtrl-S saves; Ctrl-Q closes; F1 shows "
          "editor shortcuts.",
          "folio /home/report.nvd"},
-        {"desktop", "desktop", "Firmware framebuffer desktop with a keyboard-operated file browser.\n"
-         "F1 controls; F3 opens Media; F10 opens Start; Escape returns to Loom.", "desktop"},
+        {"desktop", "desktop", "Firmware framebuffer desktop with mouse and keyboard file browsing.\n"
+         "F1 controls; F3 opens Media; F10 opens Start and Terminal; Escape returns to Loom.", "desktop"},
         {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
-         "Graphical MP3, PCM WAV and MPEG-1/MP2 player. File picker opens from C:.\n"
-         "Space pauses; Escape returns to the library. MPEG files must be at most 4 MiB.",
+         "Graphical MP3/MP2/FLAC, WAV/RF64 and MPEG-1/MP2 player. File picker opens from C:.\n"
+         "Space pauses; Escape returns to the library. Large files stream from the data volume.",
          "media /home/clip.mpg"},
         {"wave", "wave FILE.wav | wave --test",
          "Play 48 kHz stereo 16-bit PCM WAV through an HDA analog output.\n"

@@ -130,7 +130,8 @@ static int start_app(u32 index) {
     if (index == 0) return launch("/apps/media", "");
     if (index == 1) return go_place(0);
     if (index == 2) return launch("/apps/folio", "");
-    if (index == 3) quit_requested = true;
+    if (index == 3) return launch("/apps/loom", "--terminal");
+    if (index == 4) quit_requested = true;
     return 0;
 }
 static int go_place(u32 index) {
@@ -230,7 +231,7 @@ int user_main(const char *args) {
         if (menu) {
             if (k == 27 || k == NV_KEY_F10) menu = false;
             else if (k == NV_KEY_UP && menu_selected) --menu_selected;
-            else if (k == NV_KEY_DOWN && menu_selected < 3) ++menu_selected;
+            else if (k == NV_KEY_DOWN && menu_selected < 4) ++menu_selected;
             else if (k == '\n') {
                 r = start_app(menu_selected);
                 if (r < 0) note_error("Start", r);

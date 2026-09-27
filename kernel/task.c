@@ -183,6 +183,7 @@ int task_exec(const char *path, const char *args) {
      * PID, parent, children, working directory and open handles remain intact. */
     pte_t *old = current->pd;
     console_release(current->pid);
+    net_task_release(current->pid);
     current->pd = staged.pd;
     current->heap_end = USER_HEAP;
     *current->frame = frame;
@@ -233,6 +234,7 @@ struct frame *schedule(struct frame *f) {
 }
 static void finish(struct task *t, int status) {
     console_release(t->pid);
+    net_task_release(t->pid);
     t->status = status;
     t->state = NV_ZOMBIE;
     for (int i = 3; i < NV_OPEN_MAX; ++i)

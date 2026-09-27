@@ -47,11 +47,11 @@ static void case_render(u32 width, u32 height, u32 format, u32 tile_rows, bool h
     assert(full[0] == 0x9173ace4 && full[n + 1] == 0x27607845);
     assert(tiled[0] == 0x9173ace4 && tiled[n + 1] == 0x27607845);
     u32 scale = desktop_scale(width, height);
-    u32 selected_y = 38 * scale + (52 + (16 - 12) * 14) * scale;
+    u32 selected_y = 42 * scale + (58 + (16 - 12) * 18) * scale;
     u32 selected_x = (12 * 2 + 74) * scale + 7 * scale;
     if (!help) assert(full[1 + selected_y * width + selected_x] ==
                       nv_display_rgb(format, 0xd4e7ed));
-    u32 drive_y = 38 * scale + (28 + 18) * scale - 4 * scale;
+    u32 drive_y = 42 * scale + (28 + 22) * scale - 4 * scale;
     assert(full[1 + drive_y * width + 17 * scale] ==
            nv_display_rgb(format, 0xcbdfe5));
     struct desktop_hit nav = desktop_hit(width, height, &view, 17 * scale, drive_y);
@@ -85,10 +85,21 @@ static void menu_render(void) {
         desktop_render(&tile, height, &view);
     }
     assert(!memcmp(full + 1, tiled + 1, count * sizeof(u32)));
-    for (u32 i = 0; i < 4; ++i) {
-        u32 y = height - 177 * 2 + (56 + 18 * i) * 2;
-        struct desktop_hit hit = desktop_hit(width, height, &view, 90, y);
+    for (u32 i = 0; i < 5; ++i) {
+        u32 y = height - 198 + 56 + 18 * i;
+        struct desktop_hit hit = desktop_hit(width, height, &view, 45, y);
         assert(hit.kind == DESKTOP_HIT_MENU && hit.index == i);
+    }
+    const char *preview = getenv("NV_START_PREVIEW");
+    if (preview) {
+        FILE *f = fopen(preview, "wb"); assert(f);
+        fprintf(f, "P6\n%u %u\n255\n", width, height);
+        for (u32 i = 0; i < count; ++i) {
+            u32 color = full[i + 1];
+            u8 rgb[] = {(u8)(color >> 16), (u8)(color >> 8), (u8)color};
+            assert(fwrite(rgb, 1, 3, f) == 3);
+        }
+        fclose(f);
     }
     assert(full[0] == 0x9173ace4 && full[count + 1] == 0x27607845);
     free(full); free(tiled);

@@ -3,6 +3,8 @@
 #include "ports.h"
 #include "hardware.h"
 #include "network.h"
+#include "net_tools.h"
+static bool terminal_session;
 static void status(void) {
     struct nv_info i;
     if (info(&i) < 0)
@@ -171,6 +173,15 @@ static int dispatch(int n, char **v) {
         return show_gpu();
     if (!strcmp(cmd, "net"))
         return network_command(n, v);
+    if (!strcmp(cmd, "ping"))
+        return ping_command(n, v);
+    if (!strcmp(cmd, "wget"))
+        return wget_command(n, v);
+    if (!strcmp(cmd, "exit") && n == 1) {
+        if (terminal_session) return 1;
+        println("Use rest to power off or desktop to open the graphical session.");
+        return 0;
+    }
     if (!strcmp(cmd, "desktop") && n == 1) {
         int pid = spawn("/apps/desktop", "");
         return pid < 0 ? pid : (wait_task(pid) < 0 ? -NV_ECHILD : 0);
@@ -317,6 +328,19 @@ static int dispatch(int n, char **v) {
 int user_main(const char *args) {
     if (app_help("loom", args))
         return 0;
+    if (*args && strcmp(args, "--terminal")) {
+        println("Usage: loom [--terminal]");
+        return 1;
+    }
+    terminal_session = *args != 0;
+    struct nv_display_info display;
+    if (!terminal_session && nv_display_info(&display) == 0) {
+        int pid = spawn("/apps/desktop", "");
+        if (pid > 0) {
+            int r = wait_task(pid);
+            if (r < 0) report_error("Desktop", r);
+        } else report_error("Desktop", pid);
+    }
     println("Loom / Nuvora command environment");
     println("Type help for all commands; NAME --help explains one command.");
     char line[512], cwd[NV_PATH_MAX];
@@ -342,6 +366,7 @@ int user_main(const char *args) {
         if (!n)
             continue;
         int result = dispatch(n, argv);
+        if (terminal_session && result == 1) return 0;
         if (result < 0)
             report_error(argv[0], result);
     }

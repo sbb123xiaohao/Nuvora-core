@@ -24,7 +24,8 @@ static inline void nv_gfx_text(struct nv_canvas *c, u32 x, u32 y,
                                const char *s, u32 count, u32 scale, u32 rgb) {
     if (!scale) return;
     u32 color = nv_display_rgb(c->format, rgb);
-    for (u32 ch = 0; ch < count && s[ch] && (u64)x + ch * 6u * scale < c->width; ++ch) {
+    u32 advance = 5u * scale + 1;
+    for (u32 ch = 0; ch < count && s[ch] && (u64)x + ch * advance < c->width; ++ch) {
         u8 glyph = (u8)s[ch];
         if (glyph < 32 || glyph > 126) glyph = '?';
         for (u32 row = 0; row < 7; ++row) {
@@ -35,7 +36,7 @@ static inline void nv_gfx_text(struct nv_canvas *c, u32 x, u32 y,
                 for (u32 col = 0; col < 5; ++col) {
                     if (!(bits & (16u >> col))) continue;
                     for (u32 sx = 0; sx < scale; ++sx) {
-                        u64 px = (u64)x + ch * 6u * scale + col * scale + sx;
+                        u64 px = (u64)x + ch * advance + col * scale + sx;
                         if (px < c->width) c->pixels[(py - c->y0) * c->width + px] = color;
                     }
                 }
@@ -51,7 +52,7 @@ static inline void nv_gfx_label(struct nv_canvas *c, u32 x, u32 y,
         nv_gfx_text(c, x, y, s, length, scale, rgb);
     } else if (max_chars >= 3) {
         nv_gfx_text(c, x, y, s, max_chars - 3, scale, rgb);
-        nv_gfx_text(c, x + (max_chars - 3) * scale * 6, y, "...", 3, scale, rgb);
+        nv_gfx_text(c, x + (max_chars - 3) * (5u * scale + 1), y, "...", 3, scale, rgb);
     }
 }
 #endif

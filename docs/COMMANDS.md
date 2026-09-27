@@ -14,7 +14,10 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `volumes` | 查看已挂载 Nuvora 分区、盘符和快照容量 | `volumes` |
 | `partitions` | 查看检测到的 GPT 分区（包括未挂载的格式） | `partitions` |
 | `ports [--scan]` | 查看 PCI USB 控制器、设备描述符、Hub 和键盘状态 | `ports --scan` |
-| `net [wifi ... | dhcp ... | static ... | send ... | recv ...]` | 查看实体网卡、用 USB 桥接设备连接 Wi-Fi 并配置 IPv4/UDP | `net wifi scan` |
+| `net [wifi ... | dhcp ... | static ... | send ... | recv ...]` | 查看网卡、连接特定 USB Wi-Fi 桥并配置 IPv4/UDP | `net wifi scan` |
+| `ping HOST [COUNT]` | 对 IPv4 地址或经 DNS 解析的主机发送 echo | `ping 10.0.2.2 4` |
+| `wget [-O FILE] http://HOST[:PORT]/PATH` | 经网卡下载 HTTP 文件，完成后尝试提交数据卷 | `wget -O /home/a.txt http://10.0.2.2:8000/a.txt` |
+| `exit` | 从桌面终端返回桌面 | `exit` |
 | `where` | 查看当前目录 | `where` |
 | `step PATH` | 切换目录 | `step /home` |
 | `glance [PATH]` | 列出目录 | `glance /apps` |
@@ -23,7 +26,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `stitch FILE TEXT` | 追加一行文本 | `stitch /home/note "second"` |
 | `unfold FILE` | 输出文件内容 | `unfold /home/note` |
 | `folio [FILE]` | 打开全文编辑器和 Word 可读 RTF 排版编辑器 | `folio /home/report.nvd` |
-| `desktop` | UEFI 像素桌面与键盘文件浏览器 | `desktop` |
+| `desktop` | 打开 UEFI 像素桌面，支持鼠标与开始菜单 | `desktop` |
 | `media [FILE]` | 图形 MP3、PCM WAV 和 MPEG-1/MP2 播放器 | `media /home/clip.mpg` |
 | `wave FILE.wav \| wave --test` | HDA 模拟输出的 PCM WAV 播放与测试音 | `wave --test` |
 | `mirror FROM TO` | 复制到新文件，拒绝覆盖已有目标 | `mirror /home/note /home/copy` |
@@ -46,7 +49,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 `ports` 会列出 PCI 控制器的总线地址、厂商/产品 ID、xHCI/UHCI/OHCI/EHCI 状态，以及真实 USB 设备的速度、VID/PID、USB 类、Hub 父子关系、厂商、产品和序列号。xHCI 设备枚举读取标准描述符；Hub 会递归扫描，USB Boot Protocol 键盘输入进入 Loom 和 Folio，CDC-ECM 网卡会显示 `Ethernet=active`。Boot 鼠标和 QEMU USB Tablet 会显示 `input=active`；U 盘等尚未启用的设备标注为“identification only”，本版本仍没有 USB 大容量存储块读写或文件系统挂载。
 
-`net` 的具体网卡支持清单、Wi-Fi 命令、密码输入和限制见 [NETWORK.md](NETWORK.md)。
+`net`、`ping`、`wget` 的网卡支持、DNS、HTTP 限制及 Wi-Fi 口令输入见 [NETWORK.md](NETWORK.md)。有 GOP 的 UEFI 机器启动后默认进入桌面；F10 打开开始菜单，选 Terminal 进入 Loom，输入 `exit` 返回桌面。BIOS 文本模式直接进入 Loom。
 
 `ports --scan` 立即重试端口并处理拔插；后台还会定期扫描。xHCI 控制器发生不可恢复错误时会停止并显示 `failed`，不会把损坏 DMA 页重新交给用户进程。UHCI/OHCI/EHCI 控制器目前只报告 `unsupported`，不会伪造设备列表。
 
@@ -54,7 +57,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 ## Folio 全文编辑器
 
-在 Loom 中输入 `folio` 打开新文档，或输入 `folio /home/report.nvd` 打开已有文档。Folio 使用 80×25 的全屏 VGA/串口界面；编辑内容按字符保存，`.nvd` 保存格式信息，`.txt` 和 `.md` 保存纯文本。
+在开始菜单选 Folio 或在 Loom 中输入 `folio` 打开新文档，`folio /home/report.nvd` 打开已有文档。Folio 使用 80×25 的全屏字符界面，带工具行、文档区、行号和状态栏；`.nvd` 保存格式信息，`.txt` 和 `.md` 保存纯文本。
 
 | 快捷键 | 作用 |
 | --- | --- |
@@ -77,6 +80,6 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 `forge vector` 运行 x87/MMX/SSE 进程隔离与 EXEC 测试；成功显示 `VECTOR RESULT: PASS`。`silicon` 区分 CPU 原始功能与内核已启用状态。`firmament` 显示经过校验的 ACPI 根表、MCFG 项和当前 PCI 配置方式；在 q35 上可看到 4096 字节 ECAM，在传统 pc 机型上保留 256 字节 CF8/CFC。启动参数 `nv.no-ecam=1` 或 `python3 start.py --machine q35 --no-ecam` 强制使用回退路径。
 
-`prism` 只读输出显卡启动快照，并在 ECAM 可用时解析 AER、ACS、ATS、SR-IOV、Resizable BAR、PASID 与 DPC 标记；这些标记不表示对应功能已经启用，也不会加载 NVIDIA 驱动。所有 36 个命令支持 `--help`，11 个内置程序支持 `forge APP --help`。硬件边界见 [CPU-GPU.md](CPU-GPU.md)。
+`prism` 只读输出显卡启动快照，并在 ECAM 可用时解析 AER、ACS、ATS、SR-IOV、Resizable BAR、PASID 与 DPC 标记；这些标记不表示对应功能已经启用，也不会加载 NVIDIA 驱动。当前 40 个命令支持 `--help`，11 个内置程序支持 `forge APP --help`。硬件边界见 [CPU-GPU.md](CPU-GPU.md)。
 
-`forge probe devctl` 定向验证设备控制接口，`forge probe --help` 查看说明；`trial` 继续执行包含它在内的完整用户态回归。DEVCTL 本身是程序接口；0.6.0 新增的 Loom 命令只有 `firmament`，当时的命令总数为 31；本开发版加入 volumes、partitions、net、wave 和 media 后为 36。
+`forge probe devctl` 定向验证设备控制接口，`forge probe --help` 查看说明；`trial` 继续执行包含它在内的完整用户态回归。DEVCTL 本身是程序接口；当前新加的 `ping`、`wget` 和桌面终端专用 `exit` 也在统一帮助目录中。

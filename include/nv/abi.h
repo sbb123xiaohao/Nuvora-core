@@ -116,7 +116,9 @@ _Static_assert(sizeof(struct nv_display_present) == 24, "display present ABI");
 #define NV_NET_DATA_MAX 1024u
 enum { NV_NET_INFO = 1, NV_NET_DHCP = 2, NV_NET_STATIC = 3,
        NV_NET_UDP_SEND = 4, NV_NET_UDP_RECV = 5, NV_NET_SELECT = 6,
-       NV_NET_WIFI_COMMAND = 7, NV_NET_WIFI_READ = 8 };
+       NV_NET_WIFI_COMMAND = 7, NV_NET_WIFI_READ = 8,
+       NV_NET_PING = 9, NV_NET_TCP_OPEN = 10, NV_NET_TCP_SEND = 11,
+       NV_NET_TCP_RECV = 12, NV_NET_TCP_CLOSE = 13 };
 enum { NV_NET_WIRED = 1, NV_NET_WIFI = 2, NV_NET_USB_BRIDGE = 3 };
 enum { NV_NET_UNSUPPORTED = 1, NV_NET_DOWN = 2, NV_NET_LINK = 3,
        NV_NET_CONFIGURING = 4, NV_NET_ONLINE = 5 };
@@ -129,6 +131,17 @@ struct nv_net_static {
     u32 index, ip, mask, gateway, dns;
 };
 struct nv_net_udp {
+    u32 index, address, port, local_port, length;
+    u8 data[NV_NET_DATA_MAX];
+};
+/* PING sends on the first call, returns 0 while waiting and 1 with reply
+ * details. TCP exposes one bounded, ordered IPv4 stream; OPEN similarly
+ * returns 0 while connecting and 1 when established. RECV returns zero on
+ * orderly EOF, EAGAIN while pending, or the number of bytes copied. */
+struct nv_net_ping {
+    u32 index, address, identifier, sequence, reply_ttl, reply_bytes;
+};
+struct nv_net_tcp {
     u32 index, address, port, local_port, length;
     u8 data[NV_NET_DATA_MAX];
 };

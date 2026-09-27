@@ -1,5 +1,15 @@
 # Nuvora Core 0.10.0
 
+## 桌面、输入与网络命令
+
+- UEFI GOP 可用时默认进入桌面。开始菜单增设 Terminal，`exit` 返回桌面；
+  文件列表、侧栏和菜单增加留白，压紧 5×7 字形字距，Folio 重排工具行和文档区。
+- PS/2 与 USB Boot 键盘补齐数字小键盘、Num Lock、运算符和导航切换。
+- 为现有实体有线网卡和 USB CDC-ECM 路径加入主动 ICMP、单连接 TCP；
+  Loom 提供 DNS A 记录解析、`ping` 与 HTTP `wget`，下载成功后尝试保存数据卷。
+- `make all` 与 28 组宿主回归通过。环境缺少 QEMU/mtools；DNS/HTTP 的
+  客户机在线收发与实体机验证尚未进行，HTTPS/IPv6 仍不支持。
+
 ## 图形桌面鼠标漂移修复
 
 - 图形 QEMU 使用绝对坐标 USB Tablet，内核按设备报告格式接收；普通

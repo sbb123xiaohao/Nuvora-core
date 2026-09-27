@@ -31,6 +31,16 @@ static void text_at(u32 y, u32 x, const char *s, u8 color) {
     while (*s && x < 80 && y < 25)
         screen.cells[y * 80 + x++] = ((u16)color << 8) | (u8)*s++;
 }
+static void text_bounded(u32 y, u32 x, const char *s, u32 width, u8 color) {
+    u32 length = strlen(s);
+    if (length <= width) {
+        text_at(y, x, s, color);
+        return;
+    }
+    for (u32 i = 0; i < width - 3; ++i)
+        screen.cells[y * 80 + x + i] = ((u16)color << 8) | (u8)s[i];
+    text_at(y, x + width - 3, "...", color);
+}
 static u32 number_at(u32 y, u32 x, u32 n, u8 color) {
     char b[32];
     u32 count = number(b, n, 10);
@@ -57,29 +67,30 @@ static void redraw(void) {
     fill(0, 0, 25, 80, 0x17);
     fill(0, 0, 1, 80, 0x1f);
     text_at(0, 1, "Folio", 0x1f);
-    text_at(0, 8, *path ? path : "Untitled.nvd", 0x1f);
+    text_bounded(0, 9, *path ? path : "Untitled.nvd", 59, 0x1f);
     if (dirty())
         text_at(0, 70, "Modified", 0x1e);
     else if (disk_pending)
         text_at(0, 71, "RAM only", 0x1e);
-    text_at(1, 1, "F2 Save  F3 Open  F4 Save as  F5 Preview  F6 Export RTF  F1 Help", 0x1f);
+    text_at(1, 1, "F2 Save    F3 Open    F4 Save as    F5 Preview    F6 Export    F1 Help", 0x1f);
     u8 para = doc.cell[doc.cursor].para;
-    text_at(2, 1, styles[(para & DOC_STYLE) >> 2], 0x1f);
-    text_at(2, 12, aligns[para & DOC_ALIGN], 0x1f);
+    text_at(2, 1, "Style", 0x17);
+    text_at(2, 7, styles[(para & DOC_STYLE) >> 2], 0x1f);
+    text_at(2, 19, aligns[para & DOC_ALIGN], 0x1f);
     u32 a, b;
     doc_bounds(&doc, &a, &b);
     u8 font = a != b ? doc.cell[a].font : doc.typing;
-    text_at(2, 21, (font & DOC_BOLD) ? "B:on " : "B:off", 0x1f);
-    text_at(2, 28, (font & DOC_ITALIC) ? "I:on " : "I:off", 0x1f);
-    text_at(2, 35, (font & DOC_UNDERLINE) ? "U:on " : "U:off", 0x1f);
-    text_at(2, 43, (para & DOC_BULLET) ? "List:on" : "List:off", 0x1f);
-    text_at(2, 53, (para & DOC_DOUBLE) ? "Space:2" : "Space:1", 0x1f);
-    text_at(2, 63, preview ? "PREVIEW" : "EDIT", 0x1e);
-    text_at(3, 8, "1       9       17      25      33      41      49      57", 0x17);
+    text_at(2, 28, (font & DOC_BOLD) ? "Bold on " : "Bold off", 0x1f);
+    text_at(2, 38, (font & DOC_ITALIC) ? "Italic on " : "Italic off", 0x1f);
+    text_at(2, 50, (font & DOC_UNDERLINE) ? "Under on " : "Under off", 0x1f);
+    text_at(2, 61, (para & DOC_BULLET) ? "List on " : "List off", 0x1f);
+    fill(3, 5, 1, 70, 0x70);
+    text_at(3, 8, preview ? "PREVIEW  |  PgUp/PgDn scroll" : "DOCUMENT  |  Ctrl-S save  Ctrl-Q close", 0x70);
     for (u32 y = VIEW_TOP; y < VIEW_TOP + VIEW_ROWS; ++y) {
         u32 v = top + y - VIEW_TOP, offset = v % DOC_PAGE_SPAN, page = v / DOC_PAGE_SPAN;
         if (page >= layout.pages)
             continue;
+        number_at(y, 1, v + 1, 0x17);
         if (offset <= DOC_PAGE_ROWS)
             fill(y, 5, 1, 70, 0x70);
         if (!offset) {

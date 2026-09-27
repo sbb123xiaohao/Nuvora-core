@@ -11,11 +11,12 @@
 | Intel AX200/AX210/AX211/BE200 等 PCI Wi-Fi | 仅 PCI 识别 | 无原生固件加载、802.11 驱动和 WPA 认证，显示 `no driver` |
 | 其他有线 PCIe 网卡、USB RNDIS/NCM、手机 USB 共享 | 仅识别或未匹配 | 暂不可收发 |
 
-支持的协议：以太网、ARP、IPv4、DHCP（申请地址）、ICMP echo 应答、UDP 发送和单包接收。程序经 `NV_DEVCTL` 的 `NV_SUB_NET` 访问这些功能；不是 POSIX socket API。当前没有 TCP、DNS 名称查询、TLS、IPv6、VLAN、DHCP 租约续期、多个并发 UDP 接收队列，也没有通用网络管理服务。
+支持的协议：以太网、ARP、IPv4、DHCP（申请地址）、主动 ICMP echo/应答、UDP 收发、DNS A 记录查询和单连接 TCP。程序经 `NV_DEVCTL` 的 `NV_SUB_NET` 访问；这不是 POSIX socket API。`wget` 使用 HTTP/1.0，按收到的正文流式写文件。当前没有 TLS/HTTPS、IPv6、VLAN、DHCP 租约续期、多个并发 TCP 连接或 UDP 接收队列，也没有通用网络管理服务。
 
 QEMU 可用 `python3 start.py --uefi --window --network` 加入 e1000e
-虚拟网卡和 user networking。Loom 启动后运行 `net dhcp`；虚拟网卡收发
-已通过宿主 MMIO/DMA 模拟，当前环境没有运行 QEMU/VMware 网卡实测。
+虚拟网卡和 user networking。桌面从开始菜单进入 Terminal 后可运行 `net dhcp`；
+`ping` 和 `wget` 遇到已连接但未配置地址的网卡，也会自动尝试 DHCP。
+虚拟网卡收发已通过宿主 MMIO/DMA 模拟，当前环境没有运行 QEMU/VMware 网卡实测。
 
 ## 操作
 
@@ -27,7 +28,15 @@ net static 0 192.168.1.42 255.255.255.0 192.168.1.1 8.8.8.8
 net use 0                            # 切回指定接口
 net send 192.168.1.10 9000 hello     # UDP 源端口固定为 40000
 net recv 40000                       # 等待一个 UDP 包，最多 5 秒
+ping 10.0.2.2 4                     # 主动 ICMP echo，默认 4 次
+ping example.com 2                  # 使用 DHCP 或静态配置的 DNS
+wget -O /home/readme.txt http://10.0.2.2:8000/readme.txt
 ```
+
+`wget` 仅接受明文 `http://`。需要 TLS 的网址会明确拒绝，不会伪装安全下载；
+HTTP 服务器返回重定向、分块或压缩正文时也会拒绝。下载先写同目录临时文件，
+确认成功后移动到目标路径；目标已存在时遵循文件系统的拒绝覆盖规则。
+这些命令使用当前选中的实体网卡/USB 桥接网卡，不从宿主模拟网络读取数据。
 
 USB Dongle 固件需同时启用 USB ECM 和 CDC 命令口，并使用 Espressif USB 厂商 ID `303a`；网络接口必须在 `ports` 出现 `Ethernet=active`，在 `net` 出现 USB Wi-Fi bridge。官方示例：[ESP USB Dongle README](https://github.com/espressif/esp-iot-solution/blob/master/examples/usb/device/usb_dongle/README.md)，包含开发板、固件编译/烧录和 `sta -s ... -p ...` 命令。串口密码输入仅针对这个设备/固件组合，普通 USB Wi-Fi 棒并不兼容。
 

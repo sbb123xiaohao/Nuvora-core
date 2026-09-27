@@ -2,6 +2,18 @@
 
 ## 0.10.0 当前结果
 
+本次桌面与网络增量：`make all` 和 `make test-host` 的 28 组宿主回归通过。
+桌面栅格夹具覆盖 640×480、1280×800、2560×720、2560×1440 的整屏与分块
+一致性、菜单命中与边界；已查看实际绘制的 1280×800 画面。网络夹具运行
+内核实际 IPv4 代码与模拟网卡，验证 DHCP、ARP、UDP、主动 ICMP 校验和与
+回包、TCP SYN/SYN-ACK/ACK、数据收发、重复片段、FIN、进程清理和失链；
+另有 HTTP URL、状态行与长度溢出解析夹具。
+构建环境缺少 QEMU、OVMF 与 mtools，`make esp` 因 mtools 缺失而停止；
+因此没有本次 `ping`/`wget` 的虚拟机实时 DNS、HTTP 下载或实体机运行记录。
+请在 Ubuntu 装齐依赖后使用 `make esp`、`python3 start.py --uefi --window
+--network`，在桌面开始菜单的 Terminal 中试 `net`、`ping 10.0.2.2` 和
+`wget -O /home/test.txt http://可访问的HTTP主机/文件`，再检查下载文件。
+
 本轮增加 NVSTORE3 最终 Flush 失败后的文件树检查：新建、截断、删除、
 改名和替换都返回原 I/O 错误，已有文件内容与长度保持不变；临时目录可继续
 使用。ATA/AHCI 夹具分别验证 LBA48 盘有无 FLUSH CACHE EXT 能力时的命令。

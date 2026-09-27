@@ -35,7 +35,14 @@ static const struct command_help commands[] = {
      "List physical network adapters; configure IPv4 and send or receive UDP.", "net dhcp",
      "Intel I225/I226 PCIe Ethernet and USB CDC-ECM bridges have packet drivers.\n"
      "ESP USB Wi-Fi Dongle with CDC control: scan or join; password entry is hidden.\n"
-     "PCI Wi-Fi cards are listed without a working driver. Only IPv4/UDP is exposed."},
+     "PCI Wi-Fi cards are listed without a working driver. IPv4/UDP, ICMP and one TCP stream are exposed."},
+    {"ping", "ping HOST [COUNT]", "Send IPv4 ICMP echo requests and show replies.",
+     "ping 10.0.2.2 4", "Accepts IPv4 addresses or names resolved by the configured DNS server."},
+    {"wget", "wget [-O FILE] http://HOST[:PORT]/PATH",
+     "Download an HTTP file into the current directory or specified file.",
+     "wget -O /home/example.txt http://example.com/file.txt",
+     "Streams to a temporary file, then moves it into place after a complete response.\n"
+     "HTTP only; HTTPS, redirects and chunked transfers are not supported."},
     {"where", "where", "Show the current directory.", "where", ""},
     {"step", "step PATH", "Change the current directory.", "step /home",
      "Paths accept /, . and .. ."},
@@ -58,9 +65,11 @@ static const struct command_help commands[] = {
     {"desktop", "desktop", "Open the pixel desktop and file browser on UEFI displays.",
      "desktop", "Keyboard controls: arrows, Enter, Backspace, 1-4, F1/F2/F3/F5/F6/F10, Escape.\n"
      "Requires a supported firmware framebuffer; BIOS text mode remains in Loom."},
+    {"exit", "exit", "Return from the desktop terminal to the graphical session.", "exit",
+     "In the primary shell, use rest to power off or desktop to open the desktop."},
     {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
      "Open the graphical audio and video player.", "media /home/clip.mpg",
-     "MP3, 48 kHz PCM WAV, MPEG-1 video with optional MP2 audio; files up to 4 MiB.\n"
+     "MP3/MP2/FLAC, WAV/RF64 and MPEG-1/MP2 media can stream from supported data volumes.\n"
      "Requires UEFI pixels; audio needs supported HDA output. Space pauses."},
     {"wave", "wave FILE.wav | wave --test", "Play a PCM WAV file or a test tone on HDA audio.",
      "wave --test", "48 kHz, stereo, signed 16-bit PCM; analog HDA output required."},

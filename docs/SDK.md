@@ -113,14 +113,30 @@ DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不
 `user/media.c`。NVSTORE3 文件内容按磁盘块存储，旧盘仍受原快照格式限制。
 控制器、模拟和实机边界见 [DEVICES.md](DEVICES.md)。
 
+## IPv4 网络
+
+`NV_DEVCTL` 的 `NV_SUB_NET` 面向驱动与小型用户程序，地址字段以网络字节序的
+32 位整数表示 IPv4。`NV_NET_INFO` 查看接口，`NV_NET_DHCP` 或
+`NV_NET_STATIC` 配置地址。`NV_NET_UDP_SEND/RECV` 提供已有单包 UDP 接口；
+新 `NV_NET_PING` 用 `struct nv_net_ping` 主动发 echo，并在后续调用返回
+`1` 时带回 TTL 与回复字节数。`NV_NET_TCP_OPEN/SEND/RECV/CLOSE` 使用
+`struct nv_net_tcp`，最多复制 `NV_NET_DATA_MAX`（1024）字节：OPEN 返回
+`0` 表示握手尚未完成、`1` 表示已连接；RECV 返回 `-NV_EAGAIN` 表示暂无
+数据、`0` 表示正常结束、正数表示本次读取长度。连接归当前进程所有，
+进程退出或 exec 时会清理；目前系统只允许一个活动 TCP 连接。
+
+Loom 的 `ping` 和 `wget` 使用这些调用；域名解析由应用使用 DNS/UDP 完成。
+这是轮询、有限窗口的实验接口，尚无 TLS、IPv6、POSIX socket 或通用
+网络服务。具体设备与联机验证边界见 [NETWORK.md](NETWORK.md)。
+
 ## 桌面入口和后续边界
 
-在 Loom 输入 `desktop`。USB Boot 鼠标可单击选中文件、双击进入文件夹
+UEFI GOP 有效时默认打开 `desktop`；在 Loom 中也可输入 `desktop`。USB Boot 鼠标可单击选中文件、双击进入文件夹
 或打开 `.txt`/`.nvd` 文档及 `.wav`/`.mp3`/`.mpg`/`.mpeg` 媒体；也可以用方向键选择文件，Enter 进入文件夹，
 以 Folio 打开文档或以 Media 播放媒体；Backspace 返回上级；1–4 进入已挂载的 C:–F:，
 5–7 分别进入系统根目录、应用和临时目录；
 F1 显示操作说明，F2 创建空白文档，F3 打开 Media，F10 打开开始菜单，
-F5 刷新目录，F6 将数据盘快照保存，Esc 返回 Loom。桌面在启动 Folio/Media 前归还像素屏，子程序退出后重新获取；
+F5 刷新目录，F6 将数据盘快照保存，Esc 返回 Loom。开始菜单的 Terminal 暂时切换到完整字符屏，输入 `exit` 回到桌面。桌面在启动 Folio/Media/Terminal 前归还像素屏，子程序退出后重新获取；
 不同程序始终不能同时直接写屏幕。
 
 当前没有触控、多个应用窗口、合成服务、Unicode 字体、

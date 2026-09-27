@@ -5,7 +5,7 @@
 #include <nv/abi.h>
 #include <nv/string.h>
 #define NV_KERNEL_H
-struct task { void *pd; };
+struct task { u32 pid; void *pd; };
 static struct task task_object;
 static struct task *current = &task_object;
 static u32 ticks;

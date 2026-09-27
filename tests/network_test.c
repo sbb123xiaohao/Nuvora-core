@@ -5,7 +5,7 @@
 #include <nv/abi.h>
 #include <nv/string.h>
 #define NV_KERNEL_H
-struct task { void *pd; };
+struct task { u32 pid; void *pd; };
 static struct task task_object;
 static struct task *current = &task_object;
 static u32 ticks;
@@ -69,6 +69,92 @@ static void deliver(const u8 *body, u32 length, u32 source, u16 source_port, u16
     u8 packet[1514]; u32 size = sent_length;
     memcpy(packet, sent, size); receive(packet, size);
 }
+static void deliver_tcp(u32 seq, u32 ack, u8 flags, const u8 *body, u32 size) {
+    u8 packet[20 + NV_NET_DATA_MAX] = {0};
+    assert(size <= NV_NET_DATA_MAX);
+    put16(packet, stream.remote_port); put16(packet + 2, stream.local_port);
+    put32(packet + 4, seq); put32(packet + 8, ack);
+    packet[12] = 5 << 4; packet[13] = flags;
+    put16(packet + 14, NV_NET_DATA_MAX);
+    if (size) memcpy(packet + 20, body, size);
+    u8 pseudo[12] = {0};
+    put32(pseudo, stream.address); put32(pseudo + 4, stream.source_ip);
+    pseudo[9] = 6; put16(pseudo + 10, size + 20);
+    u32 sum = (u16)~checksum(pseudo, sizeof(pseudo));
+    for (u32 i = 0; i < size + 20; i += 2)
+        sum += (u16)packet[i] << 8 | (i + 1 < size + 20 ? packet[i + 1] : 0);
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    put16(packet + 16, (u16)~sum);
+    u8 frame_in[14 + 20 + 20 + NV_NET_DATA_MAX] = {0};
+    memcpy(frame_in, adapters[active].mac, 6);
+    memcpy(frame_in + 6, peer_mac, 6);
+    put16(frame_in + 12, 0x0800);
+    u8 *ip = frame_in + 14;
+    ip[0] = 0x45; put16(ip + 2, 40 + size);
+    ip[8] = 64; ip[9] = 6;
+    put32(ip + 12, stream.address); put32(ip + 16, stream.source_ip);
+    put16(ip + 10, checksum(ip, 20));
+    memcpy(ip + 20, packet, 20 + size);
+    receive(frame_in, 54 + size);
+}
+static void exercise_tcp_icmp(void) {
+    u32 dest = 0xcb007101u;
+    assert(!echo_request(dest, 0x1234, 7));
+    assert(be16(sent + 12) == 0x0800 && sent[14 + 9] == 1 &&
+           be32(sent + 14 + 16) == dest && checksum(sent + 14, 20) == 0 &&
+           checksum(sent + 14 + 20, 16) == 0);
+    u8 echo[16]; memcpy(echo, sent + 14 + 20, sizeof(echo));
+    echo[0] = 0; echo[2] = echo[3] = 0;
+    put16(echo + 2, checksum(echo, sizeof(echo)));
+    echo_probe.pending = true;
+    echo_probe.replied = false;
+    echo_probe.address = dest;
+    echo_probe.identifier = 0x1234;
+    echo_probe.sequence = 7;
+    u8 ip[36] = {0x45}; put16(ip + 2, sizeof(ip)); ip[8] = 52; ip[9] = 1;
+    put32(ip + 12, dest); put32(ip + 16, adapters[active].ip);
+    put16(ip + 10, checksum(ip, 20));
+    memcpy(ip + 20, echo, sizeof(echo));
+    input_ipv4(ip, sizeof(ip));
+    assert(echo_probe.replied && echo_probe.ttl == 52 && echo_probe.bytes == 8);
+
+    memset(&stream, 0, sizeof(stream));
+    stream.owner = 3; stream.index = active; stream.address = dest;
+    stream.source_ip = adapters[active].ip;
+    stream.local_port = 49153; stream.remote_port = 80;
+    stream.state = TCP_SYN_SENT; stream.next_tx = 901;
+    stream.acked_tx = 900; stream.last_send = ticks - 100;
+    net_poll();
+    assert(be16(sent + 12) == 0x0800 && sent[14 + 9] == 6 &&
+           be32(sent + 14 + 20 + 4) == 900 &&
+           sent[14 + 20 + 13] == 2 &&
+           tcp_checksum_valid(sent + 14 + 20, 20, stream.source_ip, dest));
+    deliver_tcp(5000, 901, 0x12, NULL, 0);
+    assert(stream.state == TCP_ESTABLISHED && stream.next_rx == 5001 &&
+           stream.acked_tx == 901);
+    assert(sent[14 + 20 + 13] == 0x10);
+    const u8 request[] = "GET / HTTP/1.0\r\n\r\n";
+    assert(!tcp_packet(stream.next_tx, 0x18, request, sizeof(request)-1));
+    assert(tcp_checksum_valid(sent + 14 + 20, 20 + sizeof(request)-1,
+                              stream.source_ip, dest));
+    memcpy(stream.outgoing, request, sizeof(request)-1);
+    stream.queued = sizeof(request)-1;
+    stream.next_tx += stream.queued;
+    stream.attempts = 1; stream.last_send = ticks;
+    deliver_tcp(5001, stream.next_tx, 0x10, NULL, 0);
+    assert(stream.acked_tx == stream.next_tx && !stream.queued);
+    const u8 response[] = "HTTP/1.0 200 OK\r\n\r\nhello";
+    deliver_tcp(5001, stream.next_tx, 0x18, response, sizeof(response)-1);
+    assert(stream.used == sizeof(response)-1 &&
+           !memcmp(stream.buffer, response, sizeof(response)-1));
+    u32 next_rx = stream.next_rx;
+    deliver_tcp(5001, stream.next_tx, 0x18, response, sizeof(response)-1);
+    assert(stream.next_rx == next_rx && stream.used == sizeof(response)-1);
+    deliver_tcp(next_rx, stream.next_tx, 0x11, NULL, 0);
+    assert(stream.eof && stream.next_rx == next_rx + 1);
+    net_task_release(3);
+    assert(stream.state == TCP_IDLE);
+}
 int main(void) {
     net_init();
     assert(count == 2 && active == 0 && adapters[0].type == NV_NET_WIRED);
@@ -95,6 +181,7 @@ int main(void) {
     memcpy(arp + 8, router, 6); put32(arp + 14, adapters[0].gateway);
     input_arp(arp, sizeof(arp));
     assert(peer_ip == 0xc0a80101 && !memcmp(peer_mac, router, 6));
+    exercise_tcp_icmp();
     u8 payload[] = {'h', 'e', 'l', 'l', 'o'};
     deliver(payload, sizeof(payload), 0xc0a80101, 7000, 40000);
     assert(inbox_full && inbox.length == 5 && inbox.port == 7000 &&
@@ -132,5 +219,5 @@ int main(void) {
     net_usb_detach();
     net_usb_attach(0x303a, 0x0001, bridge);
     assert(count == 3 && usb_index == 2); /* hotplug reuses its adapter slot */
-    puts("PASS network: physical PCI and USB bridge, DHCP, ARP, UDP, checksum, link loss");
+    puts("PASS network: PCI/USB, DHCP, UDP, ICMP and TCP frames, checksum, link loss");
 }

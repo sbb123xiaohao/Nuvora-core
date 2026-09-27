@@ -20,7 +20,7 @@ static u16 saved_screen[2000], last_screen[2000];
 static u32 saved_row, saved_col;
 static bool last_valid;
 static u32 input_head, input_tail;
-static bool lshift, rshift, lctrl, rctrl, lalt, ralt, caps, extended;
+static bool lshift, rshift, lctrl, rctrl, lalt, ralt, caps, extended, numlock = true;
 static u32 pause_bytes;
 /* 5x7 glyphs for ASCII 32..126. Bit 4 of each row byte is the left pixel. */
 
@@ -349,9 +349,21 @@ void keyboard_irq(void) {
         caps = !caps;
         return;
     }
+    if (!ext && code == 69) {
+        numlock = !numlock;
+        return;
+    }
     u32 c = 0;
     bool shifted = lshift || rshift, ctrl = lctrl || rctrl;
-    if (ext || (code >= 71 && code <= 83)) {
+    if (!ext && numlock != shifted) {
+        switch (code) {
+        case 79: c = '1'; break; case 80: c = '2'; break; case 81: c = '3'; break;
+        case 75: c = '4'; break; case 76: c = '5'; break; case 77: c = '6'; break;
+        case 71: c = '7'; break; case 72: c = '8'; break; case 73: c = '9'; break;
+        case 82: c = '0'; break; case 83: c = '.'; break;
+        }
+    }
+    if (!c && (ext || (code >= 71 && code <= 83))) {
         switch (code) {
         case 75:
             c = NV_KEY_LEFT;
@@ -390,11 +402,13 @@ void keyboard_irq(void) {
             c = '/';
             break;
         }
-    } else if (code >= 59 && code <= 68)
+    } else if (!c && (code == 55 || code == 74 || code == 78)) {
+        c = code == 55 ? '*' : code == 74 ? '-' : '+';
+    } else if (!c && code >= 59 && code <= 68)
         c = NV_KEY_F1 + code - 59;
-    else if (code == 87 || code == 88)
+    else if (!c && (code == 87 || code == 88))
         c = NV_KEY_F11 + code - 87;
-    else {
+    else if (!c && !(code >= 71 && code <= 83)) {
         c = (u8)keys[code];
         if (c >= 'a' && c <= 'z') {
             if (!ctrl && shifted != caps)
@@ -419,6 +433,10 @@ void console_usb_key(u8 usage, u8 modifiers) {
         caps = !caps;
         return;
     }
+    if (usage == 0x53) {
+        numlock = !numlock;
+        return;
+    }
     if (usage >= 4 && usage <= 29) {
         c = 'a' + usage - 4;
         if (!ctrl && shifted != caps)
@@ -429,6 +447,15 @@ void console_usb_key(u8 usage, u8 modifiers) {
         c = NV_KEY_F1 + usage - 0x3a;
     } else if (usage >= 0x2d && usage <= 0x38) {
         c = (u8)(shifted ? "_+{}|~:\"~<>?" : "-=[]\\#;'`,./")[usage - 0x2d];
+    } else if (usage >= 0x59 && usage <= 0x63) {
+        if (numlock != shifted)
+            c = (u8)"1234567890."[usage - 0x59];
+        else {
+            static const u16 navigation[] = {
+                NV_KEY_END, NV_KEY_DOWN, NV_KEY_PGDN, NV_KEY_LEFT, 0, NV_KEY_RIGHT,
+                NV_KEY_HOME, NV_KEY_UP, NV_KEY_PGUP, NV_KEY_INSERT, NV_KEY_DELETE};
+            c = navigation[usage - 0x59];
+        }
     } else {
         switch (usage) {
         case 0x28: case 0x58: c = '\n'; break;

@@ -192,6 +192,7 @@ void net_init(void);
 void audio_init(void);
 int audio_ioctl(u32, u32);
 void net_poll(void);
+void net_task_release(u32);
 int net_ioctl(u32, u32);
 bool net_igc_start(u32, u8 mac[6]);
 bool net_igc_link(void);

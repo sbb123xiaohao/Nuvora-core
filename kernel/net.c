@@ -14,6 +14,18 @@ static bool inbox_full, polling;
 static u8 frame[1514];
 static u8 peer_mac[6];
 static u32 peer_ip, peer_valid_until;
+static struct {
+    u32 address, identifier, sequence, started, ttl, bytes;
+    bool pending, replied;
+} echo_probe;
+enum { TCP_IDLE, TCP_SYN_SENT, TCP_ESTABLISHED, TCP_ERROR };
+static struct {
+    u32 owner, index, address, source_ip, next_tx, acked_tx, next_rx;
+    u32 last_send, attempts, queued, used;
+    u16 local_port, remote_port;
+    u8 state, buffer[NV_NET_DATA_MAX], outgoing[NV_NET_DATA_MAX];
+    bool eof;
+} stream;
 
 static u16 be16(const u8 *p) { return ((u16)p[0] << 8) | p[1]; }
 static u32 be32(const u8 *p) {
@@ -119,6 +131,7 @@ void net_usb_detach(void) {
     if (active == usb_index) {
         active = wired;
         lease_state = 0; inbox_full = false; peer_ip = 0;
+        stream.state = TCP_IDLE;
     }
     usb_index = NV_NET_MAX;
 }
@@ -194,6 +207,131 @@ static int udp_raw(const u8 *mac, u32 src, u32 dest, u16 source_port, u16 dest_p
     while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
     put16(payload + 6, (u16)~sum ? (u16)~sum : 0xffff);
     return send_ipv4(mac, src, dest, 17, payload, length + 8);
+}
+static int echo_request(u32 address, u32 identifier, u32 sequence) {
+    u32 next = route(address);
+    if (!next) return -NV_ENODEV;
+    if (peer_ip != next || (i32)(ticks - peer_valid_until) >= 0) {
+        arp_request(next);
+        return -NV_EAGAIN;
+    }
+    u8 packet[16] = {8, 0};
+    put16(packet + 4, (u16)identifier);
+    put16(packet + 6, (u16)sequence);
+    put32(packet + 8, ticks);
+    put32(packet + 12, address ^ ticks);
+    put16(packet + 2, checksum(packet, sizeof(packet)));
+    return send_ipv4(peer_mac, adapters[active].ip, address, 1, packet, sizeof(packet));
+}
+static int tcp_packet(u32 sequence, u8 flags, const u8 *body, u32 length) {
+    if (length > NV_NET_DATA_MAX || active != stream.index ||
+        adapters[active].ip != stream.source_ip) return -NV_ENODEV;
+    u32 next = route(stream.address);
+    if (!next) return -NV_ENODEV;
+    if (peer_ip != next || (i32)(ticks - peer_valid_until) >= 0) {
+        arp_request(next);
+        return -NV_EAGAIN;
+    }
+    u8 packet[20 + NV_NET_DATA_MAX] = {0};
+    put16(packet, stream.local_port);
+    put16(packet + 2, stream.remote_port);
+    put32(packet + 4, sequence);
+    put32(packet + 8, stream.next_rx);
+    packet[12] = 5 << 4;
+    packet[13] = flags;
+    put16(packet + 14, (u16)(NV_NET_DATA_MAX - stream.used));
+    if (length) memcpy(packet + 20, body, length);
+    u8 pseudo[12] = {0};
+    put32(pseudo, stream.source_ip);
+    put32(pseudo + 4, stream.address);
+    pseudo[9] = 6;
+    put16(pseudo + 10, (u16)(length + 20));
+    u32 sum = (u16)~checksum(pseudo, sizeof(pseudo));
+    for (u32 i = 0; i < length + 20; i += 2)
+        sum += (u16)packet[i] << 8 | (i + 1 < length + 20 ? packet[i + 1] : 0);
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    put16(packet + 16, (u16)~sum);
+    return send_ipv4(peer_mac, stream.source_ip, stream.address, 6, packet, length + 20);
+}
+static bool tcp_checksum_valid(const u8 *packet, u32 length, u32 source, u32 dest) {
+    u8 pseudo[12] = {0};
+    put32(pseudo, source);
+    put32(pseudo + 4, dest);
+    pseudo[9] = 6;
+    put16(pseudo + 10, (u16)length);
+    u32 sum = (u16)~checksum(pseudo, sizeof(pseudo));
+    for (u32 i = 0; i < length; i += 2)
+        sum += (u16)packet[i] << 8 | (i + 1 < length ? packet[i + 1] : 0);
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    return sum == 0xffff;
+}
+static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
+    if (stream.state != TCP_SYN_SENT && stream.state != TCP_ESTABLISHED) return;
+    if (source != stream.address || dest != stream.source_ip ||
+        active != stream.index || size < 20 ||
+        be16(packet) != stream.remote_port || be16(packet + 2) != stream.local_port ||
+        !tcp_checksum_valid(packet, size, source, dest)) return;
+    u32 header = (packet[12] >> 4) * 4u;
+    if (header < 20 || header > size) return;
+    u8 flags = packet[13];
+    u32 seq = be32(packet + 4), ack = be32(packet + 8);
+    if (stream.state == TCP_SYN_SENT) {
+        if ((flags & 0x12) == 0x12 && ack == stream.next_tx) {
+            stream.next_rx = seq + 1;
+            stream.acked_tx = ack;
+            stream.state = TCP_ESTABLISHED;
+            tcp_packet(stream.next_tx, 0x10, NULL, 0);
+        } else if (flags & 4) stream.state = TCP_ERROR;
+        return;
+    }
+    if (flags & 4) {
+        if (seq == stream.next_rx) stream.state = TCP_ERROR;
+        return;
+    }
+    if (!(flags & 0x10)) return;
+    if ((i32)(ack - stream.acked_tx) >= 0 &&
+        (i32)(stream.next_tx - ack) >= 0) {
+        u32 progress = ack - stream.acked_tx;
+        if (progress && progress <= stream.queued) {
+            stream.queued -= progress;
+            memmove(stream.outgoing, stream.outgoing + progress, stream.queued);
+            stream.attempts = stream.queued ? 1 : 0;
+            stream.last_send = ticks;
+        }
+        stream.acked_tx = ack;
+    }
+    u32 length = size - header, skip = 0;
+    if ((i32)(seq - stream.next_rx) < 0)
+        skip = MIN(length, stream.next_rx - seq);
+    if (seq + skip != stream.next_rx) {
+        tcp_packet(stream.next_tx, 0x10, NULL, 0);
+        return;
+    }
+    u32 accepted = MIN(length - skip, NV_NET_DATA_MAX - stream.used);
+    if (accepted) {
+        memcpy(stream.buffer + stream.used, packet + header + skip, accepted);
+        stream.used += accepted;
+        stream.next_rx += accepted;
+    }
+    if ((flags & 1) && skip + accepted == length) {
+        ++stream.next_rx;
+        stream.eof = true;
+    }
+    if (length || (flags & 1)) tcp_packet(stream.next_tx, 0x10, NULL, 0);
+}
+static void tcp_retry(void) {
+    if (stream.state != TCP_SYN_SENT && stream.state != TCP_ESTABLISHED) return;
+    if (stream.state == TCP_ESTABLISHED && stream.acked_tx == stream.next_tx) return;
+    if (ticks - stream.last_send < 100) return;
+    if (stream.attempts >= 5) { stream.state = TCP_ERROR; return; }
+    u32 seq = stream.state == TCP_SYN_SENT ? stream.next_tx - 1 : stream.acked_tx;
+    u32 length = stream.state == TCP_SYN_SENT ? 0 : stream.queued;
+    int r = tcp_packet(seq, stream.state == TCP_SYN_SENT ? 2 : 0x18,
+                       stream.outgoing, length);
+    if (r == -NV_EAGAIN) { stream.last_send = ticks; return; }
+    if (r < 0) { stream.state = TCP_ERROR; return; }
+    ++stream.attempts;
+    stream.last_send = ticks;
 }
 static void dhcp_send(bool request) {
     if (!is_active()) return;
@@ -293,6 +431,17 @@ static void input_ipv4(const u8 *p, u32 size) {
             memcpy(inbox.data, data + 8, length);
             inbox_full = true;
         }
+    } else if (p[9] == 6 && n->ip) {
+        tcp_input(data, bytes, src, dest);
+    } else if (p[9] == 1 && n->ip && bytes >= 8 && data[0] == 0 &&
+               checksum(data, bytes) == 0) {
+        if (echo_probe.pending && src == echo_probe.address &&
+            be16(data + 4) == (u16)echo_probe.identifier &&
+            be16(data + 6) == (u16)echo_probe.sequence) {
+            echo_probe.ttl = p[8];
+            echo_probe.bytes = bytes - 8;
+            echo_probe.replied = true;
+        }
     } else if (p[9] == 1 && n->ip && bytes >= 8 && data[0] == 8 &&
                checksum(data, bytes) == 0) {
         u32 next = route(src);
@@ -327,15 +476,119 @@ void net_poll(void) {
     if (!link) {
         n->ip = n->mask = n->gateway = n->dns = 0;
         n->state = NV_NET_DOWN; lease_state = 0; peer_ip = 0; inbox_full = false;
+        echo_probe.pending = false;
+        stream.state = TCP_IDLE;
     } else {
         if (n->state == NV_NET_DOWN) n->state = NV_NET_LINK;
         if (active == wired) wired_poll(receive);
         if (lease_state && ticks - last_dhcp >= 400)
             dhcp_send(lease_state == 2);
+        tcp_retry();
     }
     polling = false;
 }
+void net_task_release(u32 pid) {
+    if (stream.state != TCP_IDLE && stream.owner == pid) stream.state = TCP_IDLE;
+}
 int net_ioctl(u32 op, u32 pointer) {
+    if (op >= NV_NET_TCP_OPEN && op <= NV_NET_TCP_CLOSE) {
+        if (!user_range(current->pd, pointer, sizeof(struct nv_net_tcp),
+                        op == NV_NET_TCP_OPEN || op == NV_NET_TCP_RECV)) return -NV_EFAULT;
+        struct nv_net_tcp io;
+        memcpy(&io, (const void *)(uptr)pointer, sizeof(io));
+        if (op == NV_NET_TCP_CLOSE) {
+            if (stream.state == TCP_IDLE || stream.owner != current->pid) return -NV_EACCESS;
+            if (stream.state == TCP_ESTABLISHED)
+                tcp_packet(stream.next_tx, stream.acked_tx == stream.next_tx ? 0x11 : 0x14,
+                           NULL, 0);
+            stream.state = TCP_IDLE;
+            return 0;
+        }
+        if (op == NV_NET_TCP_OPEN && stream.state == TCP_IDLE) {
+            if (io.index != active || active >= count || !io.address ||
+                !io.port || io.port > 65535 ||
+                adapters[active].state != NV_NET_ONLINE || !is_active()) return -NV_ENODEV;
+            memset(&stream, 0, sizeof(stream));
+            stream.owner = current->pid;
+            stream.index = active;
+            stream.address = io.address;
+            stream.source_ip = adapters[active].ip;
+            stream.remote_port = (u16)io.port;
+            stream.local_port = (u16)(49152u + (ticks % 16000u));
+            stream.next_tx = 0x4e560000u ^ ticks ^ io.address ^ ((u32)stream.local_port << 16);
+            stream.acked_tx = stream.next_tx;
+            ++stream.next_tx; /* SYN consumes one sequence number. */
+            stream.last_send = ticks - 100;
+            stream.state = TCP_SYN_SENT;
+            tcp_retry();
+        }
+        if (stream.owner != current->pid || io.index != stream.index ||
+            io.address != stream.address || io.port != stream.remote_port)
+            return -NV_EBUSY;
+        if (stream.state == TCP_ERROR) { stream.state = TCP_IDLE; return -NV_EIO; }
+        io.local_port = stream.local_port;
+        if (op == NV_NET_TCP_OPEN) {
+            memcpy((void *)(uptr)pointer, &io, sizeof(io));
+            return stream.state == TCP_ESTABLISHED ? 1 : 0;
+        }
+        if (stream.state != TCP_ESTABLISHED) return -NV_EAGAIN;
+        if (op == NV_NET_TCP_RECV) {
+            if (!io.length || io.length > sizeof(io.data)) return -NV_EINVAL;
+            if (!stream.used) return stream.eof ? 0 : -NV_EAGAIN;
+            u32 got = MIN(io.length, stream.used);
+            memcpy(io.data, stream.buffer, got);
+            stream.used -= got;
+            memmove(stream.buffer, stream.buffer + got, stream.used);
+            io.length = got;
+            memcpy((void *)(uptr)pointer, &io, sizeof(io));
+            tcp_packet(stream.next_tx, 0x10, NULL, 0); /* reopen the receive window */
+            return (int)got;
+        }
+        if (!io.length || io.length > sizeof(io.data)) return -NV_EINVAL;
+        if (stream.acked_tx != stream.next_tx) return -NV_EAGAIN;
+        int r = tcp_packet(stream.next_tx, 0x18, io.data, io.length);
+        if (r < 0) return r;
+        memcpy(stream.outgoing, io.data, io.length);
+        stream.queued = io.length;
+        stream.next_tx += io.length;
+        stream.attempts = 1;
+        stream.last_send = ticks;
+        return (int)io.length;
+    }
+    if (op == NV_NET_PING) {
+        if (!user_range(current->pd, pointer, sizeof(struct nv_net_ping), true))
+            return -NV_EFAULT;
+        struct nv_net_ping io;
+        memcpy(&io, (const void *)(uptr)pointer, sizeof(io));
+        if (io.index != active || active >= count || !io.address ||
+            adapters[active].state != NV_NET_ONLINE || !is_active()) return -NV_ENODEV;
+        if (echo_probe.pending) {
+            if (echo_probe.address != io.address ||
+                (u16)echo_probe.identifier != (u16)io.identifier ||
+                (u16)echo_probe.sequence != (u16)io.sequence) return -NV_EBUSY;
+            if (echo_probe.replied) {
+                io.reply_ttl = echo_probe.ttl;
+                io.reply_bytes = echo_probe.bytes;
+                echo_probe.pending = false;
+                memcpy((void *)(uptr)pointer, &io, sizeof(io));
+                return 1;
+            }
+            if (ticks - echo_probe.started >= 200) {
+                echo_probe.pending = false;
+                return -NV_EIO;
+            }
+            return 0;
+        }
+        int r = echo_request(io.address, io.identifier, io.sequence);
+        if (r < 0) return r;
+        echo_probe.address = io.address;
+        echo_probe.identifier = io.identifier;
+        echo_probe.sequence = io.sequence;
+        echo_probe.started = ticks;
+        echo_probe.replied = false;
+        echo_probe.pending = true;
+        return 0;
+    }
     if (op == NV_NET_WIFI_COMMAND || op == NV_NET_WIFI_READ) {
         if (!user_range(current->pd, pointer, sizeof(struct nv_net_wifi_command), true))
             return -NV_EFAULT;
@@ -375,6 +628,7 @@ int net_ioctl(u32 op, u32 pointer) {
             if (active != config.index) {
                 active = config.index;
                 lease_state = 0; peer_ip = 0; inbox_full = false;
+                echo_probe.pending = false; stream.state = TCP_IDLE;
             }
             return 0;
         }
@@ -382,6 +636,7 @@ int net_ioctl(u32 op, u32 pointer) {
         struct nv_net_info *n = &adapters[active];
         if (op == NV_NET_DHCP) {
             n->ip = n->mask = n->gateway = n->dns = 0;
+            stream.state = TCP_IDLE;
             n->state = NV_NET_CONFIGURING;
             dhcp_xid = 0x4e560000u ^ ticks ^ (u32)n->mac[5] << 8 ^ n->product;
             lease_state = 1; dhcp_send(false);
@@ -394,6 +649,7 @@ int net_ioctl(u32 op, u32 pointer) {
             n->gateway = config.gateway; n->dns = config.dns;
             n->state = NV_NET_ONLINE; lease_state = 0;
             peer_ip = 0;
+            stream.state = TCP_IDLE;
             arp_request(n->ip); /* announce source address */
         }
         return 0;

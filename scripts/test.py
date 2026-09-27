@@ -54,6 +54,15 @@ class VM:
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.proc.stdout, selectors.EVENT_READ)
         try:
+            if uefi:
+                deadline = time.monotonic() + boot_timeout
+                while b'C:/ :: ' not in self.output and b'\x1b[?1049h' not in self.output:
+                    if self.proc.poll() is not None or time.monotonic() > deadline:
+                        raise AssertionError(f'{name}: UEFI desktop did not start\n{self.text()}')
+                    self.pump()
+                if b'\x1b[?1049h' in self.output and b'C:/ :: ' not in self.output:
+                    self.proc.stdin.write(b'\x1b')
+                    self.proc.stdin.flush()
             self.wait_for(b'C:/ :: ', timeout=boot_timeout)
         except BaseException:
             self.close(normal=False)

@@ -28,10 +28,10 @@ Windows 10/11 在 PowerShell 中运行 `./start.ps1 doctor`、`./start.ps1 build
 | 内存 | x64 最多管理 128 GiB 物理地址范围，支持最多 2048 个启动内存图条目；4 GiB 以下 DMA、分阶页分配和小对象 slab；ARM64 上限仍为 64 GiB |
 | 数据盘 | IDE、SATA/AHCI 的 512B 与 512e 盘（LBA28/LBA48），以及 512B NVMe namespace；按活动命名空间列表识别稀疏编号，旧控制器回退顺序枚举 |
 | 文件 | GPT 默认一个 Nuvora 卷；NVSTORE3 支持 64 位文件大小、稀疏块和双元数据根；旧 NVSTORE1/2 可读取，解除旧容量限制需迁移 |
-| 桌面与媒体 | UEFI GOP 桌面、文件管理、Folio；Media 流式播放 MP3/MP2/FLAC、WAV/RF64 和 MPEG-1/MP2 视频；HDA 模拟音频输出 |
-| 外设与网络 | xHCI Boot 键盘/鼠标、QEMU USB Tablet、USB CDC-ECM、部分 Intel 有线网卡；特定 ESP USB Dongle 固件提供 Wi-Fi 桥接 |
+| 桌面与媒体 | 有 GOP 显示时默认进入桌面；开始菜单可启动终端、Folio 和 Media；后者流式播放 MP3/MP2/FLAC、WAV/RF64 和 MPEG-1/MP2 视频 |
+| 外设与网络 | xHCI Boot 键盘/鼠标（含数字小键盘）、USB CDC-ECM、部分 Intel 有线网卡；特定 ESP USB Dongle 固件提供 Wi-Fi 桥接；IPv4 `ping`、DNS、HTTP `wget` |
 
-在 Loom 中运行 `desktop` 打开桌面；使用 `volumes`、`partitions` 查看数据卷，修改文件后运行 `anchor` 才会提交到数据镜像。可在虚拟机关机后用 `scripts/import_media.py` 导入文件。操作细节见[命令手册](docs/COMMANDS.md)、[设备范围](docs/DEVICES.md)和[存储与迁移](docs/STORAGE-0.10.md)。
+桌面按 F10 打开开始菜单，选 Terminal 可输入命令，输入 `exit` 返回桌面；桌面按 Esc 可退到 Loom。在 Loom 中使用 `volumes`、`partitions` 查看数据卷，修改文件后运行 `anchor` 才会提交到数据镜像。`wget` 下载完成后会尝试自动提交有磁盘的数据卷。可在虚拟机关机后用 `scripts/import_media.py` 导入文件。操作细节见[命令手册](docs/COMMANDS.md)、[网络](docs/NETWORK.md)和[设备范围](docs/DEVICES.md)。
 
 ## 构建与验证
 
@@ -42,7 +42,7 @@ make iso-uefi   # 需要 mtools 和 xorriso
 make media      # 生成 GPT/ESP 启动镜像，不写宿主磁盘
 ```
 
-当前通过 27 组宿主回归，包括高地址内存、碎片化 UEFI 内存图、LBA28/LBA48 SATA、稀疏 NVMe namespace、GPT、文件提交与媒体解码。宿主测试不能替代 QEMU 或实体机启动；本轮没有实体硬件验证。首次上机请使用专用启动介质和测试数据盘。
+当前通过 28 组宿主回归，包括高地址内存、碎片化 UEFI 内存图、LBA28/LBA48 SATA、稀疏 NVMe namespace、GPT、文件提交、媒体解码及 ICMP/TCP 帧收发与 HTTP 解析。本轮环境缺少 QEMU 和 mtools，未完成新网络命令的客户机或实体机联机验证。首次上机请使用专用启动介质和测试数据盘。
 
 目前只挂载 Nuvora 自有格式，**不会格式化或写入普通 Windows/Linux 分区**。4Kn 逻辑扇区、USB 存储挂载、笔记本内置 PCI Wi-Fi、VirtIO/SCSI、Secure Boot、多核和 Linux/POSIX 应用兼容尚未实现。完整边界与历史变更见[测试说明](docs/TESTING.md)、[架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)和[更新记录](docs/CHANGELOG.md)。
 
