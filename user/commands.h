@@ -62,8 +62,8 @@ static const struct command_help commands[] = {
      "Ctrl-S saves, Ctrl-Q closes, F1 shows shortcuts.\n"
      "Use .nvd for formatted documents or .txt for plain text.\n"
      "Folio saves /home to the Nuvora data disk when it is available."},
-    {"desktop", "desktop", "Open windowed Files, text editor and terminal on UEFI displays.",
-     "desktop", "Drag a title bar or resize corner; taskbar minimizes/restores; F10 opens Start.\n"
+    {"desktop", "desktop", "Open the UEFI desktop with app icons and windows.",
+     "desktop", "Double-click icons; drag a title bar or resize corner; F10 opens Start.\n"
      "F2 renames; Delete confirms removal; Alt-Tab switches windows.\n"
      "Requires a supported framebuffer; BIOS text mode remains in Loom."},
     {"exit", "exit", "Close the desktop terminal window or return from full Loom.", "exit",

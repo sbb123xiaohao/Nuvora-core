@@ -46,10 +46,11 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     strlcpy(lines[1],"C:/ :: ls",sizeof(lines[1]));
     strlcpy(lines[2],"[dir] home",sizeof(lines[2]));
     const char *sample="An editable text window\nSecond line with 0123456789\n";
-    struct desktop_view v={.path="/home",.message="Ready",.drive="4 drives",
+    struct desktop_view v={.path="/home",.message="",.drive="4 drives",
         .entries=files,.count=24,.selected=4,.scroll=2,.volumes=4,
         .pointer=true,.pointer_x=width/2,.pointer_y=height/2,.audio_ready=true,
         .windows=windows,.order=order,.active=DESKTOP_FILES,
+        .shortcut_selected=0xffffffffu,
         .editor_path="/home/note.txt",.editor_text=sample,.editor_length=strlen(sample),
         .editor_cursor=12,.editor_dirty=true,.editor_input="/home/note.txt",
         .terminal_lines=(const char (*)[128])lines,.terminal_count=3,
@@ -57,6 +58,45 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     u32 n=width*height;
     u32 *full=guarded(n),*tiled=guarded(n);
     struct nv_canvas all={full+1,width,0,height,format};
+    if (!all_open) {
+        windows[DESKTOP_FILES].open=false;
+        v.active=DESKTOP_WINDOW_COUNT;
+        desktop_render(&all,height,&v);
+        for (u32 y=0;y<height;y+=tile_rows) {
+            struct nv_canvas tile={tiled+1+y*width,width,y,MIN(tile_rows,height-y),format};
+            desktop_render(&tile,height,&v);
+        }
+        assert(!memcmp(full+1,tiled+1,(usize)n*sizeof(u32)));
+        assert(full[0]==0x9173ace4 && full[n+1]==0x27607845);
+        assert(tiled[0]==0x9173ace4 && tiled[n+1]==0x27607845);
+        struct desktop_hit home_hit=desktop_hit(width,height,&v,45*s,48*s);
+        assert(home_hit.kind==DESKTOP_HIT_SHORTCUT && home_hit.index==0);
+        home_hit=desktop_hit(width,height,&v,45*s,(28+3*70+20)*s);
+        assert(home_hit.kind==DESKTOP_HIT_SHORTCUT && home_hit.index==3);
+        home_hit=desktop_hit(width,height,&v,(sw-40)*s,60*s);
+        assert(home_hit.kind==DESKTOP_HIT_NONE);
+        v.message="Media: audio device unavailable";
+        desktop_render(&all,height,&v);
+        assert(full[1+(sh-50)*s*width+17*s]==nv_display_rgb(format,0xb98866));
+        v.message="";
+        desktop_render(&all,height,&v);
+        if (format==NV_DISPLAY_BGRX8) {
+            const char *name=width==640 && height==480?"NV_HOME_640_PREVIEW":
+                width==1024 && height==768?"NV_HOME_1024_PREVIEW":
+                width==1280 && height==800?"NV_DESKTOP_PREVIEW":
+                width==1920 && height==1080?"NV_HOME_1920_PREVIEW":NULL;
+            if (name) preview(getenv(name),full+1,width,height);
+        }
+        if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8) {
+            v.menu=true;
+            desktop_render(&all,height,&v);
+            preview(getenv("NV_HOME_START_PREVIEW"),full+1,width,height);
+            v.menu=false;
+        }
+        windows[DESKTOP_FILES].open=true;
+        v.active=DESKTOP_FILES;
+        v.message="Ready";
+    }
     desktop_render(&all,height,&v);
     for (u32 y=0;y<height;y+=tile_rows) {
         struct nv_canvas tile={tiled+1+y*width,width,y,MIN(tile_rows,height-y),format};
@@ -89,7 +129,7 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
                         (windows[0].y+88+22)*s);
         assert(hit.kind==DESKTOP_HIT_PLACE && hit.index==1);
     }
-    const char *path=all_open?getenv("NV_WINDOWS_PREVIEW"):getenv("NV_DESKTOP_PREVIEW");
+    const char *path=all_open?getenv("NV_WINDOWS_PREVIEW"):getenv("NV_FILES_PREVIEW");
     if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8)
         preview(path,full+1,width,height);
     v.menu=true;
@@ -104,6 +144,10 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     hit=desktop_hit(width,height,&v,(windows[0].x+48)*s,
                     (windows[0].y+MAX(40u,windows[0].h/2-48)+76)*s);
     assert(hit.kind==DESKTOP_HIT_FILE_DIALOG && hit.index==1);
+    if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8 && !all_open) {
+        desktop_render(&all,height,&v);
+        preview(getenv("NV_DELETE_PREVIEW"),full+1,width,height);
+    }
     v.file_mode=DESKTOP_FILE_NORMAL;
     v.active=DESKTOP_EDITOR;
     windows[DESKTOP_EDITOR].open=true;
@@ -134,9 +178,11 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
 }
 int main(void) {
     assert(desktop_scale(1600,900)==2);
-    assert(desktop_scale(1920,1080)==3);
+    assert(desktop_scale(1920,1080)==2);
     assert(desktop_scale(2560,1000)==2);
-    assert(desktop_scale(2560,1440)==4);
+    assert(desktop_scale(2560,1440)==2);
+    assert(desktop_scale(2880,1800)==3);
+    assert(desktop_scale(3840,2160)==4);
     assert(desktop_pointer_axis(50,100,100,false)==99);
     assert(desktop_pointer_axis(50,-100,100,false)==0);
     assert(desktop_pointer_axis(50,16384,1280,true)==639);
@@ -145,8 +191,11 @@ int main(void) {
     assert(!strcmp(size,"10GiB"));
     for (u32 format=NV_DISPLAY_BGRX8;format<=NV_DISPLAY_RGBX8;++format) {
         case_render(640,480,format,7,false);
+        case_render(1024,768,format,41,false);
+        case_render(1280,800,format,137,false);
         case_render(1280,800,format,137,true);
         case_render(1600,900,format,23,true);
+        case_render(1920,1080,format,43,false);
         case_render(1920,1080,format,43,true);
         case_render(2560,720,format,31,true);
         case_render(2560,1000,format,47,true);

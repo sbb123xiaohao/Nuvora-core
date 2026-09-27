@@ -131,10 +131,14 @@ Loom 的 `ping` 和 `wget` 使用这些调用；域名解析由应用使用 DNS/
 
 ## 桌面入口和后续边界
 
-UEFI GOP 有效时默认打开 `desktop`；在 Loom 中也可输入 `desktop`。
+UEFI GOP 有效时默认打开 `desktop`，先显示空桌面，不自动打开 Files；
+在 Loom 中也可输入 `desktop`。桌面专用 DejaVu Sans Mono 灰度字形在构建前
+已生成到 `user/desktop_font.h`，渲染时用 4 位覆盖率做软件抗锯齿，
+普通构建不依赖宿主字体或 Pillow；内核字符终端仍用原有点阵字体。
 Files、Text Editor、Terminal 使用同一进程的像素窗口合成器，可以拖动标题栏、
 调整大小、最小化、最大化并通过任务栏切换；键盘 Alt-Tab 切换窗口，F10 打开开始菜单。
 Files 可新建文件夹、创建文本、改名、删除、浏览已挂载的 C:–F: 与 `/home`；
+删除需在确认框点击 Delete 或按 D，普通 Enter 不会执行删除。
 `.txt`/`.md` 使用窗口编辑器打开，保存走临时文件替换与数据盘同步。
 编辑器有 128 KiB 单文档内存上限，只支持当前字库显示的 ASCII 文本；这个上限
 不属于文件系统。Folio 保留 `.nvd` 格式排版能力，Media 播放文件；两者启动时桌面

@@ -1,4 +1,11 @@
-# Third-party bootloader materials
+# Third-party components
+
+The desktop's generated grayscale ASCII atlas in `user/desktop_font.h` uses
+glyphs from DejaVu Sans Mono. The font is not required to build the project;
+the generator is in `scripts/gen_desktop_font.py`. Attribution and license are
+in [DejaVu-FONT-LICENSE.txt](DejaVu-FONT-LICENSE.txt).
+
+## Bootloader materials
 
 The BIOS ISO images contain GNU GRUB 2.12, packaged by Ubuntu as
 `grub2` / `2.12-1ubuntu7`. GRUB remains under its own license; it is not

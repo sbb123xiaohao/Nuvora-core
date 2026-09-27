@@ -11,7 +11,7 @@ bool app_help(const char *name, const char *args) {
          "Full-screen text and formatted-document editor.\nCtrl-S saves; Ctrl-Q closes; F1 shows "
          "editor shortcuts.",
          "folio /home/report.nvd"},
-        {"desktop", "desktop", "Windowed desktop: Files, plain-text editor and terminal.\n"
+        {"desktop", "desktop", "Starts on an empty desktop with app icons and a taskbar.\n"
          "Drag title bars; double-click to maximize; use the taskbar to minimize/restore.\n"
          "F10 opens Start; Alt-Tab switches windows; F2 renames a file; Delete confirms removal.\n"
          "Media and Folio use the full screen; Return to Loom is in Start.", "desktop"},

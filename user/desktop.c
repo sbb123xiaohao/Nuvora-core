@@ -7,7 +7,8 @@ static struct nv_dirent64 entries[DESKTOP_ITEMS];
 static struct nv_display_info mode;
 static struct desktop_window windows[DESKTOP_WINDOW_COUNT];
 static u8 order[DESKTOP_WINDOW_COUNT] = {DESKTOP_EDITOR, DESKTOP_TERMINAL, DESKTOP_FILES};
-static u32 active = DESKTOP_FILES;
+static u32 active = DESKTOP_WINDOW_COUNT;
+static u32 shortcut_selected = 0xffffffffu;
 static char directory[NV_PATH_MAX], message[160], drive[32];
 static u32 count, selected, scroll, volumes;
 static u32 file_mode;
@@ -115,6 +116,7 @@ static struct desktop_view view(void) {
     v.count=count; v.selected=selected; v.scroll=scroll; v.volumes=volumes;
     v.file_mode=file_mode; v.file_input=file_input; v.file_target=file_input;
     v.pointer=pointer_visible; v.pointer_x=pointer_x; v.pointer_y=pointer_y;
+    v.shortcut_selected=shortcut_selected;
     v.audio_ready=audio_ready; v.menu=menu; v.menu_selected=menu_selected;
     v.windows=windows; v.order=order; v.active=active;
     v.editor_path=*editor_path?editor_path:"Untitled.txt";
@@ -239,8 +241,11 @@ static int file_submit(void) {
 }
 static int file_key(u32 key) {
     if (key==27) { file_mode=DESKTOP_FILE_NORMAL; return 0; }
+    if (file_mode==DESKTOP_FILE_DELETE) {
+        if (key=='d' || key=='D') return file_submit();
+        return 0;
+    }
     if (key=='\n') return file_submit();
-    if (file_mode==DESKTOP_FILE_DELETE) return 0;
     u32 n=strlen(file_input);
     if (key=='\b' && n) file_input[n-1]=0;
     else if (key>=32 && key<127 && n+1<sizeof(file_input)) {
@@ -431,7 +436,7 @@ static u32 editor_cursor_at(u32 rx, u32 ry) {
     u32 s=desktop_scale(mode.width,mode.height);
     u32 cols=MAX(1u,desktop_chars(w->w*s-36*s,s));
     u32 target_row=editor_scroll+(ry>73?(ry-73)/13:0);
-    u32 target_col=rx>19?MIN((rx-19)*s/(5*s+1),cols-1):0;
+    u32 target_col=rx>19?MIN((rx-19)/6,cols-1):0;
     u32 row=0,col=0;
     for (u32 i=0;i<editor_length;++i) {
         if (row==target_row && col>=target_col) return i;
@@ -623,7 +628,7 @@ int user_main(const char *args) {
     if ((iptr)tile<0) { report_error("Desktop: memory",(int)(iptr)tile); return 1; }
     u32 s=desktop_scale(mode.width,mode.height), sw=mode.width/s, sh=mode.height/s;
     windows[DESKTOP_FILES]=(struct desktop_window){.x=125,.y=42,
-        .w=MIN(520u,sw-145),.h=MIN(350u,sh-83),.open=true};
+        .w=MIN(520u,sw-145),.h=MIN(350u,sh-83)};
     windows[DESKTOP_EDITOR]=(struct desktop_window){.x=140,.y=62,
         .w=MIN(485u,sw-155),.h=MIN(310u,sh-100)};
     windows[DESKTOP_TERMINAL]=(struct desktop_window){.x=150,.y=86,
@@ -686,8 +691,13 @@ int user_main(const char *args) {
                     if (r<0) note_error("Media",r);
                 } else if (hit.kind==DESKTOP_HIT_SHORTCUT) {
                     u32 tick=clock_ticks();
-                    if (hit.index==last_shortcut && tick-last_shortcut_tick<45)
-                        focus_window(hit.index);
+                    shortcut_selected=hit.index;
+                    if (hit.index==last_shortcut && tick-last_shortcut_tick<45) {
+                        if (hit.index==3) {
+                            r=launch("/apps/media","");
+                            if (r<0) note_error("Media",r);
+                        } else focus_window(hit.index);
+                    }
                     last_shortcut=hit.index; last_shortcut_tick=tick;
                 } else if (hit.kind==DESKTOP_HIT_MINIMIZE) {
                     windows[hit.window].minimized=true; focus_top();
@@ -743,6 +753,7 @@ int user_main(const char *args) {
                     struct desktop_window *w=&windows[DESKTOP_EDITOR];
                     editor_cursor=editor_cursor_at(x-(u32)w->x,y-(u32)w->y);
                 } else if (hit.kind==DESKTOP_HIT_TERMINAL) focus_window(DESKTOP_TERMINAL);
+                else if (hit.kind==DESKTOP_HIT_NONE) shortcut_selected=0xffffffffu;
             }
             if (!(event.buttons&NV_POINTER_LEFT)) drag_kind=0;
             pointer_buttons=event.buttons&(NV_POINTER_LEFT|NV_POINTER_RIGHT|NV_POINTER_MIDDLE);
@@ -808,10 +819,16 @@ int user_main(const char *args) {
                 if (r<0) note_error("Save drives",r); else note("Mounted drives saved."); }
             else if (key>='1' && key<='7') { r=go_place(key-'1'); if (r<0) note_error("Location",r); }
             scroll_to_selection();
-        } else if (key==27) {
-            if (editor_dirty) r=editor_request(4,NULL);
-            else quit_requested=true;
-        }
+        } else if (active==DESKTOP_WINDOW_COUNT &&
+                   (key==NV_KEY_UP || key==NV_KEY_DOWN)) {
+            if (shortcut_selected>=4) shortcut_selected=0;
+            else if (key==NV_KEY_UP && shortcut_selected) --shortcut_selected;
+            else if (key==NV_KEY_DOWN && shortcut_selected<3) ++shortcut_selected;
+        } else if (active==DESKTOP_WINDOW_COUNT && key=='\n') {
+            if (shortcut_selected==3) { r=launch("/apps/media","");
+                if (r<0) note_error("Media",r); }
+            else focus_window(shortcut_selected<3?shortcut_selected:DESKTOP_FILES);
+        } else if (key==27) shortcut_selected=0xffffffffu;
         if (r<0) r=0;
         dirty=true;
     }
