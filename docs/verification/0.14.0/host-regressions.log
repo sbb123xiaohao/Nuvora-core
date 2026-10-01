@@ -1,0 +1,55 @@
+python3 scripts/test_regressions.py
+PASS crypto: SHA-256, RFC 4231 HMAC, PBKDF2 vectors, batching, long keys and secret erasure
+PASS accounts: full-cost hash, persistence, lock, login/password cooldown, tick wrap, home isolation and fail-closed storage
+PASS account UI: password masking, input editing, lock identity, safe deletion and tiled proportional-font rendering
+PASS addresses: 64-bit alignment, NX mask, physical/kernel-pointer round trip
+PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, rollback, legacy ELF and GOP masks
+PASS ACPI power: high FADT/DSDT/MMIO addresses, static S5, reset GAS, checksums and malformed AML
+PASS buddy: 4000 fragmented allocations, coalescence, bounds and sparse reservations
+PASS memory: boundary/DMA/fragmentation, 12000 heap operations, slab page reclaim
+PASS heap mapping: fragmented backing, five OOM rollback points, pinned NX supervisor pages
+PASS paged files: sparse 64 MiB seek, low-RAM rollback, legacy data and volumes
+PASS ATA: LBA48/LBA28, advertised FLUSH EXT, NVSTORE headers and 512e/4Kn validation
+PASS GPT: primary/backup recovery, protected table placement and write boundaries
+PASS GPT: primary/backup recovery, protected table placement and write boundaries
+PASS raw NVSTORE3: volume recognition and header write protection
+PASS NVMe: PCI, namespace/controller selection, GPT volumes, bounded writes, flush and I/O errors
+PASS NVMe: PCI, namespace/controller selection, GPT volumes, bounded writes, flush and I/O errors
+PASS NVMe: PCI, namespace/controller selection, GPT volumes, bounded writes, flush and I/O errors
+PASS NVMe: PCI, namespace/controller selection, GPT volumes, bounded writes, flush and I/O errors
+PASS NVMe: PCI, namespace/controller selection, GPT volumes, bounded writes, flush and I/O errors
+PASS NVMe: PCI, namespace/controller selection, GPT volumes, bounded writes, flush and I/O errors
+PASS AHCI: LBA48/LBA28 FIS, DMA errors, flush capability fallback and shutdown
+PASS AHCI: foreign LBA28/4Kn disks, later controllers and malformed BAR5 skipped
+PASS PCI ECAM: empty bus rejected, populated sparse bus matched, mismatched range rejected
+PASS USB xHCI: scratchpads, 64-bit DMA/ring completions, rollback, ports and HID
+PASS RNDIS: bounded replies, MAC query, packets, aggregation and malformed offsets
+PASS streaming snapshots: 8 MiB sparse file, lazy restore, power-loss and CRC fallback
+PASS extent store: 10 GiB sparse file, >4 GiB physical LBA, 160 MiB stream with bounded RAM, metadata-only commits, torn write/CRC fallback, full disk and ambiguous flush
+PASS UEFI: partial reads/rewind, memory-map replacement, malformed ELF, page ownership, segment copy/BSS
+PASS network: PCI/USB, DHCP, UDP, ICMP and TCP frames, checksum, link loss
+PASS network tools: HTTP URL, response and length bounds
+PASS network e1000: VMware/QEMU e1000e identity selects wired backend and link loss
+PASS e1000: BAR/MAC, DMA above 4 GiB, TX completion, RX recycle and link loss
+PASS audio: HDA codec route, immediate verbs, two DMA descriptors, bounds and absent device
+window: complete-frame publication, fragmented pages, stale snapshots/configures, allocation rollback, access control, input ordering, inherited terminal stdio and cleanup passed
+PASS display: tiled compositor, windows, controls, menu and editor dialog
+PASS desktop shell: search, stable MRU, minimized/closed windows, tiling and preview bounds
+PASS keyboard: PS/2 and USB keypad operators, Num Lock/Shift, Super, modifier release, multiple devices and overflow recovery
+PASS pointer: relative and absolute HID, motion bursts, buttons and queue wrap
+PASS media: decoded MP3 PCM, MPEG-1 video/MP2 audio and tiled graphical playback
+PASS media formats: streamed 24-bit FLAC, 720p MPEG with bounded input buffer, 64-bit callbacks, WAV 8/16/24/32-bit and 8 GiB RF64 bounds
+Created 512 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-media-5kp9v7m8/data.img
+PASS file import: 128 MiB slots, arbitrary files, two-slot preservation and replacement
+PASS importer/kernel interoperability: host extent metadata mounted, >4 GiB file read and committed by actual kernel code
+Created 32768 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-extents-sue2h7bs/store.img
+Created 512 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-extents-sue2h7bs/old.img
+Created 8192 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-extents-sue2h7bs/new.img
+PASS extent importer: 6 GiB sparse file, 140 MiB data, COW preservation, corrupt-root fallback, legacy migration, media conversion
+PASS QEMU options: split OVMF variables, combined fallback, IDE/AHCI/NVMe
+Created UEFI GPT boot image: /tmp/tmp3szcwef_/media.img (3 MiB)
+PASS UEFI media: protective MBR, primary/backup GPT CRC, ESP bytes, input isolation
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-regression-h27y3iti/two-volumes.img
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-regression-h27y3iti/extent-volumes.img
+Created 64 MiB Nuvora data image: /tmp/nuvora-regression-h27y3iti/raw-extent.img
+ALL 37 HOST REGRESSION GROUPS PASSED (including desktop shell, keyboard modifiers, native windows, storage, network and media; C fixtures use UBSan)

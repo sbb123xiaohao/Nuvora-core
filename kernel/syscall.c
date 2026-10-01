@@ -8,32 +8,53 @@ void fill_info(struct nv_info *i) {
 struct frame *syscall_dispatch(struct frame *f) {
     if ((f->cs & 3) != 3 || !current)
         panic("syscall outside user mode");
-    /* ABI 1 deliberately exposes a 32-bit user-address window on both CPUs. */
-    if (f->eax > 0xffffffffu || f->ebx > 0xffffffffu || f->ecx > 0xffffffffu ||
-        f->edx > 0xffffffffu) {
-        f->eax = (u32)-NV_EINVAL;
+    bool native = (f->eax & NV_CALL_NATIVE) != 0;
+    u64 operation = f->eax & ~NV_CALL_NATIVE;
+    if (operation > 0xffffffffu || (!native &&
+        (f->ebx > 0xffffffffu || f->ecx > 0xffffffffu || f->edx > 0xffffffffu))) {
+        f->eax = native ? (u64)(i64)-NV_EINVAL : (u32)-NV_EINVAL;
         return f;
     }
+    u32 op = (u32)operation;
     current->frame = f;
     task_reap();
     usb_poll();
     net_poll();
-    u32 a = f->ebx, b = f->ecx, c = f->edx;
-    int result = -NV_ENOSYS;
+    uptr a = f->ebx, b = f->ecx, c = f->edx;
+    iptr result = -NV_ENOSYS;
     char path[NV_PATH_MAX], other[NV_ARG_MAX];
     bool reschedule = false;
-    switch (f->eax) {
+    /* Pointers are native-width; selectors remain bounded values. Reject
+     * oversized selectors instead of silently selecting their low word. */
+    u32 scalar = 0;
+    switch (op) {
+    case NV_EMIT: case NV_TAKE: case NV_SEEK64: case NV_STAT64:
+    case NV_TASK: case NV_TASK64: scalar = 1; break;
+    case NV_OPEN: case NV_LIST: case NV_LIST64: scalar = 2; break;
+    case NV_CLOSE: case NV_WAIT: case NV_STOP: case NV_EXIT: scalar = 1; break;
+    case NV_VOLUME: case NV_PARTITION: case NV_SURFACE: scalar = 1 | 4; break;
+    case NV_USB: case NV_HARDWARE: case NV_DEVCTL: scalar = 1 | 2; break;
+    case NV_CONTROL: scalar = 1 | 2; break;
+    case NV_SEEK: scalar = 1 | 2 | 4; break;
+    default: break;
+    }
+    if (((scalar & 1) && a > 0xffffffffu) || ((scalar & 2) && b > 0xffffffffu) ||
+        ((scalar & 4) && c > 0xffffffffu)) {
+        f->eax = native ? (u64)(i64)-NV_EINVAL : (u32)-NV_EINVAL;
+        return f;
+    }
+    switch (op) {
     case NV_EMIT:
     case NV_TAKE:
         if (c > IO_MAX) {
             result = -NV_E2BIG;
             break;
         }
-        if (!user_range(current->pd, b, c, f->eax == NV_TAKE)) {
+        if (!user_range(current->pd, b, c, op == NV_TAKE)) {
             result = -NV_EFAULT;
             break;
         }
-        result = f->eax == NV_EMIT ? fs_write(current, (int)a, (void *)(uptr)b, c)
+        result = op == NV_EMIT ? fs_write(current, (int)a, (void *)(uptr)b, c)
                                    : fs_read(current, (int)a, (void *)(uptr)b, c);
         break;
     case NV_OPEN:
@@ -49,9 +70,9 @@ struct frame *syscall_dispatch(struct frame *f) {
         break;
     case NV_SEEK64:
     case NV_STAT64: {
-        u32 bytes = f->eax == NV_SEEK64 ? sizeof(struct nv_seek64) : sizeof(struct nv_stat64);
+        u32 bytes = op == NV_SEEK64 ? sizeof(struct nv_seek64) : sizeof(struct nv_stat64);
         if (c || !user_range(current->pd, b, bytes, true)) { result = c ? -NV_EINVAL : -NV_EFAULT; break; }
-        if (f->eax == NV_SEEK64) {
+        if (op == NV_SEEK64) {
             struct nv_seek64 io; memcpy(&io, (void *)(uptr)b, sizeof(io));
             result = fs_seek64(current, (int)a, &io);
             if (!result) memcpy((void *)(uptr)b, &io, sizeof(io));
@@ -64,6 +85,8 @@ struct frame *syscall_dispatch(struct frame *f) {
     case NV_LIST64: {
         result = user_string(a, path, sizeof(path));
         if (result < 0) break;
+        result = fs_authorize(current,current->cwd,path,0);
+        if (result < 0) break;
         if (!user_range(current->pd, c, sizeof(struct nv_dirent64), true)) { result = -NV_EFAULT; break; }
         struct nv_dirent64 e; result = fs_list64(current->cwd, path, b, &e);
         if (result > 0) memcpy((void *)(uptr)c, &e, sizeof(e));
@@ -73,6 +96,8 @@ struct frame *syscall_dispatch(struct frame *f) {
         result = user_string(a, path, sizeof(path));
         if (result < 0)
             break;
+        result = fs_authorize(current,current->cwd,path,0);
+        if (result < 0) break;
         if (!user_range(current->pd, c, sizeof(struct nv_dirent), true)) {
             result = -NV_EFAULT;
             break;
@@ -90,9 +115,11 @@ struct frame *syscall_dispatch(struct frame *f) {
         result = user_string(a, path, sizeof(path));
         if (result < 0)
             break;
-        if (f->eax == NV_MKDIR)
+        result = fs_authorize(current,current->cwd,path,op==NV_MKDIR?1u:op==NV_REMOVE?2u:0u);
+        if (result < 0) break;
+        if (op == NV_MKDIR)
             result = fs_mkdir(current->cwd, path);
-        else if (f->eax == NV_REMOVE)
+        else if (op == NV_REMOVE)
             result = fs_remove(current->cwd, path);
         else {
             result = fs_lookup(current->cwd, path);
@@ -111,9 +138,12 @@ struct frame *syscall_dispatch(struct frame *f) {
         result = user_string(a, path, sizeof(path));
         if (result < 0)
             break;
+        result=fs_authorize(current,current->cwd,path,2);
+        if (result<0) break;
         result = user_string(b, other, NV_PATH_MAX);
+        if (result == 0) result=fs_authorize(current,current->cwd,other,1);
         if (result == 0)
-            result = f->eax == NV_MOVE ? fs_move(current->cwd, path, other)
+            result = op == NV_MOVE ? fs_move(current->cwd, path, other)
                                        : fs_replace(current->cwd, path, other);
         break;
     case NV_GETCWD:
@@ -135,9 +165,19 @@ struct frame *syscall_dispatch(struct frame *f) {
         break;
     case NV_SPAWN:
     case NV_EXEC:
+        /* A session authority cannot turn an arbitrary ELF into the login
+         * manager by keeping its PID. Spawn normal children instead. */
+        if (!test_mode && op==NV_EXEC && (current->pid==1 || account_manager(current))) {
+            result=-NV_EACCESS;break;
+        }
         result = user_string(a, path, sizeof(path));
         if (result < 0)
             break;
+        if (!account_session_allowed(current) && !(current->pid==1 && !strcmp(path,"/apps/desktop"))) {
+            result=-NV_EACCESS;break;
+        }
+        result=fs_authorize(current,current->cwd,path,0);
+        if (result<0) break;
         result = user_string(b, other, sizeof(other));
         if (result < 0)
             break;
@@ -151,7 +191,7 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = fs_path(node, path, sizeof(path));
             if (result == 0)
                 result =
-                    f->eax == NV_EXEC ? task_exec(path, other) : task_spawn(path, other, current);
+                    op == NV_EXEC ? task_exec(path, other) : task_spawn(path, other, current);
         }
         break;
     case NV_WAIT:
@@ -183,7 +223,37 @@ struct frame *syscall_dispatch(struct frame *f) {
         reschedule = true;
         break;
     case NV_GROW:
-        result = task_grow((i32)a);
+        result = !native && current->abi != NV_ABI_LEGACY ? -NV_EINVAL :
+                 task_grow(native ? (i64)a : (i32)a);
+        break;
+    case NV_INFO64: {
+        if (!native) { result = -NV_EINVAL; break; }
+        if (!user_range(current->pd, a, sizeof(struct nv_info64), true)) {
+            result = -NV_EFAULT; break;
+        }
+        struct nv_info64 info = {.abi=NV_ABI_VERSION, .hz=100,
+            .ram_pages=pages_total(), .free_pages=pages_free(),
+            .heap_used=heap_used(), .heap_total=heap_total(), .ticks=ticks,
+            .tasks=task_count(), .nodes=fs_node_count(), .disk_present=disk_ready(),
+            .saved_generation=store_generation()};
+        memcpy((void *)a, &info, sizeof(info)); result=0; break;
+    }
+    case NV_TASK64: {
+        if (!native) { result = -NV_EINVAL; break; }
+        if (a >= NV_TASK_MAX) { result = -NV_EINVAL; break; }
+        if (!user_range(current->pd, b, sizeof(struct nv_taskinfo64), true)) {
+            result = -NV_EFAULT; break;
+        }
+        struct task *t = &tasks[a];
+        if (!t->state) { result=0; break; }
+        struct nv_taskinfo64 info = {.pid=t->pid, .parent=t->parent,
+            .state=t->state, .abi=t->abi, .cpu_ticks=t->cpu_ticks,
+            .pages=vm_page_count(t->pd), .heap_end=t->heap_end};
+        memcpy(info.name, t->name, sizeof(info.name));
+        memcpy((void *)b, &info, sizeof(info)); result=1; break;
+    }
+    case NV_CLOCK64:
+        result = native ? (iptr)ticks : -NV_EINVAL;
         break;
     case NV_INFO:
         if (!user_range(current->pd, a, sizeof(struct nv_info), true)) {
@@ -193,6 +263,7 @@ struct frame *syscall_dispatch(struct frame *f) {
         {
             struct nv_info info;
             fill_info(&info);
+            if (!native) info.abi = NV_ABI_LEGACY;
             memcpy((void *)(uptr)a, &info, sizeof(info));
             result = 0;
         }
@@ -330,7 +401,11 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = gpu_ioctl(b, c);
             break;
         case NV_SUB_NET:
-            result = net_ioctl(b, c);
+            if (!account_task_allowed(current) ||
+                ((b==NV_NET_DHCP || b==NV_NET_STATIC || b==NV_NET_SELECT ||
+                  b==NV_NET_WIFI_COMMAND || b==NV_NET_WIFI_READ) && !account_admin_allowed(current)))
+                result=-NV_EACCESS;
+            else result = net_ioctl(b, c);
             break;
         case NV_SUB_DISPLAY:
             result = display_ioctl(b, c);
@@ -341,17 +416,26 @@ struct frame *syscall_dispatch(struct frame *f) {
         case NV_SUB_AUDIO:
             result = audio_ioctl(b, c);
             break;
+        case NV_SUB_WINDOW:
+            result = window_ioctl(b, c);
+            break;
+        case NV_SUB_ACCOUNT:
+            result = account_ioctl(b, c);
+            break;
         default:
             result = -NV_EINVAL;
             break;
         }
         break;
     case NV_CONTROL:
-        if (a == NV_CTL_SYNC && console_owned(current->pid)) {
+        if (a == NV_CTL_SYNC && account_session_allowed(current) &&
+            (console_owned(current->pid) || window_owned(current->pid))) {
             result = store_sync();
             break;
         }
         if (a == NV_CTL_CLEAR) {
+            result = window_stdio_clear(current);
+            if (result != -NV_ENODEV) break;
             if (console_owned(0) == false) {
                 result = -NV_EBUSY;
                 break;
@@ -360,7 +444,7 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = 0;
             break;
         }
-        if (current->pid != 1) {
+        if (!account_admin_allowed(current)) {
             result = -NV_EACCESS;
             break;
         }
@@ -379,6 +463,6 @@ struct frame *syscall_dispatch(struct frame *f) {
     default:
         break;
     }
-    f->eax = (u32)result;
+    f->eax = native ? (u64)result : (u32)result;
     return reschedule ? schedule(f) : f;
 }

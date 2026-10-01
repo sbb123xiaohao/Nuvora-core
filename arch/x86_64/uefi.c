@@ -4,6 +4,7 @@
  * Built with -fshort-wchar; the binary is produced by scripts/mkuefi.py. */
 #include <nv/bootinfo.h>
 #include <nv/string.h>
+#include <nv/pixel.h>
 #include <stddef.h>
 #define MSABI __attribute__((ms_abi))
 typedef u64 efi_status;
@@ -119,7 +120,9 @@ struct efi_gop_mode {
     uptr framebuffer_size;
 };
 struct efi_gop {
-    void *query_mode, *set_mode, *blt;
+    efi_status(MSABI *query_mode)(struct efi_gop *, u32, uptr *, struct efi_gop_mode_info **);
+    efi_status(MSABI *set_mode)(struct efi_gop *, u32);
+    void *blt;
     struct efi_gop_mode *mode;
 };
 struct efi_sfs {
@@ -146,7 +149,7 @@ static const struct efi_guid sfs_guid =
 static const struct efi_guid acpi20_guid =
     {0x8868e871, 0xe4f1, 0x11d3, {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}};
 static const struct efi_guid acpi10_guid =
-    {0xeb9d2d31, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}};
+    {0xeb9d2d30, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}};
 _Static_assert(offsetof(struct efi_system_table, boot_services) == 96, "system table layout");
 _Static_assert(offsetof(struct efi_boot_services, get_memory_map) == 56, "boot services layout");
 _Static_assert(offsetof(struct efi_boot_services, allocate_pool) == 64, "boot services layout");
@@ -485,21 +488,26 @@ static efi_status read_whole_file(struct efi_boot_services *bs, void *volume,
     return EFI_SUCCESS;
 }
 static u64 find_rsdp(struct efi_system_table *st) {
+    u64 legacy = 0;
     for (uptr i = 0; i < st->number_of_table_entries; ++i) {
         const struct efi_config_table *t = &st->configuration_table[i];
-        if (!memcmp(&t->vendor_guid, &acpi20_guid, sizeof(struct efi_guid)) ||
-            !memcmp(&t->vendor_guid, &acpi10_guid, sizeof(struct efi_guid)))
+        if (!t->vendor_table) continue;
+        if (!memcmp(&t->vendor_guid, &acpi20_guid, sizeof(struct efi_guid)))
             return (u64)(uptr)t->vendor_table;
+        if (!memcmp(&t->vendor_guid, &acpi10_guid, sizeof(struct efi_guid)))
+            legacy = (u64)(uptr)t->vendor_table;
     }
-    return 0;
+    return legacy;
 }
 static void fill_framebuffer(void *gop_void) {
+    memset(&bi.fb, 0, sizeof(bi.fb));
     const struct efi_gop *gop = gop_void;
+    if (!gop) return;
     const struct efi_gop_mode *mode = gop->mode;
     if (!mode)
         return;
     const struct efi_gop_mode_info *info = mode->info;
-    if (!info || mode->framebuffer_base % 4096)
+    if (!info)
         return;
     u32 format = NV_FB_NONE;
     if (info->pixel_format == 0)
@@ -507,17 +515,24 @@ static void fill_framebuffer(void *gop_void) {
     else if (info->pixel_format == 1)
         format = NV_FB_BGRX8;
     else if (info->pixel_format == 2) {
+        if (!nv_pixel_masks_valid(info->pixel_information)) return;
         u32 red = info->pixel_information[0], blue = info->pixel_information[2];
-        if (info->pixel_information[1] != 0x0000ff00u)
-            return;
-        if (red == 0x00ff0000u && blue == 0x000000ffu)
+        if (info->pixel_information[1] == 0x0000ff00u &&
+            red == 0x00ff0000u && blue == 0x000000ffu)
             format = NV_FB_BGRX8;
-        else if (red == 0x000000ffu && blue == 0x00ff0000u)
+        else if (info->pixel_information[1] == 0x0000ff00u &&
+                 red == 0x000000ffu && blue == 0x00ff0000u)
             format = NV_FB_RGBX8;
+        else format = NV_FB_BITMASK;
     }
-    if (format == NV_FB_NONE || info->horizontal < 80 || info->vertical < 25 ||
+    if (format == NV_FB_NONE || !mode->framebuffer_base ||
+        mode->framebuffer_base >= (1ull << 52) ||
+        info->horizontal < 80 || info->vertical < 25 ||
         info->pixels_per_scanline < info->horizontal ||
+        info->pixels_per_scanline > 0xffffffffu / 4 ||
         (u64)info->pixels_per_scanline * 4 * info->vertical > 64ull * 1024 * 1024 ||
+        (u64)info->pixels_per_scanline * 4 * info->vertical >
+            (1ull << 52) - mode->framebuffer_base ||
         (u64)info->pixels_per_scanline * 4 * info->vertical > mode->framebuffer_size)
         return;
     bi.fb.address = mode->framebuffer_base;
@@ -525,6 +540,40 @@ static void fill_framebuffer(void *gop_void) {
     bi.fb.height = info->vertical;
     bi.fb.pitch = info->pixels_per_scanline * 4;
     bi.fb.format = format;
+    memcpy(bi.fb.masks, info->pixel_information, sizeof(bi.fb.masks));
+}
+static void select_framebuffer(struct efi_boot_services *bs, struct efi_gop *gop) {
+    fill_framebuffer(gop);
+    if (bi.fb.format != NV_FB_NONE && bi.fb.width >= 640 && bi.fb.height >= 480) return;
+    if (!gop || !gop->mode || !gop->query_mode || !gop->set_mode) return;
+    u32 count = MIN(gop->mode->max_mode, 256u);
+    u64 sizes[256];
+    for (u32 index = 0; index < count; ++index) {
+        sizes[index] = ~0ull;
+        struct efi_gop_mode_info *info = NULL;
+        uptr size = 0;
+        efi_status status = gop->query_mode(gop, index, &size, &info);
+        if (!EFI_ERROR(status) && info && size >= sizeof(*info) &&
+            info->horizontal >= 640 && info->vertical >= 480 &&
+            info->pixels_per_scanline >= info->horizontal &&
+            info->pixels_per_scanline <= 0xffffffffu / 4 &&
+            (info->pixel_format < 2 || (info->pixel_format == 2 &&
+             nv_pixel_masks_valid(info->pixel_information)))) {
+            u64 bytes = (u64)info->pixels_per_scanline * 4 * info->vertical;
+            if (bytes <= 64ull * 1024 * 1024) sizes[index] = bytes;
+        }
+        if (info) bs->free_pool(info);
+    }
+    for (u32 attempt = 0; attempt < count; ++attempt) {
+        u32 selected = count; u64 best = ~0ull;
+        for (u32 i = 0; i < count; ++i)
+            if (sizes[i] < best) { best = sizes[i]; selected = i; }
+        if (selected == count) break;
+        sizes[selected] = ~0ull;
+        if (EFI_ERROR(gop->set_mode(gop, selected))) continue;
+        fill_framebuffer(gop);
+        if (bi.fb.format != NV_FB_NONE && bi.fb.width >= 640 && bi.fb.height >= 480) return;
+    }
 }
 static bool convert_memory_map(const struct efi_memory_descriptor *map, uptr size, uptr stride) {
     if (!map || !size || stride < sizeof(*map) || size % stride)
@@ -578,10 +627,10 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
         EFI_ERROR(bs->handle_protocol(st->console_out_handle, &gop_guid, &gop)))
         gop = NULL;
     if (gop)
-        fill_framebuffer(gop);
+        select_framebuffer(bs, gop);
     if (bi.fb.format == NV_FB_NONE &&
         !EFI_ERROR(bs->locate_protocol(&gop_guid, NULL, &gop)) && gop)
-        fill_framebuffer(gop);
+        select_framebuffer(bs, gop);
     u8 *kernel = NULL;
     uptr kernel_size = 0;
     static const char16 kernel_paths[2][24] = {L"\\EFI\\NUVORA\\NUVORA.ELF",

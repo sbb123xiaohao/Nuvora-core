@@ -85,6 +85,9 @@ void cpu_init(void) {
         cr4 |= 1u << 9;
     if (identity.usable & NV_CPU_SSE)
         cr4 |= 1u << 10;
+    /* Optional SMEP prevents a kernel control-flow bug from executing a
+     * user mapping. Older physical CPUs retain the NX/WP protections. */
+    if (identity.leaf7_ebx&(1u<<7)) cr4|=1u<<20;
     __asm__ volatile("mov %0,%%cr0; mov %1,%%cr4" ::"r"(cr0), "r"(cr4) : "memory");
     identity.features_ecx &= ~(1u << 27); /* CPUID.OSXSAVE reflects the new CR4. */
     struct fp_state initial;
@@ -92,11 +95,32 @@ void cpu_init(void) {
     cpu_fp_restore(&initial);
     kprintf("[ok] CPU %s family %u model %u; %s context; 1 CPU online\n", identity.vendor,
             identity.family, identity.model, identity.fp_mode == NV_FP_FXSAVE ? "FXSAVE" : "x87");
+    kprintf("[ok] kernel execute protection: SMEP %s\n",(cr4&(1u<<20))?"enabled":"unavailable");
 }
 void cpu_get_info(struct nv_cpu_info *out) {
     *out = identity;
 }
-int cpu_ioctl(u32 op, u32 user_ptr) {
+bool cpu_random(void *output,u32 bytes) {
+    /* Prefer RDSEED, then the architectural RDRAND generator. Do not use
+     * uptime, MAC addresses or a predictable PRNG for password salts. */
+    u8 *p=output;
+    bool seed=(identity.leaf7_ebx&(1u<<18))!=0;
+    if (!seed && !(identity.features_ecx&(1u<<30))) return false;
+    while (bytes) {
+        u64 value=0;u8 ok=0;
+        for (u32 tries=0;tries<32 && !ok;++tries) {
+            if (seed) __asm__ volatile("rdseed %0; setc %1":"=r"(value),"=qm"(ok)::"cc");
+            else __asm__ volatile("rdrand %0; setc %1":"=r"(value),"=qm"(ok)::"cc");
+        }
+        if (!ok && seed && (identity.features_ecx&(1u<<30))) {
+            seed=false;continue;
+        }
+        if (!ok) { memset(output,0,(usize)(p-(u8 *)output));return false; }
+        u32 n=MIN(bytes,8u);memcpy(p,&value,n);p+=n;bytes-=n;
+    }
+    return true;
+}
+int cpu_ioctl(u32 op, uptr user_ptr) {
     (void)op;
     (void)user_ptr;
     /* No CPU control operations yet (NV_HARDWARE/NV_HW_CPU already covers

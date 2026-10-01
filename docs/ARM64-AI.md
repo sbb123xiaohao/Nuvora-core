@@ -2,6 +2,10 @@
 
 本文记录 0.9.0 的验证基线；当前 x64 的内存、存储范围与运行方式请以 [README](../README.md) 和 [架构](ARCHITECTURE.md) 为准。本文件描述当时已运行的功能与仍需实现的接口，避免把 CPU 自检、设备识别或大磁盘镜像称作完整训练系统。
 
+0.14.0 更新：x64 已实现原生 64 位应用 ABI 和高地址用户堆，见
+[NATIVE64-HARDWARE](NATIVE64-HARDWARE.md)。下文的 512 MiB 用户堆和
+64 GiB x64 管理上限属于 0.9.0 历史记录；ARM64 bringup 尚未移植 ABI 2。
+
 | 能力 | x86-64 | ARM64（QEMU virt） |
 | --- | --- | --- |
 | 启动 | BIOS/GRUB 和 UEFI；完整 Loom 用户环境 | ARM64 Image、设备树移交、PL011 串口；单个内嵌 EL0 工作负载 |

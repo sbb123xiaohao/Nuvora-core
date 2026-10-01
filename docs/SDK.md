@@ -3,25 +3,28 @@
 Nuvora 的 x64 应用接口现在有公开头文件 `include/nv/abi.h`、
 `include/nv/sdk.h` 和 `include/nv/gfx.h`。外部程序可以编译为独立的
 ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像素绘制
-和 `NV_SUB_INPUT` 鼠标事件、`NV_SUB_AUDIO` PCM 音频输出。
+和 `NV_SUB_INPUT` 鼠标事件、`NV_SUB_AUDIO` PCM 音频输出及 `NV_SUB_WINDOW` 窗口事件。
 `user/desktop.c` 是实际使用这些接口的桌面程序，已在同一进程内合成文件管理、
-纯文本编辑与终端窗口。其他进程仍独占像素屏，不能运行 Linux、Windows 或 Qt/KDE 应用。
+纯文本编辑；`NV_SUB_WINDOW` 将独立进程的画面加入同一桌面。Media、Folio 和
+完整终端使用该接口。Linux、Windows 或 Qt/KDE 二进制仍不兼容。
 
 ## 兼容约定
 
-- ABI 仍为 `NV_ABI_VERSION=1`；0–30 号调用及旧结构布局不变。新增
-  `NV_DEVCTL` 子系统 4（显示）、5（输入）和 6（音频），不改变旧程序调用行为。新增功能以子系统和操作号
+- ABI 为 `NV_ABI_VERSION=2`；0–33 号调用及旧二进制结构布局不变。新增
+  `NV_DEVCTL` 子系统 4（显示）、5（输入）、6（音频）和 7（窗口），不改变旧程序调用行为。新增功能以子系统和操作号
   扩展；结构改变时应新增操作或提高对应子系统的 `api_version`，不能覆盖
   旧字段。`NV_INFO.abi` 与 `NV_DISPLAY_INFO.api_version` 分别查询核心 ABI
   和显示协议，应用必须查询后使用。
 - x86-64 入口为 `int user_main(const char *args)`；启动器在 `RBX` 传递
-  参数字符串，应用返回退出码。系统调用执行 `int 0x81`，EAX 为操作号，
-  EBX/ECX/EDX 为三个 32 位参数，EAX 返回有符号值。负值是 `-NV_E...`。
-  用户指针必须在当前进程映射的 1–2 GiB 区间，不接受 64 位高地址。
-- 程序使用静态 ELF64，没有动态链接器、POSIX socket/libc、共享库、
-  进程间窗口协议或用户态直接显存映射。新应用先以源码加入 `APPS`，
-  通过 `scripts/mkarchive.py` 随内核映像嵌入 `/apps/`；当前数据文件系统
-  不支持直接安装和执行任意外部 ELF。
+  参数字符串，应用返回退出码。系统调用执行 `int 0x81`，RAX 为
+  `NV_CALL_NATIVE | 操作号`，RBX/RCX/RDX 为三个完整 64 位参数，RAX
+  返回有符号 64 位值。负值是 `-NV_E...`。用户指针须处于当前进程的有效
+  映射；新应用映像从 4 GiB 起、堆从 64 GiB 起、栈在低半规范地址顶部。
+- 程序使用符合本项目 ABI 的静态 ELF64，没有动态链接器、POSIX
+  socket/libc、共享库或用户态直接显存映射。可把源码加入 `APPS`，
+  通过 `scripts/mkarchive.py` 随内核映像嵌入 `/apps/`；符合加载器约束的
+  ELF 也可复制到数据卷后用 `NV_SPAWN`/`NV_EXEC` 运行。加载器会临时读取
+  分页或磁盘文件，分配失败不修改原文件；没有通用软件包安装器。
 - 对 ARM64 仍只有独立 QEMU `virt` 移植基线，尚无此应用 ABI。
 
 ## 像素显示
@@ -36,7 +39,9 @@ if (r == 0 && info.api_version == NV_DISPLAY_API_VERSION) {
 }
 ```
 
-`nv_display_present` 接受固定 24 字节 `nv_display_present`：
+`nv_display_present` 使用 `NV_DISPLAY_PRESENT64`，接受 32 字节的
+`nv_display_present`（u32 reserved 必须为零，pixels 为 u64）。旧操作
+`NV_DISPLAY_PRESENT` 仍接受 24 字节的 `nv_display_present32`：
 
 | 字段 | 单位 / 约束 |
 | --- | --- |
@@ -77,7 +82,7 @@ QEMU 图形窗口使用 USB Tablet，提供绝对坐标。
 GCC/binutils 工具链（无 libc、无 red zone），先 `make -j4`，然后：
 
 ```sh
-gcc -m64 -mcmodel=small -mno-red-zone -mgeneral-regs-only -ffreestanding \
+gcc -m64 -mcmodel=large -mno-red-zone -mgeneral-regs-only -ffreestanding \
   -fno-builtin -fno-pie -fno-pic -fno-stack-protector -std=c11 -O2 \
   -Iinclude -c examples/pixel_demo.c -o build/x86_64/user/pixel_demo.o
 ld -m elf_x86_64 --gc-sections -z max-page-size=4096 -T user/linker64.ld \
@@ -87,7 +92,8 @@ ld -m elf_x86_64 --gc-sections -z max-page-size=4096 -T user/linker64.ld \
 
 要让它出现在 `/apps`，先复制示例为 `user/pixel_demo.c`，再把
 `pixel_demo` 加到 Makefile 的 `APPS` 后重新 `make`。
-如果应用使用绘图字体和字符串功能，可一同链接 `common/string.o`。
+如果应用使用绘图字体和字符串功能，可一同链接 `build/x86_64/user/string.o`，
+它使用与高地址应用一致的 large code model。
 
 ## PCM 音频
 
@@ -103,7 +109,9 @@ if (nv_audio_info(&audio) == 0 &&
 
 `NV_SUB_AUDIO=6` 的 INFO 输出 24 字节：版本、输出数量（0 或 1）、
 采样率 48000、声道数 2、`NV_AUDIO_S16LE` 和单次最大写入 3072 字节。
-WRITE 接受 `{u32 pixels, u32 bytes}` 8 字节请求，把用户 PCM 复制到受保护的
+SDK 使用 WRITE64 的 `{u64 pixels, u32 bytes, u32 reserved}` 16 字节请求，
+reserved 必须为零；旧 WRITE 仍接受 `nv_audio_write32` 的 8 字节布局。
+内核把用户 PCM 复制到受保护的
 DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不完整帧、
 零字节或超长请求返回 `-NV_EINVAL`；坏用户地址返回 `-NV_EFAULT`。
 `nv_audio_get_volume(&level)` 和 `nv_audio_set_volume(0..100)` 控制全局 PCM
@@ -134,24 +142,74 @@ Loom 的 `ping` 和 `wget` 使用这些调用；域名解析由应用使用 DNS/
 
 ## 桌面入口和后续边界
 
-UEFI GOP 有效时默认打开 `desktop`，先显示空桌面，不自动打开 Files；
-在 Loom 中也可输入 `desktop`。桌面专用 DejaVu Sans Mono 灰度字形在构建前
-已生成到 `user/desktop_font.h`，渲染时用 4 位覆盖率做软件抗锯齿，
+UEFI GOP 有效时默认打开 `desktop`，先显示首次设置/登录页，登录后显示空桌面；
+在 Loom 中也可输入 `desktop`。界面用 DejaVu Sans/Sans Bold，编辑区用 Sans Mono；灰度字形在构建前
+已生成到 `user/desktop_font.h`，渲染时用 8 位覆盖率做软件抗锯齿，
 普通构建不依赖宿主字体或 Pillow；内核字符终端仍用原有点阵字体。
-Files、Text Editor、Terminal 使用同一进程的像素窗口合成器，可以拖动标题栏、
-调整大小、最小化、最大化并通过任务栏切换；键盘 Alt-Tab 切换窗口，F10 打开开始菜单。
-Files 可新建文件夹、创建文本、改名、删除、浏览已挂载的 C:–F: 与 `/home`；
-删除需在确认框点击 Delete 或按 D，普通 Enter 不会执行删除。
-`.txt`/`.md` 使用窗口编辑器打开，保存走临时文件替换与数据盘同步。
-编辑器有 128 KiB 单文档内存上限，只支持当前字库显示的 ASCII 文本；这个上限
-不属于文件系统。Folio 保留 `.nvd` 格式排版能力，Media 播放文件；两者启动时桌面
-归还像素屏，退出后重新获取。窗口终端包含常用文件、IPv4 网络命令，输入 `loom`
-可进入完整字符命令环境。
+Files 与 Text Editor 保留在桌面进程中；Terminal、Media、Folio 是独立进程。
+标题栏拖动、边缘缩放、最小化、最大化和任务栏操作由桌面处理。
+Win/Super 或 F10 打开 Start；Win-Tab 或 F12 打开窗口总览。
+Alt-Tab 按最近使用顺序选择窗口，松开 Alt 提交，Shift 反向、Esc 取消。
+Win-左右平铺，Win-上最大化，Win-下恢复（自由窗口则最小化）；
+Alt-F4 请求关闭，Alt-F9/F10 最小化和最大化。
+Files 新建、改名与删除；删除确认需要点击 Delete 或按 D。
+纯文本编辑器单文档仍为 128 KiB ASCII；Folio 使用原 80×25 文档模型并在
+像素窗口里渲染，关闭时可保存、丢弃或继续编辑。终端运行完整 Loom 命令集，
+通过继承的 stdin/stdout/stderr 接收子进程输出；`NV_CTL_CLEAR` 只清除该终端。
+原生窗口应用可使用 `NV_CTL_SYNC` 保存数据卷。
 
-目前的窗口合成仅服务桌面内建应用，尚未定义跨进程窗口消息/绘图协议；外部
-应用仍按单进程租约独占屏幕。没有触控、Unicode 字体、剪贴板协议或 GPU
-加速。未来扩展窗口协议应由桌面进程统一合成，不将 GPU/MMIO 写权限交给
-任意应用。实机 GOP、不同显卡固件和高分辨率显示尚未验证。
+### 键盘修饰键（0.12.0）
+
+`NV_KEY` 的低 12 位仍为按键码，`NV_KEY_META=65536` 表示 Win/Super。
+`NV_KEY_MODIFIERS=320` 表示修饰键状态改变；高位携带改变后的
+Shift/Ctrl/Alt/Meta 状态，按下和松开都会产生事件，`NV_KEY_DIRECT`
+区分完整硬件事件与普通串口字节。PS/2 与多个 USB Boot 键盘的状态合并；
+USB 移除也会更新状态。字符 stdin 跳过修饰键事件和 Alt/Meta 组合。
+
+桌面先处理这些事件和全局快捷键。Start、总览、切换器显示时暂停
+客户端键盘焦点，接管鼠标并释放已有捕获；关闭覆盖界面后恢复焦点。
+应用仍可发布新画面，总览读取完整的已提交画面，最小化窗口使用最近
+可用的缓存。当前搜索限于注册应用及其 ASCII 名称/关键词，不执行查询文本。
+
+## 原生窗口协议（0.11.0）
+
+`NV_DEVCTL` 的子系统 7，版本 `NV_WINDOW_API_VERSION=1`。这是 Nuvora 原生
+协议，尚不兼容 Wayland/X11。桌面仍是软件合成器，使用 GOP 显示，不提供 GPU
+加速、Unicode 字库、剪贴板或通用触控。
+
+| 操作 | 请求 | 行为 |
+| --- | --- | --- |
+| INFO | `nv_window_info` | 版本、当前服务 PID、窗口数与单次复制上限 |
+| SERVER_ACQUIRE / RELEASE | 空指针 | 持有显示租约的桌面注册或释放服务 |
+| CREATE | `nv_window_create` | 标题、内容尺寸；输出 id 和初始配置序号 |
+| BEGIN | `nv_window_frame` | 按当前配置序号和尺寸准备后缓冲 |
+| UPLOAD64 | `nv_window_pixels` | 上传整行矩形，每次最多 1 MiB；支持 stride 与 u64 pixels |
+| COMMIT | `nv_window_id` | 全部行到齐才交换前后缓冲，生成新的画面代数 |
+| POLL | `nv_window_event` | 配置、焦点、键盘、窗口本地鼠标坐标和关闭请求 |
+| DESTROY | `nv_window_id` | 释放窗口及其页向量 |
+| ENUM / READ64 | `nv_window_entry` / `nv_window_pixels` | 仅服务可枚举并复制已提交画面 |
+| CONFIGURE / SEND | `nv_window_configure` / `nv_window_event` | 仅服务可更改内容尺寸、可见/焦点状态并投递输入 |
+| BIND_STDIO / TEXT_READ | `nv_window_id` / `nv_window_text` | 窗口进程绑定继承的字符控制台；仅服务读取字符表面 |
+
+原生 `nv_window_pixels` 为 40 字节，reserved 为零；旧 UPLOAD/READ 保留
+32 字节的 `nv_window_pixels32`。旧源码若直接使用旧操作号，应使用对应
+32 类型；新 SDK 的上传/读取函数自动选择 64 位操作。
+
+应用先查询服务并创建窗口；没有桌面时可以沿用独占显示接口。
+应用提交 `BEGIN -> UPLOAD（整行分块）-> COMMIT`。缺行的提交返回 EINVAL，
+缩放使旧配置的提交返回 EAGAIN，应处理最新 CONFIGURE 后重画。桌面 READ
+携带 ENUM 得到的 generation；复制期间若画面变化返回 EAGAIN，必须重试整个
+快照，不能显示已复制的一部分。像素格式遵循 DISPLAY_INFO。
+
+前、后缓冲通过独立物理页分配，避免依赖大块连续 RAM；分配失败保留前缓冲。
+客户端不能读取或投递其他窗口的消息。退出或 exec 自动销毁其窗口；服务退出
+销毁服务的全部窗口。输入队列合并同一按钮状态下的鼠标移动，保留按下/释放
+转换；关闭、配置和焦点状态不占用普通输入队列。键盘只发给焦点窗口，鼠标按下
+后捕获到释放；移动到窗口外时本地坐标可为负数。
+
+SDK 的 `nv_window_*` 函数提供基本调用，`user/window_client.h` 提供事件适配，
+`user/media.c` 是独立像素应用示例；`user/text_window.h` 展示字符程序的适配。
+
 
 ## 64 位文件接口（0.10.0）
 
@@ -171,3 +229,9 @@ ABI 1 追加调用号，旧编号及旧结构布局保持不变：
 `NV_VOLUME.snapshot_limit=0` 表示 NVSTORE3 全卷数据区，非“零容量”。
 READ/WRITE 仍每次最多 16384 字节，可循环处理任意可表示的大文件。
 格式、迁移与示例见 [STORAGE-0.10.md](STORAGE-0.10.md)。
+
+## 账户与会话
+
+`NV_SUB_ACCOUNT=8` 由内核维护用户身份、持久密码散列和私有目录访问控制。
+应用仅查询公开的 INFO/LIST，登录与修改由 PID 1 或可信桌面管理。
+结构、异步派生协议及权限边界见 [ACCOUNTS.md](ACCOUNTS.md)。

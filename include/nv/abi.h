@@ -1,8 +1,12 @@
 #ifndef NV_ABI_H
 #define NV_ABI_H
 #include <nv/types.h>
-#define NV_VERSION "0.10.0"
-#define NV_ABI_VERSION 1
+#define NV_VERSION "0.15.0"
+#define NV_ABI_VERSION 2
+#define NV_ABI_LEGACY 1u
+/* ABI 2 selects native pointer-width arguments/results without changing any
+ * ABI 1 call ID or record. Old applications continue to use int 0x81. */
+#define NV_CALL_NATIVE (1ull << 32)
 #define NV_NAME_MAX 31
 #define NV_PATH_MAX 192
 #define NV_ARG_MAX 256
@@ -50,6 +54,9 @@ enum nv_call {
     NV_SEEK64, /* ebx=fd, ecx=nv_seek64*, edx=0; result through position */
     NV_STAT64, /* ebx=fd, ecx=nv_stat64*, edx=0 */
     NV_LIST64, /* same arguments as LIST; nv_dirent64 */
+    NV_INFO64,
+    NV_TASK64,
+    NV_CLOCK64,
     NV_CALL_COUNT
 };
 enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
@@ -65,8 +72,86 @@ enum nv_subsystem {
     NV_SUB_NET = 3,
     NV_SUB_DISPLAY = 4,
     NV_SUB_INPUT = 5,
-    NV_SUB_AUDIO = 6
+    NV_SUB_AUDIO = 6,
+    NV_SUB_WINDOW = 7,
+    NV_SUB_ACCOUNT = 8
 };
+/* Local account service. Only the trusted desktop / initial console can own
+ * this service. Hashes and salts never cross the ABI; status queries and
+ * account enumeration return public profile data only. */
+#define NV_ACCOUNT_API_VERSION 1u
+#define NV_ACCOUNT_MAX 32u
+#define NV_PASSWORD_MIN 15u
+#define NV_PASSWORD_MAX 128u
+#define NV_UID_NONE 0xffffffffu
+enum { NV_ACCOUNT_INFO=1, NV_ACCOUNT_CLAIM, NV_ACCOUNT_LIST, NV_ACCOUNT_SETUP,
+       NV_ACCOUNT_LOGIN, NV_ACCOUNT_ADD, NV_ACCOUNT_PASSWORD, NV_ACCOUNT_POLL,
+       NV_ACCOUNT_CANCEL, NV_ACCOUNT_LOCK, NV_ACCOUNT_LOGOUT,
+       NV_ACCOUNT_REMOVE, NV_ACCOUNT_UPDATE, NV_ACCOUNT_POLICY_GET,
+       NV_ACCOUNT_POLICY_SET };
+/* Idle locking is enforced by the kernel using genuine keyboard/pointer
+ * activity. Existing account records and operation numbers stay unchanged. */
+struct nv_account_policy { u32 idle_timeout_ticks, idle_ticks; };
+#define NV_AUTH_IDLE_DEFAULT (5u * 60u * 100u)
+#define NV_AUTH_IDLE_MIN (60u * 100u)
+#define NV_AUTH_IDLE_MAX (15u * 60u * 100u)
+enum { NV_ACCOUNT_ADMIN=1, NV_ACCOUNT_DISABLED=1 };
+enum { NV_AUTH_SETUP=1, NV_AUTH_PERSISTENT=2, NV_AUTH_SIGNED_IN=4,
+       NV_AUTH_LOCKED=8, NV_AUTH_ERROR=16, NV_AUTH_BUSY=32 };
+struct nv_account_profile {
+    u32 index, uid, role, flags;
+    char name[32], display_name[64];
+};
+struct nv_account_info {
+    u32 api_version, flags, count, uid, role, manager_pid, cooldown_ticks;
+    char name[32], display_name[64], home[NV_PATH_MAX];
+};
+struct nv_account_request {
+    u32 uid, role, flags;
+    char name[32], display_name[64];
+    char password[NV_PASSWORD_MAX+1], old_password[NV_PASSWORD_MAX+1];
+};
+struct nv_account_progress { u32 completed, total, uid; i32 result; };
+/* Native application windows. The desktop owns the display and registers as
+ * the window server; clients never receive another process's memory mapping.
+ * BEGIN -> full-width UPLOAD tiles -> COMMIT publishes a complete frame.
+ * READ is server-only and checks generation, so a changed snapshot is retried.
+ * All pixels use the format reported by NV_DISPLAY_INFO. This is a native
+ * protocol, not a Wayland or X11 wire implementation. */
+#define NV_WINDOW_API_VERSION 1u
+#define NV_WINDOW_MAX 8u
+#define NV_WINDOW_EDGE_MAX 8192u
+enum { NV_WINDOW_INFO = 1, NV_WINDOW_SERVER_ACQUIRE, NV_WINDOW_SERVER_RELEASE,
+       NV_WINDOW_CREATE, NV_WINDOW_DESTROY, NV_WINDOW_BEGIN, NV_WINDOW_UPLOAD,
+       NV_WINDOW_COMMIT, NV_WINDOW_POLL, NV_WINDOW_ENUM, NV_WINDOW_READ,
+       NV_WINDOW_CONFIGURE, NV_WINDOW_SEND, NV_WINDOW_BIND_STDIO, NV_WINDOW_TEXT_READ,
+       NV_WINDOW_UPLOAD64, NV_WINDOW_READ64 };
+enum { NV_WINDOW_VISIBLE = 1, NV_WINDOW_FOCUSED = 2 };
+enum { NV_WINDOW_TEXT = 4 };
+enum { NV_WINDOW_EVENT_CONFIGURE = 1, NV_WINDOW_EVENT_FOCUS,
+       NV_WINDOW_EVENT_KEY, NV_WINDOW_EVENT_POINTER, NV_WINDOW_EVENT_CLOSE };
+struct nv_window_info { u32 api_version, server_pid, max_windows, max_copy_bytes; };
+struct nv_window_create { u32 width, height, id, serial; char title[64]; };
+struct nv_window_id { u32 id; };
+struct nv_window_frame { u32 id, serial, width, height; };
+struct nv_window_pixels32 { u32 id, generation, x, y, width, height, stride, pixels; };
+struct nv_window_pixels { u32 id, generation, x, y, width, height, stride, reserved; u64 pixels; };
+struct nv_window_entry {
+    u32 index, id, pid, width, height, generation, serial, flags;
+    u32 requested_width, requested_height;
+    char title[64];
+};
+struct nv_window_configure { u32 id, width, height, flags; };
+struct nv_window_event {
+    u32 id, type, serial, width, height, key;
+    i32 x, y, wheel;
+    u32 buttons, flags;
+};
+_Static_assert(sizeof(struct nv_window_create) == 80, "window create ABI");
+_Static_assert(sizeof(struct nv_window_pixels32) == 32, "legacy window pixels ABI");
+_Static_assert(sizeof(struct nv_window_pixels) == 40, "native window pixels ABI");
+_Static_assert(sizeof(struct nv_window_entry) == 104, "window entry ABI");
+_Static_assert(sizeof(struct nv_window_event) == 44, "window event ABI");
 /* One interleaved signed 16-bit little-endian stereo PCM output at 48 kHz.
  * WRITE copies exactly bytes from a user buffer and returns the byte count.
  * A single write is bounded so the synchronous DMA operation can be polled.
@@ -74,16 +159,18 @@ enum nv_subsystem {
 #define NV_AUDIO_API_VERSION 1u
 #define NV_AUDIO_MAX_WRITE 3072u
 enum { NV_AUDIO_INFO = 1, NV_AUDIO_WRITE = 2,
-       NV_AUDIO_GET_VOLUME = 3, NV_AUDIO_SET_VOLUME = 4 };
+       NV_AUDIO_GET_VOLUME = 3, NV_AUDIO_SET_VOLUME = 4, NV_AUDIO_WRITE64 = 5 };
 enum { NV_AUDIO_S16LE = 1 };
 struct nv_audio_info {
     u32 api_version, outputs, sample_rate, channels, format, max_write_bytes;
 };
-struct nv_audio_write { u32 pixels, bytes; }; /* pixels: user pointer to PCM bytes */
+struct nv_audio_write32 { u32 pixels, bytes; };
+struct nv_audio_write { u64 pixels; u32 bytes, reserved; };
 /* Global output attenuation, 0 (silent) through 100 (unchanged PCM). */
 struct nv_audio_volume { u32 percent; };
 _Static_assert(sizeof(struct nv_audio_info) == 24, "audio info ABI");
-_Static_assert(sizeof(struct nv_audio_write) == 8, "audio write ABI");
+_Static_assert(sizeof(struct nv_audio_write32) == 8, "legacy audio write ABI");
+_Static_assert(sizeof(struct nv_audio_write) == 16, "native audio write ABI");
 _Static_assert(sizeof(struct nv_audio_volume) == 4, "audio volume ABI");
 /* Pointer events normally carry signed relative dx/dy. If ABSOLUTE is set in
  * buttons, dx/dy instead carry unsigned coordinates in the 0..32767 HID
@@ -104,16 +191,21 @@ _Static_assert(sizeof(struct nv_pointer_event) == 16, "pointer event ABI");
 #define NV_DISPLAY_API_VERSION 1u
 #define NV_DISPLAY_MAX_COPY (1024u * 1024u)
 enum { NV_DISPLAY_INFO = 1, NV_DISPLAY_ACQUIRE = 2,
-       NV_DISPLAY_PRESENT = 3, NV_DISPLAY_RELEASE = 4 };
+       NV_DISPLAY_PRESENT = 3, NV_DISPLAY_RELEASE = 4, NV_DISPLAY_PRESENT64 = 5 };
 enum { NV_DISPLAY_BGRX8 = 1, NV_DISPLAY_RGBX8 = 2 };
 struct nv_display_info {
     u32 api_version, width, height, pitch, format, max_copy_bytes;
 };
-struct nv_display_present {
+struct nv_display_present32 {
     u32 x, y, width, height, stride, pixels;
 };
+struct nv_display_present {
+    u32 x, y, width, height, stride, reserved;
+    u64 pixels;
+};
 _Static_assert(sizeof(struct nv_display_info) == 24, "display info ABI");
-_Static_assert(sizeof(struct nv_display_present) == 24, "display present ABI");
+_Static_assert(sizeof(struct nv_display_present32) == 24, "legacy display present ABI");
+_Static_assert(sizeof(struct nv_display_present) == 32, "native display present ABI");
 /* Network buffers are fixed-size and copied across the user/kernel boundary.
  * Address fields hold four IPv4 octets in network order (e.g. 0xc0a80101). */
 #define NV_NET_MAX 8u
@@ -314,15 +406,18 @@ enum {
     NV_KEY_F10,
     NV_KEY_F11,
     NV_KEY_F12,
+    NV_KEY_MODIFIERS = 320, /* Modifier state changed, including key release. */
     NV_KEY_SHIFT = 4096,
     NV_KEY_CTRL = 8192,
     NV_KEY_ALT = 16384,
-    NV_KEY_DIRECT = 32768 /* Complete PS/2 or USB event, not an ANSI serial byte. */
+    NV_KEY_DIRECT = 32768, /* Complete PS/2 or USB event, not an ANSI serial byte. */
+    NV_KEY_META = 65536 /* Windows / Super / Command modifier. */
 };
 struct nv_surface {
     u16 cells[80 * 25];
     u32 cursor;
 }; /* cursor == 2000 hides it */
+struct nv_window_text { u32 id, generation; struct nv_surface surface; };
 _Static_assert(sizeof(struct nv_surface) == 4004, "surface ABI");
 struct nv_dirent {
     char name[32];
@@ -337,6 +432,18 @@ struct nv_taskinfo {
     u32 pid, parent, state, cpu_ticks, pages;
     char name[32];
 };
+struct nv_info64 {
+    u32 abi, hz;
+    u64 ram_pages, free_pages, heap_used, heap_total, ticks;
+    u32 tasks, nodes, disk_present, saved_generation;
+};
+struct nv_taskinfo64 {
+    u32 pid, parent, state, abi;
+    u64 cpu_ticks, pages, heap_end;
+    char name[32];
+};
+_Static_assert(sizeof(struct nv_info64) == 64, "native system info ABI");
+_Static_assert(sizeof(struct nv_taskinfo64) == 72, "native task info ABI");
 struct nv_volume_info {
     u32 letter, partition_index, snapshot_limit, generation; /* limit=0: disk-backed NVSTORE3 */
     u32 sectors_low, sectors_high;

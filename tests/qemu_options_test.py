@@ -60,6 +60,10 @@ def main():
                     cmd = qemu.command(disk=disk, esp=esp, disk_bus=bus)
                     assert ('ich9-ahci,id=nuvora_sata' in cmd) == (bus == 'ahci')
                     assert ('nvme,drive=nuvora_disk,serial=nuvora-data' in cmd) == (bus == 'nvme')
+                    assert 'ide-hd,drive=nuvora_esp,bus=ide.0,unit=1,bootindex=1' in cmd
+                    q35 = qemu.command(disk=disk, esp=esp, disk_bus=bus, machine='q35')
+                    assert 'ide-hd,drive=nuvora_esp,bus=ide.1,unit=0,bootindex=1' in q35
+                    assert ('isa-ide,id=legacyide' in q35) == (bus == 'ide')
     print('PASS QEMU options: split OVMF variables, combined fallback, IDE/AHCI/NVMe')
 
 

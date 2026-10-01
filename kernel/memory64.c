@@ -1,4 +1,4 @@
-﻿#ifdef __x86_64__
+#ifdef __x86_64__
 #include "kernel.h"
 #define ADDRESS P_ADDRESS
 #define NX (1ull << 63)
@@ -29,7 +29,7 @@ void vm_kernel_init(void) {
     if ((uptr)kernel_end >= LOW_COVER)
         panic("kernel image exceeds the low page-table cover");
     pml4[0] = (uptr)pdpt | 3;
-    pml4[PHYS_WINDOW >> 39] = (uptr)pdpt | 3;
+    pml4[(PHYS_WINDOW >> 39) & 511] = (uptr)pdpt | 3;
     pdpt[0] = (uptr)pd0 | 3;
     for (u32 i = 0; i < LOW_TABLES; ++i) {
         pd0[i] = (uptr)kernel_pt[i] | 3;
@@ -58,16 +58,17 @@ void vm_kernel_init(void) {
     /* Map the firmware framebuffer into the fixed supervisor window and take
      * the covered physical RAM out of the allocator. */
     const struct boot_framebuffer *fb = boot_info ? &boot_info->fb : NULL;
-    if (fb && fb->format != NV_FB_NONE && !(fb->address & (PAGE - 1u)) &&
-        fb->pitch && fb->height && (u64)fb->pitch * fb->height <= FB_WINDOW_PAGES * PAGE &&
+    u32 fb_offset = fb ? (u32)fb->address & (PAGE - 1u) : 0;
+    if (fb && fb->format != NV_FB_NONE && fb->pitch && fb->height &&
+        (u64)fb->pitch * fb->height + fb_offset <= FB_WINDOW_PAGES * PAGE &&
         fb->address <= (1ull << 52) - FB_WINDOW_PAGES * PAGE) {
-        u32 pages = (u32)(((u64)fb->pitch * fb->height + PAGE - 1) / PAGE);
-        pml4[FB_WINDOW >> 39] = (uptr)fb_pdpt | 3;
+        u32 pages = (u32)(((u64)fb->pitch * fb->height + fb_offset + PAGE - 1) / PAGE);
+        pml4[(FB_WINDOW >> 39) & 511] = (uptr)fb_pdpt | 3;
         fb_pdpt[0] = (uptr)fb_pd | 3;
         for (u32 s = 0; s < (pages + 511) / 512; ++s) {
             fb_pd[s] = (uptr)fb_pt[s] | 3;
             for (u32 j = 0; j < 512 && s * 512 + j < pages; ++j)
-                fb_pt[s][j] = (fb->address + ((u64)s * 512u + j) * PAGE) | 3 | 0x18 | NX;
+                fb_pt[s][j] = (fb->address - fb_offset + ((u64)s * 512u + j) * PAGE) | 3 | 0x18 | NX;
         }
         fb_window_mapped = true;
     }
@@ -80,7 +81,7 @@ void vm_kernel_init(void) {
 /* Kernel heap has contiguous virtual addresses, not a contiguous physical
  * allocation requirement. Do not publish or pin partial allocations. */
 void *vm_heap_create(void) {
-    if (pml4[KHEAP_WINDOW >> 39] & P_PRESENT)
+    if (pml4[(KHEAP_WINDOW >> 39) & 511] & P_PRESENT)
         panic("kernel heap already mapped");
     u32 count = 0;
     while (count < KHEAP_SIZE / PAGE) {
@@ -100,7 +101,7 @@ void *vm_heap_create(void) {
     for (u32 i = 0; i < ARRAY_LEN(heap_pt); ++i)
         heap_pd[i] = (uptr)heap_pt[i] | P_PRESENT | P_WRITE;
     heap_pdpt[0] = (uptr)heap_pd | P_PRESENT | P_WRITE;
-    pml4[KHEAP_WINDOW >> 39] = (uptr)heap_pdpt | P_PRESENT | P_WRITE;
+    pml4[(KHEAP_WINDOW >> 39) & 511] = (uptr)heap_pdpt | P_PRESENT | P_WRITE;
     for (u32 i = 0; i < count; ++i)
         page_pin((uptr)(heap_pt[i / 512][i % 512] & ADDRESS));
     load_cr3((uptr)kernel_pd);
@@ -117,145 +118,112 @@ pte_t *vm_create(void) {
     }
     pte_t *root = phys_ptr(a), *l3 = phys_ptr(b);
     root[0] = b | 7;
-    root[PHYS_WINDOW >> 39] = pml4[PHYS_WINDOW >> 39];
-    root[KHEAP_WINDOW >> 39] = pml4[KHEAP_WINDOW >> 39];
-    root[FB_WINDOW >> 39] = pml4[FB_WINDOW >> 39];
+    root[(PHYS_WINDOW >> 39) & 511] = pml4[(PHYS_WINDOW >> 39) & 511];
+    root[(KHEAP_WINDOW >> 39) & 511] = pml4[(KHEAP_WINDOW >> 39) & 511];
+    root[(FB_WINDOW >> 39) & 511] = pml4[(FB_WINDOW >> 39) & 511];
     l3[0] = pdpt[0];
     return root;
 }
-/* User space occupies PDPT slot 1 (1..2 GiB); slot 0 is supervisor-only. */
-static pte_t *leaf(pte_t *root, u32 va, bool create) {
-    if (va < USER_BASE || va >= 0x80000000u || !(root[0] & 1))
-        return NULL;
-    pte_t *l3 = table(root[0]);
-    if (!(l3[1] & 1)) {
-        if (!create)
+/* Private page tables cover the entire lower canonical user half. Never
+ * descend through a shared supervisor entry, including the boot mapping. */
+#ifndef NV_VM_INVALIDATE
+#ifdef NV_HOST_TEST
+#define NV_VM_INVALIDATE(va) ((void)(va))
+#else
+#define NV_VM_INVALIDATE(va) __asm__ volatile("invlpg (%0)" :: "r"((uptr)(va)) : "memory")
+#endif
+#endif
+static pte_t *leaf(pte_t *root, uptr va, bool create) {
+    if (!root || !nv_user_address(va)) return NULL;
+    pte_t *level = root;
+    for (u32 shift = 39; shift > 12; shift -= 9) {
+        pte_t *entry = &level[(va >> shift) & 511];
+        if (!(*entry & P_PRESENT)) {
+            if (!create) return NULL;
+            uptr p = page_alloc();
+            if (!p) return NULL;
+            *entry = p | P_PRESENT | P_WRITE | P_USER;
+        }
+        if ((*entry & (P_PRESENT | P_USER | 0x80)) != (P_PRESENT | P_USER))
             return NULL;
-        uptr p = page_alloc();
-        if (!p)
-            return NULL;
-        l3[1] = p | 7;
+        level = table(*entry);
     }
-    pte_t *l2 = table(l3[1]);
-    u32 i = (va >> 21) & 511;
-    if (!(l2[i] & 1)) {
-        if (!create)
-            return NULL;
-        uptr p = page_alloc();
-        if (!p)
-            return NULL;
-        l2[i] = p | 7;
-    }
-    return &table(l2[i])[(va >> 12) & 511];
+    return &level[(va >> 12) & 511];
 }
-int vm_map(pte_t *root, u32 va, u32 flags) {
-    if (va < USER_BASE || va >= 0x80000000u || va % PAGE)
-        return -NV_EINVAL;
+int vm_map(pte_t *root, uptr va, u32 flags) {
+    if (!root || !nv_user_address(va) || va % PAGE ||
+        (flags & (P_WRITE | P_EXEC)) == (P_WRITE | P_EXEC)) return -NV_EINVAL;
     pte_t *p = leaf(root, va, true);
-    if (!p) {
-        vm_unmap(root, va);
-        return -NV_ENOMEM;
-    }
-    if (*p & 1)
-        return -NV_EEXIST;
+    if (!p) { vm_unmap(root, va); return -NV_ENOMEM; }
+    if (*p & P_PRESENT) return -NV_EEXIST;
     uptr physical = page_alloc();
-    if (!physical) {
-        vm_unmap(root, va);
-        return -NV_ENOMEM;
-    }
-    *p = physical | 5 | (flags & P_WRITE) | ((flags & P_EXEC) ? 0 : NX);
+    if (!physical) { vm_unmap(root, va); return -NV_ENOMEM; }
+    *p = physical | P_PRESENT | P_USER | (flags & P_WRITE) |
+         ((flags & P_EXEC) ? 0 : NX);
     return 0;
 }
-uptr vm_translate(pte_t *root, u32 va) {
+uptr vm_translate(pte_t *root, uptr va) {
     pte_t *p = leaf(root, va, false);
-    return p && (*p & 1) ? (uptr)(*p & ADDRESS) + (va & 4095) : 0;
+    return p && (*p & (P_PRESENT | P_USER)) == (P_PRESENT | P_USER) ?
+        (uptr)(*p & ADDRESS) + (va & (PAGE - 1)) : 0;
 }
 static bool empty(pte_t *t) {
-    for (u32 i = 0; i < 512; ++i)
-        if (t[i] & 1)
-            return false;
+    for (u32 i = 0; i < 512; ++i) if (t[i] & P_PRESENT) return false;
     return true;
 }
-void vm_unmap(pte_t *root, u32 va) {
-    pte_t *p = leaf(root, va, false);
-    if (p && (*p & 1)) {
-        page_free((uptr)(*p & ADDRESS));
-        *p = 0;
-        __asm__ volatile("invlpg (%0)" ::"r"((uptr)va) : "memory");
+void vm_unmap(pte_t *root, uptr va) {
+    if (!root || !nv_user_address(va)) return;
+    pte_t *levels[4] = {root}, *entries[3];
+    u32 depth = 0;
+    for (u32 shift = 39; shift > 12; shift -= 9) {
+        pte_t *entry = &levels[depth][(va >> shift) & 511];
+        if ((*entry & (P_PRESENT | P_USER | 0x80)) != (P_PRESENT | P_USER)) break;
+        entries[depth] = entry;
+        levels[++depth] = table(*entry);
     }
-    if (va < USER_BASE || va >= 0x80000000u)
-        return;
-    pte_t *l3 = table(root[0]);
-    if (!(l3[1] & 1))
-        return;
-    pte_t *l2 = table(l3[1]);
-    u32 i = (va >> 21) & 511;
-    if ((l2[i] & 1) && empty(table(l2[i]))) {
-        page_free((uptr)(l2[i] & ADDRESS));
-        l2[i] = 0;
-    }
-    if (empty(l2)) {
-        page_free(ptr_phys(l2));
-        l3[1] = 0;
-    }
-}
-void vm_destroy(pte_t *root) {
-    if (!root)
-        return;
-    pte_t *l3 = table(root[0]);
-    if (l3[1] & 1) {
-        pte_t *l2 = table(l3[1]);
-        for (u32 i = 0; i < 512; ++i)
-            if (l2[i] & 1) {
-                pte_t *l1 = table(l2[i]);
-                for (u32 j = 0; j < 512; ++j)
-                    if (l1[j] & 1)
-                        page_free((uptr)(l1[j] & ADDRESS));
-                page_free(ptr_phys(l1));
-            }
-        page_free(ptr_phys(l2));
-    }
-    page_free(ptr_phys(l3));
-    page_free(ptr_phys(root));
-}
-bool user_range(pte_t *root, u32 va, u32 len, bool write) {
-    if (!len)
-        return true;
-    if (va < USER_BASE || va >= 0x80000000u || len > 0x80000000u - va)
-        return false;
-    pte_t mask = 5 | (write ? 2 : 0);
-    if ((root[0] & mask) != mask)
-        return false;
-    pte_t *l3 = table(root[0]);
-    if ((l3[1] & mask) != mask)
-        return false;
-    pte_t *l2 = table(l3[1]);
-    u32 end = (va + len - 1) & ~4095u;
-    for (u32 p = va & ~4095u;; p += PAGE) {
-        pte_t de = l2[(p >> 21) & 511];
-        if ((de & mask) != mask)
-            return false;
-        pte_t e = table(de)[(p >> 12) & 511];
-        if ((e & mask) != mask)
-            return false;
-        if (p == end)
-            break;
-    }
-    return true;
-}
-u32 vm_page_count(pte_t *root) {
-    u32 count = 0;
-    pte_t *l3 = table(root[0]);
-    if (!(l3[1] & 1))
-        return 0;
-    pte_t *l2 = table(l3[1]);
-    for (u32 i = 0; i < 512; ++i)
-        if (l2[i] & 1) {
-            pte_t *l1 = table(l2[i]);
-            for (u32 j = 0; j < 512; ++j)
-                if (l1[j] & 1)
-                    ++count;
+    if (depth == 3) {
+        pte_t *entry = &levels[3][(va >> 12) & 511];
+        if ((*entry & (P_PRESENT | P_USER)) == (P_PRESENT | P_USER)) {
+            page_free((uptr)(*entry & ADDRESS)); *entry = 0;
+            NV_VM_INVALIDATE(va);
         }
+    }
+    while (depth && empty(levels[depth])) {
+        page_free(ptr_phys(levels[depth]));
+        *entries[--depth] = 0;
+    }
+}
+static u64 walk_user(pte_t *level, u32 depth, bool destroy) {
+    u64 count = 0;
+    for (u32 i = 0; i < 512; ++i) {
+        pte_t entry = level[i];
+        if ((entry & (P_PRESENT | P_USER)) != (P_PRESENT | P_USER)) continue;
+        if (depth == 1) ++count;
+        else count += walk_user(table(entry), depth - 1, destroy);
+        if (destroy) { page_free((uptr)(entry & ADDRESS)); level[i] = 0; }
+    }
     return count;
 }
+void vm_destroy(pte_t *root) {
+    if (!root) return;
+    walk_user(root, 4, true);
+    page_free(ptr_phys(root));
+}
+bool user_range(pte_t *root, uptr va, usize len, bool write) {
+    if (!len) return true;
+    if (!root || !nv_user_bounds(va, len)) return false;
+    pte_t mask = P_PRESENT | P_USER | (write ? P_WRITE : 0);
+    uptr last = (va + len - 1) & ~(uptr)(PAGE - 1);
+    for (uptr address = va & ~(uptr)(PAGE - 1);; address += PAGE) {
+        pte_t *level = root;
+        for (u32 shift = 39; shift > 12; shift -= 9) {
+            pte_t entry = level[(address >> shift) & 511];
+            if ((entry & (mask | 0x80)) != mask) return false;
+            level = table(entry);
+        }
+        if ((level[(address >> 12) & 511] & mask) != mask) return false;
+        if (address == last) return true;
+    }
+}
+u64 vm_page_count(pte_t *root) { return root ? walk_user(root, 4, false) : 0; }
 #endif

@@ -1,0 +1,2 @@
+Created UEFI GPT boot image: /tmp/nuvora-removable-sc1ew1rb/boot.img (66 MiB)
+PASS removable UEFI GPT/FAT32: BOOTX64.EFI, USB xHCI and 144 native/legacy Ring 3 assertions; QEMU exit 33

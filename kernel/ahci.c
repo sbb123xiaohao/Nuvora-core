@@ -34,6 +34,7 @@ static struct {
     u32 pci, port, scan_min_pci;
     uptr command_page, fis_page, table_page, data_page;
     u64 sectors;
+    u64 dma_limit;
     bool lba48, flush_ext, online;
 } ahci;
 
@@ -94,7 +95,7 @@ static void discover(u32 address, u32 id, u32 class_code) {
     /* ABAR is BAR5: a 64-bit BAR needs a following BAR, which BAR5 lacks. */
     if ((bar & 7u) != 0) return;
     u64 physical = bar & ~15u;
-    if (!physical || physical % PAGE || physical >> 52) return;
+    if (!physical || physical & 15u || physical >> 52) return;
     ahci.regs = vm_mmio_map(physical, AHCI_MMIO);
     if (ahci.regs) ahci.pci = address;
 }
@@ -178,10 +179,11 @@ bool ahci_init(u64 *capacity, u32 first_pci, u32 first_port,
         /* AE is required before the HBA port registers are interpreted. */
         hw(0x04, hr(0x04) | (1u << 31));
         u32 implemented = hr(0x0c);
-        ahci.command_page = page_alloc_below(AHCI_DMA_LIMIT);
-        ahci.fis_page = page_alloc_below(AHCI_DMA_LIMIT);
-        ahci.table_page = page_alloc_below(AHCI_DMA_LIMIT);
-        ahci.data_page = page_alloc_below(AHCI_DMA_LIMIT);
+        ahci.dma_limit = hr(0) & (1u << 31) ? ~0ull : AHCI_DMA_LIMIT;
+        ahci.command_page = page_alloc_below(ahci.dma_limit);
+        ahci.fis_page = page_alloc_below(ahci.dma_limit);
+        ahci.table_page = page_alloc_below(ahci.dma_limit);
+        ahci.data_page = page_alloc_below(ahci.dma_limit);
         bool stopped = true;
         if (ahci.command_page && ahci.fis_page && ahci.table_page && ahci.data_page) {
             for (u32 port = address == first_pci ? first_port : 0; port < 32; ++port) {

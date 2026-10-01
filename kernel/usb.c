@@ -1,6 +1,6 @@
 ﻿#include "kernel.h"
 
-/* Original, bounded xHCI driver. All DMA memory is page-aligned and below 4 GiB.
+/* Original, bounded xHCI driver. DMA uses 64-bit addresses when AC64 is set; 32-bit hosts get low pages.
  * Polling runs in kernel thread/syscall context, never in an interrupt handler.
  * Device DMA pages are released only after Disable Slot has completed. */
 #include "rndis.h"
@@ -15,17 +15,22 @@ struct trb {
     u32 low, high, status, control;
 };
 struct ring {
-    u32 page, index, cycle;
+    uptr page;
+    u32 index, cycle;
 };
 struct host {
     struct nv_usb_controller info;
     volatile u8 *mmio;
     u32 op, runtime, doorbell, context_size, slots, pci;
-    u32 dcbaa, event_page, erst, scratch_array, scratch[MAX_SCRATCH], scratch_count;
+    uptr dcbaa, event_page, erst, scratch_array, scratch[MAX_SCRATCH];
+    u32 scratch_count;
+    u64 dma_limit;
     u32 scratch_array_pages;
     struct ring command;
-    u32 event_index, event_cycle, command_wait, command_code, command_slot;
-    u32 transfer_wait, transfer_slot, transfer_code, short_left;
+    u32 event_index, event_cycle, command_code, command_slot;
+    uptr command_wait;
+    uptr transfer_wait;
+    u32 transfer_slot, transfer_code, short_left;
     u32 attempted[MAX_PORTS], slot_type[MAX_PORTS];
     bool changed;
 };
@@ -33,22 +38,27 @@ struct device {
     struct nv_usb_device info;
     struct host *host;
     u32 slot, root_port, route, depth, tt, max_packet;
-    u32 input, output, buffer, report_page, mouse_page;
+    uptr input, output, buffer, report_page, mouse_page;
     struct ring control, interrupt, mouse_ring;
     struct ring ecm_in, ecm_out;
     struct ring cdc_in, cdc_out;
-    u32 ecm_in_buf, ecm_out_buf, ecm_in_ep, ecm_out_ep;
+    uptr ecm_in_buf, ecm_out_buf;
+    u32 ecm_in_ep, ecm_out_ep;
     u32 ecm_in_packet, ecm_out_packet, ecm_interface, ecm_control;
-    u32 ecm_in_wait, ecm_out_wait;
-    u32 cdc_in_buf, cdc_out_buf, cdc_in_ep, cdc_out_ep;
+    uptr ecm_in_wait, ecm_out_wait;
+    uptr cdc_in_buf, cdc_out_buf;
+    u32 cdc_in_ep, cdc_out_ep;
     u32 cdc_in_packet, cdc_out_packet, cdc_interface, cdc_control;
-    u32 cdc_in_wait, cdc_out_wait;
+    uptr cdc_in_wait, cdc_out_wait;
     u8 ecm_mac[6];
     bool rndis;
     u32 rndis_xid;
     u32 keyboard_ep, keyboard_interface, keyboard_packet, keyboard_interval;
-    u32 mouse_ep, mouse_interface, mouse_packet, mouse_interval, mouse_wait;
-    u32 interrupt_wait, repeat_at, hub_ports, hub_ttt;
+    u32 mouse_ep, mouse_interface, mouse_packet, mouse_interval;
+    uptr mouse_wait;
+    uptr interrupt_wait;
+    u64 repeat_at;
+    u32 hub_ports, hub_ttt;
     u32 attempted[15];
     u8 previous[8], repeat_key;
     bool dead, multi_tt, mouse_absolute;
@@ -59,7 +69,8 @@ static struct device *ecm_device;
 static struct device *mouse_device;
 static char wifi_response[2048];
 static u32 wifi_response_size;
-static u32 host_count, last_scan;
+static u32 host_count;
+static u64 last_scan;
 static bool initialized, busy;
 
 static void barrier(void) {
@@ -76,12 +87,12 @@ static void write64(struct host *h, u32 offset, u64 value) {
     write32(h, offset + 4, (u32)(value >> 32));
 }
 static void delay_ms(u32 ms) {
-    u32 start = ticks, duration = (ms + 9) / 10;
+    u64 start = ticks, duration = (ms + 9) / 10;
     while (ticks - start < duration)
         idle_once();
 }
 static bool wait_bits(struct host *h, u32 off, u32 mask, u32 value, u32 ms) {
-    u32 start = ticks;
+    u64 start = ticks;
     do {
         if ((read32(h, off) & mask) == value)
             return true;
@@ -109,28 +120,29 @@ static void host_failed(struct host *h) {
     }
     kprintf("[usb] controller %u stopped after an error\n", (u32)(h - hosts));
 }
-static bool ring_init(struct ring *r) {
+static u64 dma_limit(const struct host *h) { return h->dma_limit ? h->dma_limit : USB_DMA_LIMIT; }
+static bool ring_init(struct ring *r, u64 limit) {
     if (!r->page)
-        r->page = page_alloc_below(USB_DMA_LIMIT);
+        r->page = page_alloc_below(limit);
     if (!r->page)
         return false;
     memset(phys_ptr(r->page), 0, PAGE);
     r->index = 0;
     r->cycle = 1;
     struct trb *t = phys_ptr(r->page);
-    t[RING_TRBS - 1] = (struct trb){r->page, 0, 0, TYPE(6) | 2};
+    t[RING_TRBS - 1] = (struct trb){(u32)r->page, (u32)(r->page >> 32), 0, TYPE(6) | 2};
     return true;
 }
-static u32 ring_put(struct ring *r, u32 low, u32 high, u32 status, u32 control) {
+static uptr ring_put(struct ring *r, uptr low, u32 high, u32 status, u32 control) {
     volatile struct trb *t = phys_ptr(r->page);
     if (r->index == RING_TRBS - 1) {
         t[r->index].control = TYPE(6) | 2 | r->cycle;
         r->cycle ^= 1;
         r->index = 0;
     }
-    u32 address = r->page + r->index * sizeof(struct trb);
-    t[r->index].low = low;
-    t[r->index].high = high;
+    uptr address = r->page + r->index * sizeof(struct trb);
+    t[r->index].low = (u32)low;
+    t[r->index].high = high | (u32)(low >> 32);
     t[r->index].status = status;
     barrier();
     t[r->index].control = control | r->cycle;
@@ -184,9 +196,15 @@ static void keyboard_report(struct device *d, u32 remaining) {
         return; /* A boot-keyboard report is exactly eight bytes. */
     barrier();
     const u8 *report = phys_ptr(d->report_page);
+    /* Modifier bytes remain valid during a six-key rollover. Do not lose an
+     * Alt/Super release merely because the usage list contains an error. */
+    console_usb_modifiers(d->previous[0], report[0]);
+    d->previous[0]=report[0];
     for (u32 i = 2; i < 8; ++i)
-        if (report[i] >= 1 && report[i] <= 3)
+        if (report[i] >= 1 && report[i] <= 3) {
+            d->repeat_key=0;
             return; /* Rollover/POST error, not a list of real key presses. */
+        }
     for (u32 i = 2; i < 8; ++i) {
         u8 key = report[i];
         if (!key)
@@ -197,7 +215,7 @@ static void keyboard_report(struct device *d, u32 remaining) {
                 old = true;
         if (!old) {
             console_usb_key(key, report[0]);
-            d->repeat_key = key == 0x39 ? 0 : key;
+            d->repeat_key = key == 0x39 || key == 0x53 ? 0 : key;
             d->repeat_at = ticks + 50;
         }
     }
@@ -222,20 +240,21 @@ static void events(struct host *h) {
         u32 low = e->low, high = e->high, status = e->status, control = e->control;
         u32 type = (control >> 10) & 63, code = status >> 24;
         u32 slot = control >> 24, endpoint = (control >> 16) & 31;
-        if (type == 33 && !high && low == h->command_wait) {
+        uptr parameter = (uptr)low | (uptr)high << 32;
+        if (type == 33 && parameter == h->command_wait) {
             h->command_code = code;
             h->command_slot = slot;
-        } else if (type == 32 && !high) {
+        } else if (type == 32) {
             if (slot == h->transfer_slot && endpoint == 1 && h->transfer_wait) {
                 if (code == 13)
                     h->short_left = status & 0xffffff;
-                if (low == h->transfer_wait || (code != 1 && code != 13))
+                if (parameter == h->transfer_wait || (code != 1 && code != 13))
                     h->transfer_code = code;
             }
             for (u32 i = 0; i < ARRAY_LEN(devices); ++i) {
                 struct device *d = &devices[i];
                 if (d->host != h || d->slot != slot || !d->keyboard_ep ||
-                    endpoint != d->keyboard_ep || low != d->interrupt_wait)
+                    endpoint != d->keyboard_ep || parameter != d->interrupt_wait)
                     continue;
                 d->interrupt_wait = 0;
                 if (code == 1 || code == 13) {
@@ -249,7 +268,7 @@ static void events(struct host *h) {
             }
             struct device *mouse = mouse_device;
             if (mouse && !mouse->dead && mouse->host == h && mouse->slot == slot &&
-                endpoint == mouse->mouse_ep && low == mouse->mouse_wait) {
+                endpoint == mouse->mouse_ep && parameter == mouse->mouse_wait) {
                 mouse->mouse_wait = 0;
                 if (code == 1 || code == 13) {
                     mouse_report(mouse, status & 0xffffff);
@@ -262,7 +281,7 @@ static void events(struct host *h) {
             }
             struct device *d = ecm_device;
             if (d && d->host == h && d->slot == slot && !d->dead) {
-                if (endpoint == d->ecm_in_ep && low == d->ecm_in_wait) {
+                if (endpoint == d->ecm_in_ep && parameter == d->ecm_in_wait) {
                     d->ecm_in_wait = 0;
                     if (code == 1 || code == 13) {
                         u32 length = 2048 - MIN(status & 0xffffffu, 2048u);
@@ -274,11 +293,11 @@ static void events(struct host *h) {
                         ecm_arm(d);
                     } else { d->dead = true; h->changed = true; }
                 }
-                if (endpoint == d->ecm_out_ep && low == d->ecm_out_wait) {
+                if (endpoint == d->ecm_out_ep && parameter == d->ecm_out_wait) {
                     d->ecm_out_wait = 0;
                     if (code != 1 && code != 13) { d->dead = true; h->changed = true; }
                 }
-                if (d->cdc_in_ep && endpoint == d->cdc_in_ep && low == d->cdc_in_wait) {
+                if (d->cdc_in_ep && endpoint == d->cdc_in_ep && parameter == d->cdc_in_wait) {
                     d->cdc_in_wait = 0;
                     if (code == 1 || code == 13) {
                         u32 got = 512 - MIN(status & 0xffffffu, 512u);
@@ -289,7 +308,7 @@ static void events(struct host *h) {
                         cdc_arm(d);
                     } else { d->dead = true; h->changed = true; }
                 }
-                if (d->cdc_out_ep && endpoint == d->cdc_out_ep && low == d->cdc_out_wait) {
+                if (d->cdc_out_ep && endpoint == d->cdc_out_ep && parameter == d->cdc_out_wait) {
                     d->cdc_out_wait = 0;
                     memset(phys_ptr(d->cdc_out_buf), 0, PAGE);
                     if (code != 1 && code != 13) { d->dead = true; h->changed = true; }
@@ -308,14 +327,14 @@ static void events(struct host *h) {
         write64(h, h->runtime + 0x18, (h->event_page + h->event_index * 16) | 8u);
     }
 }
-static int command(struct host *h, u32 type, u32 pointer, u32 flags) {
+static int command(struct host *h, u32 type, uptr pointer, u32 flags) {
     if (h->info.state != NV_USB_RUNNING)
         return -NV_ENODEV;
     h->command_code = h->command_slot = 0;
     h->command_wait = ring_put(&h->command, pointer, 0, 0, TYPE(type) | flags);
     barrier();
     write32(h, h->doorbell, 0);
-    u32 start = ticks;
+    u64 start = ticks;
     while (!h->command_code && ticks - start < 100) {
         events(h);
         if (!h->command_code)
@@ -332,7 +351,7 @@ static bool control_recover(struct device *d, bool halted) {
     struct host *h = d->host;
     if (command(h, halted ? 14 : 15, 0, (d->slot << 24) | (1u << 16)) < 0)
         return false;
-    ring_init(&d->control);
+    ring_init(&d->control, dma_limit(d->host));
     return command(h, 16, d->control.page | 1, (d->slot << 24) | (1u << 16)) >= 0;
 }
 static int control(struct device *d, u8 request_type, u8 request, u16 value, u16 index,
@@ -355,7 +374,7 @@ static int control(struct device *d, u8 request_type, u8 request, u16 value, u16
         ring_put(&d->control, 0, 0, 0, TYPE(4) | (1u << 5) | ((!length || !in) ? 1u << 16 : 0));
     barrier();
     write32(h, h->doorbell + d->slot * 4, 1);
-    u32 start = ticks;
+    u64 start = ticks;
     while (!h->transfer_code && ticks - start < 100 && h->info.state == NV_USB_RUNNING) {
         events(h);
         if (!h->transfer_code)
@@ -405,7 +424,7 @@ static void string_descriptor(struct device *d, u8 index, u16 language, char *ou
 static int configure_keyboard(struct device *d) {
     if (!d->keyboard_ep)
         return 0;
-    if (!ring_init(&d->interrupt) || !(d->report_page = page_alloc_below(USB_DMA_LIMIT)))
+    if (!ring_init(&d->interrupt, dma_limit(d->host)) || !(d->report_page = page_alloc_below(dma_limit(d->host))))
         return -NV_ENOMEM;
     memset(phys_ptr(d->input), 0, PAGE);
     input_context(d, 0)[1] = 1 | (1u << d->keyboard_ep);
@@ -422,7 +441,8 @@ static int configure_keyboard(struct device *d) {
     }
     ep[0] = interval << 16;
     ep[1] = (3u << 1) | (7u << 3) | (d->keyboard_packet << 16);
-    ep[2] = d->interrupt.page | 1;
+    ep[2] = (u32)d->interrupt.page | 1;
+    ep[3] = (u32)(d->interrupt.page >> 32);
     ep[4] = 8 | (d->keyboard_packet << 16);
     if (command(d->host, 12, d->input, d->slot << 24) < 0 ||
         control(d, 0x21, 11, 0, (u16)d->keyboard_interface, 0) < 0)
@@ -437,8 +457,8 @@ static int configure_keyboard(struct device *d) {
 }
 static int configure_mouse(struct device *d) {
     if (!d->mouse_ep || mouse_device) return 0;
-    if (!ring_init(&d->mouse_ring) ||
-        !(d->mouse_page = page_alloc_below(USB_DMA_LIMIT))) return -NV_ENOMEM;
+    if (!ring_init(&d->mouse_ring, dma_limit(d->host)) ||
+        !(d->mouse_page = page_alloc_below(dma_limit(d->host)))) return -NV_ENOMEM;
     memset(phys_ptr(d->input), 0, PAGE);
     input_context(d, 0)[1] = 1u | (1u << d->mouse_ep);
     slot_context(d, MAX(d->keyboard_ep, d->mouse_ep));
@@ -452,7 +472,8 @@ static int configure_mouse(struct device *d) {
     }
     ep[0] = interval << 16;
     ep[1] = (3u << 1) | (7u << 3) | (d->mouse_packet << 16);
-    ep[2] = d->mouse_ring.page | 1u;
+    ep[2] = (u32)d->mouse_ring.page | 1u;
+    ep[3] = (u32)(d->mouse_ring.page >> 32);
     ep[4] = (d->mouse_absolute ? 6u : 3u) | (d->mouse_packet << 16);
     if (command(d->host, 12, d->input, d->slot << 24) < 0 ||
         (!d->mouse_absolute && control(d, 0x21, 11, 0, (u16)d->mouse_interface, 0) < 0))
@@ -506,35 +527,39 @@ static int rndis_start(struct device *d) {
 }
 static int configure_ecm(struct device *d) {
     if (!d->ecm_in_ep || !d->ecm_out_ep || ecm_device) return 0;
-    if (!ring_init(&d->ecm_in) || !ring_init(&d->ecm_out) ||
-        !(d->ecm_in_buf = page_alloc_below(USB_DMA_LIMIT)) ||
-        !(d->ecm_out_buf = page_alloc_below(USB_DMA_LIMIT))) return -NV_ENOMEM;
+    if (!ring_init(&d->ecm_in, dma_limit(d->host)) || !ring_init(&d->ecm_out, dma_limit(d->host)) ||
+        !(d->ecm_in_buf = page_alloc_below(dma_limit(d->host))) ||
+        !(d->ecm_out_buf = page_alloc_below(dma_limit(d->host)))) return -NV_ENOMEM;
     memset(phys_ptr(d->input), 0, PAGE);
     u32 highest = MAX(d->ecm_in_ep, d->ecm_out_ep);
     input_context(d, 0)[1] = 1u | (1u << d->ecm_in_ep) | (1u << d->ecm_out_ep);
     if (d->cdc_in_ep && d->cdc_out_ep && d->info.vendor == 0x303a) {
-        if (!ring_init(&d->cdc_in) || !ring_init(&d->cdc_out) ||
-            !(d->cdc_in_buf = page_alloc_below(USB_DMA_LIMIT)) ||
-            !(d->cdc_out_buf = page_alloc_below(USB_DMA_LIMIT))) return -NV_ENOMEM;
+        if (!ring_init(&d->cdc_in, dma_limit(d->host)) || !ring_init(&d->cdc_out, dma_limit(d->host)) ||
+            !(d->cdc_in_buf = page_alloc_below(dma_limit(d->host))) ||
+            !(d->cdc_out_buf = page_alloc_below(dma_limit(d->host)))) return -NV_ENOMEM;
         highest = MAX(highest, MAX(d->cdc_in_ep, d->cdc_out_ep));
         input_context(d, 0)[1] |= (1u << d->cdc_in_ep) | (1u << d->cdc_out_ep);
         u32 *ci = input_context(d, d->cdc_in_ep + 1);
         ci[1] = (3u << 1) | (6u << 3) | (d->cdc_in_packet << 16);
-        ci[2] = d->cdc_in.page | 1u;
+        ci[2] = (u32)d->cdc_in.page | 1u;
+    ci[3] = (u32)(d->cdc_in.page >> 32);
         ci[4] = 512;
         u32 *co = input_context(d, d->cdc_out_ep + 1);
         co[1] = (3u << 1) | (2u << 3) | (d->cdc_out_packet << 16);
-        co[2] = d->cdc_out.page | 1u;
+        co[2] = (u32)d->cdc_out.page | 1u;
+    co[3] = (u32)(d->cdc_out.page >> 32);
         co[4] = 512;
     } else d->cdc_in_ep = d->cdc_out_ep = 0;
     slot_context(d, highest);
     u32 *in = input_context(d, d->ecm_in_ep + 1);
     in[1] = (3u << 1) | (6u << 3) | (d->ecm_in_packet << 16);
-    in[2] = d->ecm_in.page | 1u;
+    in[2] = (u32)d->ecm_in.page | 1u;
+    in[3] = (u32)(d->ecm_in.page >> 32);
     in[4] = 2048u;
     u32 *out = input_context(d, d->ecm_out_ep + 1);
     out[1] = (3u << 1) | (2u << 3) | (d->ecm_out_packet << 16);
-    out[2] = d->ecm_out.page | 1u;
+    out[2] = (u32)d->ecm_out.page | 1u;
+    out[3] = (u32)(d->ecm_out.page >> 32);
     out[4] = 2048u;
     if (command(d->host, 12, d->input, d->slot << 24) < 0 ||
         (d->rndis ? rndis_start(d) < 0 :
@@ -773,6 +798,8 @@ static bool remove_device(struct device *d) {
     if (d == ecm_device) { net_usb_detach(); ecm_device = NULL; }
     if (d == mouse_device) { console_pointer_report(0, 0, 0); mouse_device = NULL; }
     d->repeat_key = 0;
+    console_usb_modifiers(d->previous[0], 0);
+    d->previous[0]=0;
     for (u32 i = 0; i < ARRAY_LEN(devices); ++i)
         if (devices[i].slot && devices[i].info.parent == (u32)(d - devices) + 1)
             if (!remove_device(&devices[i]))
@@ -782,7 +809,7 @@ static bool remove_device(struct device *d) {
         return false;
     }
     ((u64 *)phys_ptr(d->host->dcbaa))[d->slot] = 0;
-    u32 pages[] = {d->input, d->output, d->buffer, d->control.page,
+    uptr pages[] = {d->input, d->output, d->buffer, d->control.page,
                    d->interrupt.page, d->report_page, d->mouse_ring.page, d->mouse_page,
                    d->ecm_in.page,
                    d->ecm_out.page, d->ecm_in_buf, d->ecm_out_buf,
@@ -826,17 +853,18 @@ static int attach(struct host *h, struct device *parent, u32 port, u32 speed) {
         parent ? ((speed <= 2 && parent->info.speed == 3) ? parent->slot | (port << 8) : parent->tt)
                : 0;
     d->max_packet = speed >= 4 ? 512 : speed == 3 ? 64 : 8;
-    d->input = page_alloc_below(USB_DMA_LIMIT);
-    d->output = page_alloc_below(USB_DMA_LIMIT);
-    d->buffer = page_alloc_below(USB_DMA_LIMIT);
+    d->input = page_alloc_below(dma_limit(h));
+    d->output = page_alloc_below(dma_limit(h));
+    d->buffer = page_alloc_below(dma_limit(h));
     int result = -NV_ENOMEM;
-    if (!d->input || !d->output || !d->buffer || !ring_init(&d->control))
+    if (!d->input || !d->output || !d->buffer || !ring_init(&d->control, dma_limit(d->host)))
         goto fail;
     input_context(d, 0)[1] = 3;
     slot_context(d, 1);
     u32 *ep = input_context(d, 2);
     ep[1] = (3u << 1) | (4u << 3) | (d->max_packet << 16);
-    ep[2] = d->control.page | 1;
+    ep[2] = (u32)d->control.page | 1;
+    ep[3] = (u32)(d->control.page >> 32);
     ep[4] = 8;
     ((u64 *)phys_ptr(h->dcbaa))[d->slot] = d->output;
     barrier();
@@ -882,10 +910,10 @@ static bool scratch_alloc(struct host *h) {
     if (!h->scratch_count || h->scratch_count > MAX_SCRATCH)
         return h->scratch_count == 0;
     h->scratch_array_pages = ALIGN_UP(h->scratch_count * sizeof(u64), PAGE) / PAGE;
-    h->scratch_array = page_alloc_run_below(h->scratch_array_pages, USB_DMA_LIMIT);
+    h->scratch_array = page_alloc_run_below(h->scratch_array_pages, dma_limit(h));
     if (!h->scratch_array) return false;
     for (u32 i = 0; i < h->scratch_count; ++i) {
-        h->scratch[i] = page_alloc_below(USB_DMA_LIMIT);
+        h->scratch[i] = page_alloc_below(dma_limit(h));
         if (!h->scratch[i]) return false;
         ((u64 *)phys_ptr(h->scratch_array))[i] = h->scratch[i];
     }
@@ -938,7 +966,7 @@ static void scan_hub(struct device *hub) {
         delay_ms(100);
         if (control(hub, 0x23, 3, 4, (u16)port, 0) < 0)
             continue;
-        u32 start = ticks;
+        u64 start = ticks;
         do {
             delay_ms(10);
             if (hub_status(hub, port, &state) < 0)
@@ -1048,6 +1076,7 @@ static bool init_host(struct host *h) {
     pci_write16(h->pci, 4, (u16)(pci_read(h->pci, 4) | 2u));
     u32 cap = read32(h, 0), hcs1 = read32(h, 4), hcs2 = read32(h, 8), hcc = read32(h, 16);
     if (!host_capabilities(h, cap, hcs1, hcc)) return false;
+    h->dma_limit = hcc & 1u ? ~0ull : USB_DMA_LIMIT;
     write32(h, h->op, read32(h, h->op) & ~1u);
     if (!wait_bits(h, h->op + 4, 1, 1, 1000))
         return false;
@@ -1056,14 +1085,15 @@ static bool init_host(struct host *h) {
         !(read32(h, h->op + 8) & 1))
         return false;
     h->scratch_count = ((hcs2 >> 27) & 31) | (((hcs2 >> 21) & 31) << 5);
-    h->dcbaa = page_alloc_below(USB_DMA_LIMIT);
-    h->event_page = page_alloc_below(USB_DMA_LIMIT);
-    h->erst = page_alloc_below(USB_DMA_LIMIT);
-    if (!h->dcbaa || !h->event_page || !h->erst || !ring_init(&h->command))
+    h->dcbaa = page_alloc_below(dma_limit(h));
+    h->event_page = page_alloc_below(dma_limit(h));
+    h->erst = page_alloc_below(dma_limit(h));
+    if (!h->dcbaa || !h->event_page || !h->erst || !ring_init(&h->command, dma_limit(h)))
         return false;
     if (!scratch_alloc(h)) return false;
     u32 *erst = phys_ptr(h->erst);
-    erst[0] = h->event_page;
+    erst[0] = (u32)h->event_page;
+    erst[1] = (u32)(h->event_page >> 32);
     erst[2] = RING_TRBS;
     h->event_cycle = 1;
     /* ERSTBA may trigger a DMA read immediately, while the controller is halted. */
@@ -1105,7 +1135,7 @@ static void discover_host(u32 address, u32 id, u32 cls) {
             host_failed(h);
         else if (h->info.state != NV_USB_FAILED) {
             /* Initialization failed before any DMA pointers were published. */
-            u32 pages[] = {h->dcbaa, h->event_page, h->erst, h->command.page};
+            uptr pages[] = {h->dcbaa, h->event_page, h->erst, h->command.page};
             for (u32 i = 0; i < ARRAY_LEN(pages); ++i)
                 if (pages[i])
                     page_free(pages[i]);
@@ -1133,7 +1163,7 @@ void usb_poll(void) {
     }
     for (u32 i = 0; i < ARRAY_LEN(devices); ++i) {
         struct device *d = &devices[i];
-        if (d->slot && !d->dead && d->repeat_key && (i32)(ticks - d->repeat_at) >= 0) {
+        if (d->slot && !d->dead && d->repeat_key && ticks >= d->repeat_at) {
             console_usb_key(d->repeat_key, d->previous[0]);
             d->repeat_at = ticks + 5;
         }
@@ -1191,7 +1221,7 @@ int usb_ecm_send(const void *packet, u32 length) {
             ((u8 *)phys_ptr(d->ecm_out_buf))[length++]=0;
     } else memcpy(phys_ptr(d->ecm_out_buf), packet, length);
     bool zlp = !d->rndis && length % d->ecm_out_packet == 0;
-    u32 first = ring_put(&d->ecm_out, d->ecm_out_buf, 0, length,
+    uptr first = ring_put(&d->ecm_out, d->ecm_out_buf, 0, length,
                          TYPE(1) | (zlp ? 1u << 4 : 1u << 5));
     d->ecm_out_wait = zlp ? ring_put(&d->ecm_out, d->ecm_out_buf, 0, 0,
                                      TYPE(1) | (1u << 5)) : first;

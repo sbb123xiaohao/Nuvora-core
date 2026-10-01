@@ -1,8 +1,26 @@
-# Nuvora Core 0.10.0
+# Nuvora Core 0.15.0
 
 Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动、Loom 命令环境、图形桌面、自有数据卷和基础驱动；ARM64 版本目前是独立的引导与 EL0 计算基线。项目尚未完成实体机兼容认证。
 
-## 快速运行
+0.15.0 默认进入现代图形登录与桌面：渐变壁纸、浮动 Dock、圆角窗口、应用搜索和设置中心。正常启动隐藏屏幕上的内核日志，命令操作通过 Terminal 窗口完成；桌面退出后由会话监督程序恢复登录界面。新增内核自动锁屏、可信会话入口校验、管理员电源/网络配置权限、可用 CPU 上的 SMEP，以及独立诊断内核。行为与安全边界见[桌面与安全](docs/DESKTOP-SECURITY.md)。
+
+保留 0.14.0 的原生 64 位 ABI：代码、栈、堆及图形/音频缓冲可使用 4 GiB 以上地址，兼容旧 ABI 1 ELF64 二进制。实体 PC 使用 FAT32 UEFI 启动介质、GOP 模式回退、按设备能力选择的 DMA 地址及 ACPI 电源路径；本版修正 UEFI ACPI 1.0 表 GUID，并优先选择 ACPI 2.0。上机步骤与准确边界见[实体机与 64 位说明](docs/NATIVE64-HARDWARE.md)。
+
+## 实体机启动
+
+在 Linux 构建机安装 GCC、binutils、Python 3 和 mtools 后：
+
+```sh
+make -j4 all
+make test-host
+make media
+```
+
+将 `build/x86_64/nuvora-uefi-media.img` 写入专用测试 U 盘，在目标 PC 的
+x64 UEFI 启动菜单选择它，并关闭 Secure Boot。镜像使用 FAT32 ESP，
+不会自动安装或分区；写盘与存储要求见 [启动介质](docs/BOOT-MEDIA.md)。
+
+## 开发环境快速运行
 
 Ubuntu 宿主安装 GCC、binutils、Python 3、QEMU、OVMF 和 mtools 后：
 
@@ -25,13 +43,18 @@ Windows 10/11 在 PowerShell 中运行 `./start.ps1 doctor`、`./start.ps1 build
 
 | 范围 | 状态 |
 | --- | --- |
-| 内存 | x64 最多管理 128 GiB 物理地址范围，支持最多 2048 个启动内存图条目；4 GiB 以下 DMA、分阶页分配和小对象 slab；ARM64 上限仍为 64 GiB |
+| 内存 | x64 四级页表支持低半规范用户地址（最高 128 TiB），原生堆从 64 GiB 起、上界 64 TiB；最多管理 128 GiB 物理地址范围、2048 个启动内存图条目；按设备能力选择 DMA 范围；ARM64 上限仍为 64 GiB |
 | 数据盘 | IDE、SATA/AHCI 的 512B 与 512e 盘（LBA28/LBA48），以及 512B NVMe namespace；按活动命名空间列表识别稀疏编号，旧控制器回退顺序枚举 |
 | 文件 | GPT 默认一个 Nuvora 卷；NVSTORE3 支持 64 位文件大小、稀疏块和双元数据根；旧 NVSTORE1/2 可读取，解除旧容量限制需迁移 |
-| 桌面与媒体 | GOP 显示默认进入空桌面；文件管理、纯文本编辑和终端由桌面图标、任务栏或开始菜单启动，支持窗口切换与缩放；任务栏可调输出音量；Media 流式播放 MP3/MP2/FLAC、WAV/RF64 和 MPEG-1/MP2 视频 |
+| 桌面与媒体 | 三种壁纸、浮动 Dock、圆角/阴影、比例抗锯齿字体、设置中心；应用搜索、总览、最近使用切换、贴边平铺及局部重绘；Files、Text Editor、Terminal、Media、Folio；全局音量，流式播放 MP3/MP2/FLAC、WAV/RF64 和 MPEG-1/MP2 视频 |
+| 账户与安全 | 图形 OOBE、登录、内核自动锁屏、退出登录；管理员/普通账户、密码修改、禁用和删除；独立用户目录、持久密码散列；管理员电源/网络配置权限，生产内核禁用测试认证绕过 |
 | 外设与网络 | xHCI Boot 键盘/鼠标（含数字小键盘）、USB CDC-ECM 和基础 RNDIS 共享网络、部分 Intel 有线网卡；特定 ESP USB Dongle 固件提供 Wi-Fi 桥接；IPv4 `ping`、DNS、HTTP `wget` |
 
-桌面启动时不会弹出 Files；双击桌面图标、点任务栏或按 F10 打开开始菜单。窗口标题栏可拖动、双击最大化，右下角可调整大小，Alt-Tab 切换。点击右下角扬声器可调音量，Media 播放时也可使用音量条或 `+` / `-`。Files 可新建文件夹与文本、用 F2 改名、Delete 打开删除确认；`.txt`/`.md` 在窗口内编辑。终端输入 `exit` 关闭窗口，输入 `loom` 进入完整命令环境。Media 和 Folio 仍以全屏程序运行，退出后回桌面。在 Loom 中使用 `volumes`、`partitions` 查看数据卷，文件改动用 `anchor` 提交；桌面编辑器与 Files 的修改会尝试自动提交。操作细节见[命令手册](docs/COMMANDS.md)、[网络](docs/NETWORK.md)和[设备范围](docs/DEVICES.md)。
+首次启动创建管理员账户，后续用密码登录。Start → Accounts 管理用户；Win-L 锁屏，Start → Sign out 退出登录。Start → Settings 选择壁纸、1/5/15 分钟自动锁屏、保存数据或请求重启/关机；默认 5 分钟，无输入时由内核执行锁定。壁纸和锁屏选择随用户数据卷保存。账户密码要求 15–128 个字符；访问与安全边界见[账户说明](docs/ACCOUNTS.md)。
+
+Win/Super 或 F10 打开开始菜单，输入应用名称或 `mp3`、`video` 等关键词搜索。Win-Tab 或 F12 打开窗口总览；Alt-Tab 按最近使用顺序选择，松开 Alt 切换，Shift 反向、Esc 取消。Win-左右平铺，Win-上最大化，Win-下恢复/最小化；标题栏拖到边缘也可平铺。Alt-F4/F9/F10 分别关闭、最小化、最大化/恢复。播放或下载时可操作其他窗口；Folio 关闭前保留未保存提示。任务栏和播放器可调输出音量。
+
+Files 可新建、改名和删除，Ctrl-H 切换点文件显示；`.txt`/`.md` 在 Text Editor 中编辑，`.nvd` 在 Folio 中编辑，支持的音视频在 Media 中打开。终端包含完整命令集，输入 `exit` 关闭窗口；`volumes`、`partitions` 查看卷，`anchor` 提交文件改动。桌面文件操作与编辑器保存会尝试自动提交。详情见[命令](docs/COMMANDS.md)、[网络](docs/NETWORK.md)和[设备范围](docs/DEVICES.md)。
 
 ## 构建与验证
 
@@ -42,7 +65,7 @@ make iso-uefi   # 需要 mtools 和 xorriso
 make media      # 生成 GPT/ESP 启动镜像，不写宿主磁盘
 ```
 
-当前通过 29 组宿主回归，包括窗口桌面的局部重绘、音量设置、RNDIS 帧解析、高地址内存、SATA/NVMe、GPT、文件提交、媒体解码及网络协议解析。本轮环境缺少 QEMU、OVMF 和 mtools，尚未在客户机或实体机验证窗口交互、音频和网络联机。首次上机请使用专用启动介质和测试数据盘。
+当前通过 37 组宿主回归，包括原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
 
 目前只挂载 Nuvora 自有格式，**不会格式化或写入普通 Windows/Linux 分区**。4Kn 逻辑扇区、USB 存储挂载、笔记本内置 PCI Wi-Fi、USB NCM、VirtIO/SCSI、Secure Boot、多核和 Linux/POSIX 应用兼容尚未实现。完整边界与历史变更见[测试说明](docs/TESTING.md)、[架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)和[更新记录](docs/CHANGELOG.md)。
 

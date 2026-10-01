@@ -28,7 +28,7 @@ int gpu_get_info(u32 index, struct nv_gpu_info *out) {
     *out = adapters[index];
     return 1;
 }
-static int gpu_map_bar(u32 user_ptr) {
+static int gpu_map_bar(uptr user_ptr) {
     struct nv_gpu_map_bar_req req;
     struct nv_gpu_map_bar_res res = {0};
     /* Validate the full response before any allocation or copy. Writable x86
@@ -67,7 +67,7 @@ respond:
     memcpy((void *)(uptr)user_ptr, &res, sizeof(res));
     return result;
 }
-int gpu_ioctl(u32 op, u32 user_ptr) {
+int gpu_ioctl(u32 op, uptr user_ptr) {
     switch (op) {
     case NV_GPU_OP_MAP_BAR:
         return gpu_map_bar(user_ptr);

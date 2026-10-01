@@ -17,7 +17,7 @@ parser.add_argument('--disk-size', type=int, default=8192, metavar='MIB', help='
 parser.add_argument('--partitions', type=int, default=1, choices=range(1, 5), metavar='{1,2,3,4}',
                     help='Number of GPT data partitions for a NEW disk (default: 1)')
 parser.add_argument('--memory', type=int, default=256, metavar='MIB', help='Guest memory in MiB (default: 256)')
-parser.add_argument('--cpu', help='x64 QEMU CPU model; defaults to qemu64')
+parser.add_argument('--cpu', help='x64 QEMU CPU model; defaults to max (includes password-salt RNG)')
 parser.add_argument('--machine', choices=['pc', 'q35'], default='pc', help='QEMU machine model')
 parser.add_argument('--disk-bus', choices=['ide', 'ahci', 'nvme'], default='ide',
                     help='Attach the data image as IDE, AHCI/SATA or NVMe (default: ide)')

@@ -12,7 +12,7 @@ void console_write(const char *p, usize n) { (void)p; (void)n; }
 int console_getc(void) { return -NV_EAGAIN; }
 int task_info(u32 i, struct nv_taskinfo *out) { (void)i; (void)out; return 0; }
 bool task_cwd_in_use(int n) { (void)n; return false; }
-volatile u32 ticks;
+volatile u64 ticks;
 static FILE *disk;
 static u64 disk_base;
 static struct store_layout external_layout;

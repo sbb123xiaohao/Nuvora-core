@@ -8,7 +8,7 @@ int user_main(const char *args) {
         print("pulse ");
         print_u32(i);
         print(" at tick ");
-        print_u32(clock_ticks());
+        print_u64(clock_ticks());
         print("\n");
         nap(150);
     }

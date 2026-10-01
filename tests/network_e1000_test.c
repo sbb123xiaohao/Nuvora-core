@@ -8,7 +8,7 @@
 struct task { u32 pid; void *pd; };
 static struct task task_object;
 static struct task *current = &task_object;
-static u32 ticks;
+static u64 ticks;
 static bool link_up = true;
 static u8 sent[1514];
 static void pci_visit(void (*cb)(u32, u32, u32)) {
@@ -35,7 +35,7 @@ static bool usb_ecm_link(void) { return false; }
 static int usb_ecm_send(const void *p, u32 size) { (void)p; (void)size; return -NV_ENODEV; }
 static int usb_wifi_command(const char *p, u32 n) { (void)p; (void)n; return -NV_ENODEV; }
 static int usb_wifi_read(char *p, u32 n) { (void)p; (void)n; return -NV_ENODEV; }
-static bool user_range(void *pd, u32 address, u32 size, bool write) {
+static bool user_range(void *pd, uptr address, usize size, bool write) {
     (void)pd; (void)address; (void)size; (void)write; return false;
 }
 static void kprintf(const char *format, ...) { (void)format; }

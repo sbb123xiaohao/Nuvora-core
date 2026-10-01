@@ -377,10 +377,12 @@ void kfree(void *ptr) {
 }
 void *vm_mmio_map(u64 physical, u32 length) {
     /* The final PTE is a shared single-page firmware/ECAM aperture. */
-    if (!length || physical % PAGE || physical >> 52 || length > 511 * PAGE ||
+    if (!length || physical >> 52 || length > 511 * PAGE ||
         physical > (1ull << 52) - length)
         return NULL;
-    u32 count = ALIGN_UP(length, PAGE) / PAGE;
+    u32 offset = physical & (PAGE - 1);
+    u32 count = (u32)(ALIGN_UP((u64)length + offset, PAGE) / PAGE);
+    physical -= offset;
     if (count > 511 - mmio_pages)
         return NULL;
     uptr base = MMIO_BASE + mmio_pages * PAGE;
@@ -390,7 +392,7 @@ void *vm_mmio_map(u64 physical, u32 length) {
         mmio_pt[mmio_pages++] = (pte_t)(physical + i * PAGE) | flags;
         __asm__ volatile("invlpg (%0)" ::"r"(base + i * PAGE) : "memory");
     }
-    return (void *)base;
+    return (void *)(base + offset);
 }
 void *vm_mmio_remap(u64 physical) {
     if (physical % PAGE || physical >> 52)
@@ -441,30 +443,6 @@ void vm_stack_free(void *base) {
         __asm__ volatile("invlpg (%0)" ::"r"(address + i * PAGE) : "memory");
         page_free(p);
     }
-}
-int user_string(u32 ptr, char *out, u32 cap) {
-    for (u32 i = 0; i < cap; ++i) {
-        if (ptr > 0xffffffffu - i || !user_range(current->pd, ptr + i, 1, false))
-            return -NV_EFAULT;
-        out[i] = *(const char *)(uptr)(ptr + i);
-        if (!out[i])
-            return 0;
-    }
-    return -NV_E2BIG;
-}
-int copy_to_space(pte_t *pd, u32 va, const void *src, u32 len) {
-    const u8 *s = src;
-    while (len) {
-        uptr p = vm_translate(pd, va);
-        if (!p)
-            return -NV_EFAULT;
-        u32 n = MIN(len, PAGE - (va & 4095));
-        memcpy(phys_ptr(p), s, n);
-        s += n;
-        va += n;
-        len -= n;
-    }
-    return 0;
 }
 static void exhaustion_selftest(void) {
     u32 before = free_count, old = heap_used();
@@ -550,6 +528,6 @@ void memory_selftest(void) {
     if (free_count != before)
         panic("kernel stack reclamation leak");
     if (test_mode)
-        exhaustion_selftest();
+        if (test_mode) exhaustion_selftest();
     kprintf("[ok] physical pages, heap coalescing, page permissions\n");
 }

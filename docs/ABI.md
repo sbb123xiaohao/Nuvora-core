@@ -1,8 +1,10 @@
-# Nuvora ABI 1
+# Nuvora ABI 2 与 ABI 1 兼容
 
 ABI 与 Linux 不兼容。共同常量和结构以 `include/nv/abi.h` 为准；第三方 x64 程序可使用 `include/nv/sdk.h`，项目内部封装仍在 `user/runtime.h`。接口约定、工具链和示例见 [SDK.md](SDK.md)。
 
-x64 使用 `int 0x81`。调用号在 EAX，前三个参数在 EBX / ECX / EDX，返回值读取 EAX 的有符号 32 位值。x64 内核保存完整 64 位寄存器，但 ABI 1 的调用号、参数和用户地址仍限制为 32 位；非零高位返回 `-NV_EINVAL`。普通用户地址必须位于当前进程实际映射的 1–2 GiB 窗口内。
+x64 使用 `int 0x81`。原生 ABI 2 将 `NV_CALL_NATIVE`（bit 32）与原调用号合并放入 RAX，RBX / RCX / RDX 传完整 64 位参数，RAX 返回有符号 64 位结果。指针必须处于当前进程实际映射的低半规范地址，内核保留低 1 GiB；不会因指针高 32 位非零而拒绝。fd、PID、索引和子操作等标量仍按协议检查范围，不能以超宽值冒充低位有效编号。
+
+没有 bit 32 的旧调用仍为 ABI 1：EAX 为原调用号，EBX / ECX / EDX 参数不得有非零高位，EAX 为 32 位返回值。低地址 ELF64 继续使用原映像/堆/栈布局；旧 `INFO.abi` 返回 1。新 SDK 默认使用 ABI 2；其 `INFO.abi` 返回 2。旧二进制不需要重编译。
 
 除 `CLOCK` 的无符号 tick 位模式外，负数表示 `-NV_E...`，非负数表示结果。零长度 I/O 不解引用缓冲区。每次 I/O 上限为 16384 字节。
 
@@ -43,7 +45,9 @@ x64 使用 `int 0x81`。调用号在 EAX，前三个参数在 EBX / ECX / EDX，
 `VOLUME` 和 `PARTITION` 仅由 x64 内核实现，所有输出指针先验证整个可写结构体。
 `PARTITION` 报告经过 GPT CRC、范围和重叠检查的记录，格式未知的记录不会挂载。
 数据镜像默认一个 GPT C: 分区，旧 NVSTORE 整盘镜像继续兼容为 C:；
-每卷快照独立，但 `anchor` 不是跨卷事务。接口仍为 ABI 1 的末尾追加调用号。
+每卷快照独立，但 `anchor` 不是跨卷事务。已有编号保持不变，31–33 为 `SEEK64`、`STAT64`、`LIST64`；34–36 为原生 `INFO64`、`TASK64`、`CLOCK64`。
+
+`INFO64` 写入 64 字节的 `nv_info64`，内存计数与 tick 为 u64；`TASK64` 写入 72 字节的 `nv_taskinfo64`，包括 ABI、u64 CPU tick、页数与堆末地址。`CLOCK64` 直接返回当前 64 位 tick。旧 INFO/TASK/CLOCK 的固定字段仍保留，宽计数请使用新增调用。
 
 打开标志：READ=1、WRITE=2、CREATE=4、TRUNC=8、APPEND=16、EXCL=32。CREATE/TRUNC/APPEND 要求 WRITE，EXCL 要求 CREATE。追加总是使用当时文件结尾，即使此前调用 SEEK。
 
@@ -53,7 +57,7 @@ CONTROL：1 保存 `/home`，2 关机，3 重启，4 清空 VGA，5 测试退出
 
 STOP 允许 PID 1 管理其他进程；普通进程只能终止自己的子进程；任何进程均不能通过 STOP 终止 PID 1 或自己。WAIT 对退出状态只允许领取一次。未领取状态的进程会保留 zombie 元数据，但它的用户页、页表和内核栈在安全切换后释放。主动终止状态为 143；CPU 异常状态为 `128 + vector`。
 
-`GROW` 以 4096 字节页为单位，正数增加、负数归还、零查询。x64 分配上限为每进程 512 MiB；失败不推进 break。返回值与 `sbrk` 的形状相似，但不是 POSIX 接口。运行库将错误符号扩展到宿主指针宽度，可用 `(iptr)result < 0` 判断。
+`GROW` 以 4096 字节页为单位，正数增加、负数归还、零查询。ABI 2 页数为 i64，原生堆由 `0x1000000000`（64 GiB）起、上界 `0x400000000000`（64 TiB）；立即提交物理页，实际可分配量取决于 RAM。失败回滚且不推进 break。ABI 1 ELF 继续使用原 512 MiB 堆布局。返回改变前的完整地址，可用 `(iptr)result < 0` 判断错误。
 
 程序入口由 `user/start64.S` 转入 `int user_main(const char *args)`。x64 内部 C 调用遵循 SysV AMD64 整数调用约定；系统调用使用上述独立约定。x64 程序必须禁止 red zone。内核 C 和随包通用应用继续以整数指令编译；专用用户程序可在查询能力后使用 x87/MMX/SSE，不能启用 AVX/XSAVE 等尚未支持的状态。浮点 C 调用约定和完整 libc 不在当前 ABI 范围。ARM64 当前只有测试用 SVC，还没有这一 ABI。
 
@@ -67,7 +71,7 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 
 `exec_program(path, args)` 接受与 SPAWN 相同的静态 ELF 和参数字符串。路径按调用进程当前目录解析，成功后从新程序入口继续，保留 PID、父进程、已有子进程、当前目录、累计 CPU tick 及 fd 3–15 的打开标志和偏移。用户堆和浮点/SIMD 状态重置，旧用户页和页表释放；新程序从独立零初始化的 BSS、堆和栈开始，原屏幕租约释放。
 
-加载新映像期间旧映像仍然存在，因此需要足够的临时物理内存。任何检查或分配失败都返回错误，原程序、堆、文件句柄和屏幕租约保持有效。此版本没有 close-on-exec 标志、动态链接器或环境变量接口。已有调用号保持不变，ABI 版本仍为 1。
+加载新映像期间旧映像仍然存在，因此需要足够的临时物理内存。任何检查或分配失败都返回错误，原程序、堆、文件句柄和屏幕租约保持有效。此版本没有 close-on-exec 标志、动态链接器或环境变量接口。加载器根据 ELF 映像地址选择原生或旧布局，拒绝混合布局；跨 ABI 的 spawn/exec 仍保留上述语义。
 
 ## HARDWARE 查询
 
@@ -80,3 +84,9 @@ ABI 1 还包括三个 Folio 专用调用。`SURFACE` 的 EBX 是操作（1 获�
 ## DEVCTL 扩展分发
 
 `NV_DEVCTL=28` 保留原有 0–27 号接口。CPU/GPU/网络/显示/输入子系统分别为 1/2/3/4/5；CPU 控制及 GPU SET_MODE/PRESENT/SUBMIT 返回 `-NV_ENOSYS`。`NV_SUB_DISPLAY` 有独立的固件帧缓冲像素路径，**不代表 GPU modesetting 已启用**。`NV_SUB_INPUT` 查询输入版本和设备计数，像素屏持有者可获取相对或绝对鼠标事件（见 [SDK.md](SDK.md)）。网络接口定义在 `include/nv/abi.h`，其实体硬件范围见 [NETWORK.md](NETWORK.md)。GPU MAP_BAR 使用 **16 字节** `union nv_gpu_map_bar_io`，将 8 字节请求覆盖为 16 字节响应。先检查完整输出，再准备并复用内核专用映射，不返回用户态地址；失败时有效缓冲区收到全零响应，EFAULT 不写入。完整约定和代码示例见 [DEVCTL.md](DEVCTL.md)，显示及输入契约见 [SDK.md](SDK.md)。
+
+## 本地账户（x64）
+
+`NV_SUB_ACCOUNT=8` 提供公开资料查询和受管理权保护的认证/用户修改。
+任务身份在 spawn 继承，exec 保持；未认证任务不能启动普通应用。
+首次设置、异步密码派生、锁屏、退出登录及目录权限契约见 [ACCOUNTS.md](ACCOUNTS.md)。

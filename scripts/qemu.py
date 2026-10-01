@@ -88,21 +88,21 @@ def firmware_arguments(firmware):
 
 
 def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,
-            disk_bus='ide'):
+            disk_bus='ide', diagnostics=False):
     if disk_bus not in ('ide', 'ahci', 'nvme'):
         raise ValueError(f'Unsupported data-disk bus: {disk_bus}')
     binary = qemu_binary()
     if not binary:
         raise RuntimeError('Install qemu-system-x86 (Debian/Ubuntu) or qemu-system-x86 (Arch).')
-    cmd = [binary, '-accel', 'tcg', '-machine', machine, '-cpu', cpu or 'qemu64',
+    cmd = [binary, '-accel', 'tcg', '-machine', machine, '-cpu', cpu or 'max',
            '-m', str(memory), '-smp', '1', '-nic', 'none']
     if kernel:
-        cmd += ['-kernel', str(BUILD / 'boot.elf')]
+        cmd += ['-kernel', str(BUILD / ('boot-test.elf' if diagnostics else 'boot.elf'))]
     if os.environ.get('NV_QEMU_DATA'):
         cmd += ['-L', os.environ['NV_QEMU_DATA']]
     if kernel and os.environ.get('NV_QEMU_BIOS'):
         cmd += ['-bios', os.environ['NV_QEMU_BIOS']]
-    if machine == 'q35' and (esp or (disk and disk_bus == 'ide')):
+    if machine == 'q35' and disk and disk_bus == 'ide':
         cmd += ['-device', 'isa-ide,id=legacyide']
     if disk:
         disk_path = pathlib.Path(disk).resolve()
@@ -133,9 +133,11 @@ def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,
         esp_spec = str(esp_path).replace(",", ",,")
         if machine == 'q35':
             cmd += ['-drive', f'file={esp_spec},format=raw,if=none,id=nuvora_esp',
-                    '-device', 'ide-hd,drive=nuvora_esp,bus=legacyide.0,unit=1']
+                    '-device', 'ide-hd,drive=nuvora_esp,bus=ide.1,unit=0,bootindex=1']
         else:
-            # Primary slave: the Nuvora ATA driver only probes primary
-            # master, so the ESP never collides with the data disk.
-            cmd += ['-drive', f'file={esp_spec},format=raw,if=ide,index=1']
+            # The primary slave keeps the ESP separate from the data disk.
+            # An explicit firmware boot priority avoids falling into the shell
+            # when the data disk has no EFI loader.
+            cmd += ['-drive', f'file={esp_spec},format=raw,if=none,id=nuvora_esp',
+                    '-device', 'ide-hd,drive=nuvora_esp,bus=ide.0,unit=1,bootindex=1']
     return cmd

@@ -1,0 +1,5 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-production-session-d0kma_0o/data.img
+Created UEFI GPT boot image: /tmp/nuvora-production-session-d0kma_0o/boot.img (66 MiB)
+PASS production USB boot: authentication retained with nv.test=1; native client authority denied
+PASS real idle lock, app/launcher barrier, wrong-password rejection and resume
+PASS graphical restart/shutdown: safe confirmation, account/preferences persistence, ACPI power and quiet kernel

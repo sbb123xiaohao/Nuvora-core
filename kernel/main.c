@@ -100,14 +100,21 @@ void kernel_start(const struct boot_info *bi) {
     console_init(bi);
     kprintf("\nNuvora Core " NV_VERSION "\n" NV_ARCH_NAME
             " kernel | private ABI | built from original sources\n\n");
+    /* Production images cannot disable authentication with a boot argument.
+     * Self-tests use a separate, explicitly built diagnostic kernel. */
+#if defined(NV_DIAGNOSTIC_BUILD) && NV_DIAGNOSTIC_BUILD
     test_mode = boot_option(bi->cmdline, "nv.test=1");
+#else
+    test_mode = false;
+#endif
+    bool recovery=boot_option(bi->cmdline,"nv.recovery=1") || bi->fb.format==NV_FB_NONE;
     arch_init();
     memory_init(bi);
     cpu_init();
     acpi_init(boot_option(bi->cmdline, "nv.no-ecam=1"), bi->rsdp);
     kprintf("[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging\n");
     memory_selftest();
-    console_fb_enable();
+    console_fb_enable(!test_mode && !recovery);
     task_init();
     fs_init();
     fs_unpack(archive_start, (usize)(archive_end - archive_start));
@@ -115,15 +122,19 @@ void kernel_start(const struct boot_info *bi) {
     disk_init();
     fs_mount_volumes(disk_volume_count());
     store_init();
+    account_init();
     gpu_init();
     audio_init();
     net_init();
     usb_init();
     kprintf("[ok] %u MiB managed RAM, %u free pages\n", pages_total() / 256, pages_free());
-    const char *program = test_mode ? "/apps/probe" : "/apps/loom";
+    const char *program = test_mode ? "/apps/probe" : recovery ? "/apps/loom" : "/apps/session";
+    if (test_mode && boot_option(bi->cmdline,"nv.init=loom")) {
+        program="/apps/loom";recovery=true;
+    }
     if (test_mode && boot_option(bi->cmdline, "nv.init-fault=1"))
         program = "/apps/fault";
-    int pid = task_spawn(program, "", NULL);
+    int pid = task_spawn(program, recovery && !strcmp(program,"/apps/loom")?"--recovery":"", NULL);
     if (pid < 0) {
         kprintf("spawn error %d\n", pid);
         panic("cannot load initial process");

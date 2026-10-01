@@ -107,7 +107,7 @@ static int worker(u32 seed) {
     pattern(seed);
     /* clock_ticks does not reschedule: during this phase only timer preemption
      * can switch between the two workers. No yield/sleep in this loop. */
-    u32 start = clock_ticks();
+    u64 start = clock_ticks();
     do {
         u32 cycles = 2000000u;
         __asm__ volatile("1: sub $1,%%ecx; jnz 1b" : "+c"(cycles)::"cc");

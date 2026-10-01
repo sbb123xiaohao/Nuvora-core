@@ -1,13 +1,13 @@
 #include "kernel.h"
 
 /* Small polled I225-V/I226-V path. The NIC is a physical PCIe bus master:
- * descriptors and packet buffers live in page-aligned RAM below 4 GiB. IRQ
+ * descriptors and packet buffers carry full 64-bit physical addresses. IRQ
  * routing is not yet available in this kernel, so completion is polled.
  * This driver intentionally does not match unrelated e1000/igb hardware. */
 #define IGC_RING 16u
 #define IGC_FRAME 2048u
 #define IGC_MMIO 0x20000u
-#define DMA_LIMIT 0x100000000ull
+#define DMA_LIMIT (~0ull)
 #define CTRL 0x0000u
 #define STATUS 0x0008u
 #define RCTL 0x0100u
@@ -40,7 +40,7 @@ static u32 rd(u32 offset) { return *(volatile u32 *)(regs + offset); }
 static void wr(u32 offset, u32 value) { *(volatile u32 *)(regs + offset) = value; }
 static void fence(void) { __asm__ volatile("mfence" ::: "memory"); }
 static bool enabled(u32 offset) {
-    u32 start = ticks;
+    u64 start = ticks;
     while (ticks - start < 10) {
         if (rd(offset) & (1u << 25)) return true;
         idle_once();
@@ -61,7 +61,7 @@ bool net_igc_start(u32 address, u8 mac[6]) {
     if ((bar & 1) || ((bar & 6) != 0 && (bar & 6) != 4)) return false;
     u64 phys = bar & ~15u;
     if ((bar & 6) == 4) phys |= (u64)pci_read(address, 0x14) << 32;
-    if (!phys || phys % PAGE) return false;
+    if (!phys || phys >> 52) return false;
     regs = vm_mmio_map(phys, IGC_MMIO);
     if (!regs) return false;
     u16 command = (u16)pci_read(address, 4);
@@ -88,7 +88,7 @@ bool net_igc_start(u32 address, u8 mac[6]) {
     wr(RCTL, 0);
     wr(TCTL, 0x8);
     wr(CTRL, rd(CTRL) | (1u << 26));
-    u32 start = ticks;
+    u64 start = ticks;
     while (rd(CTRL) & (1u << 26)) {
         if (ticks - start >= 100) { free_unpublished(); return false; }
         idle_once();
@@ -101,12 +101,12 @@ bool net_igc_start(u32 address, u8 mac[6]) {
     pci_write16(address, 4, (u16)(command | 6u | (1u << 10)));
 
     wr(RXDCTL, 0); wr(TXDCTL, 0);
-    wr(RDBAL, (u32)rx_page); wr(RDBAH, 0); wr(RDLEN, IGC_RING * 16);
+    wr(RDBAL, (u32)rx_page); wr(RDBAH, (u32)(rx_page >> 32)); wr(RDLEN, IGC_RING * 16);
     wr(RDH, 0); wr(RDT, 0);
     /* Advanced one-buffer descriptors, 2 KiB receive buffers. Preserve the
      * unrelated hardware bits of SRRCTL, including reserved fields. */
     wr(SRRCTL, (rd(SRRCTL) & ~0x03ff007fu) | 2u | 0x02000000u);
-    wr(TDBAL, (u32)tx_page); wr(TDBAH, 0); wr(TDLEN, IGC_RING * 16);
+    wr(TDBAL, (u32)tx_page); wr(TDBAH, (u32)(tx_page >> 32)); wr(TDLEN, IGC_RING * 16);
     wr(TDH, 0); wr(TDT, 0);
     fence();
     wr(RXDCTL, 1u << 25); wr(TXDCTL, 1u << 25);

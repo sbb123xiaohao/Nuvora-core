@@ -10,7 +10,7 @@ void panic(const char *message) { fprintf(stderr, "PANIC: %s\n", message); abort
 void console_write(const char *p, usize n) { (void)p; (void)n; }
 int console_getc(void) { return -NV_EAGAIN; }
 int task_info(u32 index, struct nv_taskinfo *out) { (void)index; (void)out; return 0; }
-volatile u32 ticks;
+volatile u64 ticks;
 bool task_cwd_in_use(int node) { (void)node; return false; }
 int store_read_bytes(u32 v, int slot, u32 off, void *dst, u32 len) {
     (void)v; (void)slot; (void)off; (void)dst; (void)len; return -NV_EIO;
@@ -97,6 +97,28 @@ int main(void) {
         assert(fs_write(&t, fd, block, PAGE) == PAGE);
     assert(fs_seek(&t, fd, 500000, 0) == 500000);
     assert(fs_read(&t, fd, pair, 2) == 2 && (u8)pair[0] == 0xa3);
+    /* Loading a paged executable borrows no file pages and rolls back its
+     * temporary materialization on both allocation and backing-read errors. */
+    const u8 *image; u8 *temporary; usize image_length;
+    before = heap_used();
+    assert(fs_blob("/home/large", &image, &image_length, &temporary) == 0);
+    assert(image == temporary && image_length == 1024 * 1024);
+    for (u32 i = 0; i < image_length; ++i) assert(image[i] == 0xa3);
+    kfree(temporary); assert(heap_used() == before);
+    free_block = head;
+    while (free_block->next) free_block = free_block->next;
+    filler = kmalloc(free_block->size - 256 - sizeof(struct block));
+    assert(filler);
+    u32 pressure = heap_used();
+    assert(fs_blob("/home/large", &image, &image_length, &temporary) == -NV_ENOMEM);
+    assert(!image && !image_length && !temporary && heap_used() == pressure);
+    kfree(filler);
+    n = fs_lookup(0, "/home/large");
+    u8 *saved_page = nodes[n].pages[0];
+    nodes[n].pages[0] = NULL; nodes[n].backing_slot = 0;
+    assert(fs_blob("/home/large", &image, &image_length, &temporary) == -NV_EIO);
+    assert(!image && !image_length && !temporary && heap_used() == before);
+    nodes[n].pages[0] = saved_page; nodes[n].backing_slot = -1;
     assert(fs_close(&t, fd) == 0 && fs_remove(0, "/home/large") == 0);
 
     fs_mount_volumes(2);

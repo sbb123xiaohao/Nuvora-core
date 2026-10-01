@@ -1,0 +1,4 @@
+PASS Ring 3 probe / 32 MiB: 144 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS Ring 3 probe / 64 MiB: 144 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS Ring 3 probe / 256 MiB: 144 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS Fragmented kernel heap / 32 MiB: six reserved-page holes prevent contiguous 8 MiB allocation; scattered heap backing boots and completes the full user probe, OOM rollback and memory reclamation checks

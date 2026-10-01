@@ -42,13 +42,13 @@ static void devctl_tests(void) {
               devctl(NV_SUB_AUDIO, NV_AUDIO_INFO, NULL) == -NV_EFAULT &&
               devctl(NV_SUB_AUDIO, 0, &audio) == -NV_EINVAL,
           "optional HDA output format and audio request validation");
-    struct nv_audio_write invalid_audio = {0, 3};
-    check(devctl(NV_SUB_AUDIO, NV_AUDIO_WRITE, &invalid_audio) == -NV_EINVAL &&
-              devctl(NV_SUB_AUDIO, NV_AUDIO_WRITE, NULL) == -NV_EFAULT,
+    struct nv_audio_write invalid_audio = {.bytes=3};
+    check(devctl(NV_SUB_AUDIO, NV_AUDIO_WRITE64, &invalid_audio) == -NV_EINVAL &&
+              devctl(NV_SUB_AUDIO, NV_AUDIO_WRITE64, NULL) == -NV_EFAULT,
           "PCM writes reject non-frame-aligned lengths and invalid request buffers");
     if (display == 0) {
         u32 pixel = nv_display_rgb(screen_mode.format, 0x123456);
-        struct nv_display_present rect = {0, 0, 1, 1, 4, (u32)(uptr)&pixel};
+        struct nv_display_present rect = {.width=1, .height=1, .stride=4, .pixels=(uptr)&pixel};
         check(nv_display_present(&rect) == -NV_EACCESS &&
                   nv_display_acquire() == 0, "pixel display requires an exclusive lease");
         int polled = nv_pointer_poll(&pointer);

@@ -50,13 +50,13 @@ int main(void) {
     for (u32 n=0;n<ARRAY_LEN(failures);++n) {
         reset(failures[n]);
         assert(vm_heap_create() == NULL && !live && !pin_count && !switches);
-        assert(!pml4[KHEAP_WINDOW >> 39]);
+        assert(!pml4[(KHEAP_WINDOW >> 39) & 511]);
         for (u32 i=0;i<HEAP_PAGES;++i) assert(!heap_pt[i/512][i%512]);
     }
     reset(POOL_PAGES);
     assert(vm_heap_create() == (void *)KHEAP_WINDOW);
     assert(live == HEAP_PAGES && pin_count == HEAP_PAGES && switches == 1);
-    assert((pml4[KHEAP_WINDOW >> 39] & 7) == 3 && (heap_pdpt[0] & 7) == 3);
+    assert((pml4[(KHEAP_WINDOW >> 39) & 511] & 7) == 3 && (heap_pdpt[0] & 7) == 3);
     for (u32 i=0;i<HEAP_PAGES;++i) {
         pte_t entry=heap_pt[i/512][i%512];
         assert((entry & P_ADDRESS) == pool_base + (uptr)i*2*PAGE);
@@ -64,8 +64,8 @@ int main(void) {
         assert((heap_pd[i/512] & 7) == 3 && pinned[i] && !owned[i]);
     }
     pte_t *user = vm_create(); assert(user);
-    assert(user[KHEAP_WINDOW >> 39] == pml4[KHEAP_WINDOW >> 39]);
-    assert(!(user[KHEAP_WINDOW >> 39] & P_USER));
+    assert(user[(KHEAP_WINDOW >> 39) & 511] == pml4[(KHEAP_WINDOW >> 39) & 511]);
+    assert(!(user[(KHEAP_WINDOW >> 39) & 511] & P_USER));
     vm_destroy(user);
     assert(live == HEAP_PAGES && pin_count == HEAP_PAGES);
     assert(!munmap(pool,length));

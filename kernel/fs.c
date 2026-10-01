@@ -161,6 +161,24 @@ static int parent_for(int cwd, const char *path, char *name) {
     tmp[pos] = 0;
     return fs_lookup(cwd, tmp);
 }
+int fs_authorize(const struct task *t,int cwd,const char *path,u32 operation) {
+    char full[NV_PATH_MAX],name[32];
+    int node=fs_lookup(cwd,path);
+    if (node<0) {
+        if (node!=-NV_ENOENT || !operation) return node;
+        node=parent_for(cwd,path,name);
+        if (node<0) return node;
+        int r=fs_path(node,full,sizeof(full));
+        if (r<0) return r;
+        usize n=strlen(full);
+        if (n>1) { if (n+1>=sizeof(full)) return -NV_E2BIG;full[n++]='/';full[n]=0; }
+        if (strlcpy(full+n,name,sizeof(full)-n)>=sizeof(full)-n) return -NV_E2BIG;
+    } else {
+        int r=fs_path(node,full,sizeof(full));
+        if (r<0) return r;
+    }
+    return account_path_allowed(t,full,operation)?0:-NV_EACCESS;
+}
 static int create_node(int cwd, const char *path, u32 kind) {
     char name[32];
     int p = parent_for(cwd, path, name);
@@ -264,13 +282,28 @@ void fs_unpack(const u8 *blob, usize len) {
     if (pos != len)
         panic("archive trailing data");
 }
-int fs_blob(const char *path, const u8 **data, u32 *len) {
+int fs_blob(const char *path, const u8 **data, usize *len, u8 **temporary) {
+    *data = NULL; *len = 0; *temporary = NULL;
     int n = fs_lookup(0, path);
     if (n < 0)
         return n;
-    if (nodes[n].kind != NV_FILE || !nodes[n].data || nodes[n].size > NV_FILE_MAX)
+    if (nodes[n].kind != NV_FILE || !nodes[n].size || nodes[n].size > (usize)-1)
         return -NV_ENOEXEC;
-    *data = nodes[n].data;
+    if (nodes[n].data) *data = nodes[n].data;
+    else {
+        /* Executables copied or restored to a volume need not have a resident
+         * contiguous representation. Keep this temporary independent of the
+         * file's pages/extents so failed loads cannot mutate the source. */
+        u8 *copy = kmalloc((usize)nodes[n].size);
+        if (!copy) return -NV_ENOMEM;
+        for (u64 off=0; off<nodes[n].size;) {
+            u32 part=(u32)MIN(nodes[n].size-off, 16384u);
+            int r=file_copy(&nodes[n], off, copy+(usize)off, part);
+            if (r<0) { kfree(copy); return r; }
+            off+=part;
+        }
+        *data = copy; *temporary = copy;
+    }
     *len = nodes[n].size;
     return 0;
 }
@@ -279,6 +312,8 @@ int fs_open(struct task *t, const char *path, u32 flags) {
         ((flags & (NV_CREATE | NV_TRUNC | NV_APPEND)) && !(flags & NV_WRITE)) ||
         ((flags & NV_EXCL) && !(flags & NV_CREATE)))
         return -NV_EINVAL;
+    int access=fs_authorize(t,t->cwd,path,(flags&NV_WRITE)?1u:0u);
+    if (access<0 && !(access==-NV_ENOENT && (flags&NV_CREATE))) return access;
     int fd;
     for (fd = 3; fd < NV_OPEN_MAX; ++fd)
         if (t->fd[fd].node < 0)
@@ -373,6 +408,10 @@ static u32 proc_text(u32 device, char *out) {
 }
 int fs_read(struct task *t, int fd, void *buf, u32 len) {
     if (fd == 0) {
+        if (!account_task_allowed(t) && !account_manager(t) && t->pid!=1) return -NV_EACCESS;
+        int routed = window_stdio_read(t, buf, len);
+        if (routed != -NV_ENODEV) return routed;
+        if (!account_interactive_allowed(t)) return -NV_EACCESS;
         if (!len)
             return 0;
         int c = console_getc();
@@ -384,6 +423,9 @@ int fs_read(struct task *t, int fd, void *buf, u32 len) {
     if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0 || !(t->fd[fd].flags & NV_READ))
         return -NV_EBADF;
     struct descriptor *d = &t->fd[fd];
+    char path[NV_PATH_MAX];
+    int access=fs_path(d->node,path,sizeof(path));
+    if (access<0 || !account_path_allowed(t,path,0)) return access<0?access:-NV_EACCESS;
     struct node *n = &nodes[d->node];
     if (n->kind == NV_DEVICE) {
         if (n->device == 1)
@@ -412,16 +454,22 @@ int fs_read(struct task *t, int fd, void *buf, u32 len) {
 }
 int fs_write(struct task *t, int fd, const void *buf, u32 len) {
     if (fd == 1 || fd == 2) {
+        int routed = window_stdio_write(t, buf, len);
+        if (routed != -NV_ENODEV) return routed;
+        if (!account_interactive_allowed(t)) return -NV_EACCESS;
         console_write(buf, len);
         return (int)len;
     }
     if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0 || !(t->fd[fd].flags & NV_WRITE))
         return -NV_EBADF;
     struct descriptor *d = &t->fd[fd];
+    char path[NV_PATH_MAX];
+    int access=fs_path(d->node,path,sizeof(path));
+    if (access<0 || !account_path_allowed(t,path,1)) return access<0?access:-NV_EACCESS;
     struct node *n = &nodes[d->node];
     if (n->kind == NV_DEVICE) {
         if (n->device == 3)
-            console_write(buf, len);
+            return fs_write(t, 1, buf, len);
         return (int)len;
     }
     if (!len)
@@ -526,6 +574,8 @@ rollback_pages:
 }
 int fs_seek64(struct task *t, int fd, struct nv_seek64 *io) {
     if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0) return -NV_EBADF;
+    char path[NV_PATH_MAX];
+    if (fs_path(t->fd[fd].node,path,sizeof(path))<0 || !account_path_allowed(t,path,0)) return -NV_EACCESS;
     struct descriptor *d = &t->fd[fd];
     struct node *n = &nodes[d->node];
     if (n->kind == NV_DEVICE || io->origin > 2 || io->reserved) return -NV_EINVAL;
@@ -550,6 +600,8 @@ int fs_seek(struct task *t, int fd, i32 offset, u32 origin) {
 }
 int fs_stat64(struct task *t, int fd, struct nv_stat64 *out) {
     if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0) return -NV_EBADF;
+    char path[NV_PATH_MAX];
+    if (fs_path(t->fd[fd].node,path,sizeof(path))<0 || !account_path_allowed(t,path,0)) return -NV_EACCESS;
     struct node *n = &nodes[t->fd[fd].node];
     *out = (struct nv_stat64){.size = n->size, .kind = n->kind};
     for (struct file_extent *e = n->extents; e; e = e->next) out->allocated += e->blocks * PAGE;
@@ -563,7 +615,10 @@ int fs_list64(int cwd, const char *path, u32 index, struct nv_dirent64 *out) {
     if (nodes[p].kind != NV_DIR) return -NV_ENOTDIR;
     u32 k = 0;
     for (int i = 1; i < FS_NODES; ++i)
-        if (nodes[i].kind && nodes[i].parent == p && k++ == index) {
+        if (nodes[i].kind && nodes[i].parent == p) {
+            char full[NV_PATH_MAX];
+            if (current && (fs_path(i,full,sizeof(full))<0 || !account_path_allowed(current,full,0))) continue;
+            if (k++!=index) continue;
             memset(out, 0, sizeof(*out));
             strlcpy(out->name, nodes[i].name, sizeof(out->name));
             out->kind = nodes[i].kind; out->size = nodes[i].size;
@@ -580,6 +635,8 @@ int fs_list(int cwd, const char *path, u32 index, struct nv_dirent *out) {
     u32 k = 0;
     for (int i = 1; i < FS_NODES; ++i)
         if (nodes[i].kind && nodes[i].parent == p) {
+            char full[NV_PATH_MAX];
+            if (current && (fs_path(i,full,sizeof(full))<0 || !account_path_allowed(current,full,0))) continue;
             if (k++ != index)
                 continue;
             memset(out, 0, sizeof(*out));

@@ -56,5 +56,6 @@ for memory in (64, 256, 1024, 5120):
     print(f'PASS ARM64 QEMU virt / {memory} MiB: boot, FDT, paging, EL0 NEON and isolation')
 (REPORT / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
 (REPORT / 'execution.json').write_text(json.dumps({
-    'arch': 'aarch64', 'version': '0.10.0', 'completed': True, 'checks': len(results),
+    'arch': 'aarch64', 'version': re.search(r'#define NV_VERSION "([^"]+)"',
+        (ROOT/'include/nv/abi.h').read_text()).group(1), 'completed': True, 'checks': len(results),
     'image_sha256': hashlib.sha256(IMAGE.read_bytes()).hexdigest()}, indent=2) + '\n')

@@ -1,0 +1,22 @@
+{
+  "build/x86_64/boot.elf": "02d5b1c45e945572e6ac91d77556af6c87254879a03e45e6defbdf7f6ed97179",
+  "build/x86_64/nuvora.elf": "3b797aba2c2187fe4dfb7480c32d3b8cf33a80679c3f404c8851ef3d663b2e86",
+  "build/x86_64/nuvora-uefi.elf": "df3337e53530a7f0e03d987e4ca622fa4e32047d52a35bce258e4a52318e70ed",
+  "build/x86_64/BOOTX64.EFI": "88d21f0ea2cb724d8bce2f1cd78bf6a92bdda2ce0c4b7708d7b04918c6b17a59",
+  "build/x86_64/esp.img": "16093c4e35f93a9fe839003464b014c27952fca20c1e5e1b081cc11493dad63a",
+  "build/x86_64/nuvora-uefi-media.img": "f51fa38cd131bd83078d36dea6a92b4d41be88ce7d8cc6d4f35663fb29d80725",
+  "build/x86_64/nuvora-core-0.14.0-x86_64-uefi.iso": "e787df46e7e87c4c43a3e2de9f0084b6fe73e05c9617a053d1d442c04da8ff88",
+  "build/x86_64/apps/abi1.elf": "3f26c51d46ca60bc99c057e120aba8ce8b7c4c500f65a0a947a821e59264203b",
+  "build/x86_64/apps/desktop.elf": "5f7f4ac2d009fa5a56729d3e6e58f9a9b887607c19c6da7689e5d2c20eb35428",
+  "build/x86_64/apps/fault.elf": "1e65c590c417fe633701b05faab898c50d8bd9bd7e2e6ec5dccfe6fda99145c0",
+  "build/x86_64/apps/folio.elf": "1136859389783d89d871ec86a941d983591b8c23b7faa2262880e35ef0aa7031",
+  "build/x86_64/apps/loom.elf": "1ef864cc54c9f9e8008419fbf5012a1b3817319654bf7274b340e5f3da434838",
+  "build/x86_64/apps/media.elf": "c876e977c2dad8e8e3925b6fd5ac6977fe30bb13e45044d3914692d56a68b337",
+  "build/x86_64/apps/probe.elf": "a5a38786621c98b3be5b0717a4e87c05f29cf3b25809697039a3b41fd81e61c0",
+  "build/x86_64/apps/pulse.elf": "3bdddd4d4cf18996018fcad62d4a447d43f295d930d36b15fd091e7a5c51d009",
+  "build/x86_64/apps/relay.elf": "9d4df729bc08f127854b6419cb075e91b04491d09ea1b99f14ffb7e3c0ae239b",
+  "build/x86_64/apps/spin.elf": "9628ef3aa3ffd2a517afc34e9561a333a31528bc8eef4428a054563788b12004",
+  "build/x86_64/apps/terminal.elf": "076757cc64fa91be99528dcbb009436e1bd0acf41a27174e5e787e33a30ed9f9",
+  "build/x86_64/apps/vector.elf": "001baa2eaf053e5d70895a1ddd1483f70f61f085e6a05f52dd90f390d581276d",
+  "build/x86_64/apps/wave.elf": "c611717fcc5267f07fa9bc1d6b61fdc2fc2493f2a146de391a4d97095fe576be"
+}

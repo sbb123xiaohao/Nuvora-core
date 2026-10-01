@@ -1,0 +1,206 @@
+
+Nuvora Core 0.14.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] OOM rollback: zero through four available pages, no leaks
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] no Nuvora data disk; /home is volatile
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 63 MiB managed RAM, 10044 free pages
+[ok] entering Ring 3: /apps/probe, pid 1
+
+Nuvora Core integration probe (running in Ring 3)
+PASS private syscall ABI
+PASS unknown syscall rejected
+PASS supervisor pointer rejected
+PASS user boundary overflow rejected
+PASS wrapped pointer rejected
+PASS zero-length I/O has no pointer access
+PASS I/O work bounded
+PASS kernel path pointer rejected
+PASS read-only output buffer rejected
+PASS legacy ABI rejects high pointer bits
+PASS native syscall uses high image and stack addresses
+PASS native descriptor high bits cannot alias a valid descriptor
+PASS native output cannot cross the canonical user boundary
+PASS legacy ELF64, INFO, signed GROW and EXIT run on the native kernel
+PASS embedded programs read-only
+PASS truncation requires write access
+PASS sleep overflow rejected
+PASS USB operation and reserved arguments checked
+PASS USB enumeration indices bounded
+PASS USB output cannot target kernel or MMIO memory
+PASS USB output requires writable user pages
+PASS USB output boundary and arithmetic overflow checked
+PASS USB cross-page output rejected before any write
+PASS unterminated path bounded
+PASS CPU identity and enabled state ABI
+PASS hardware operations and indices bounded
+PASS hardware output rejects kernel, MMIO, text and crossing buffers
+PASS ACPI and PCI configuration method ABI is internally consistent
+PASS display discovery reports absence or a read-only PCI snapshot
+VECTOR workers: 0 0 exec: 0
+VECTOR RESULT: PASS
+PASS FP/SIMD isolation, preemption and exec reset
+SKIP SSE #XM delivery: QEMU TCG records MXCSR flags without trapping
+PASS SSE exception outcome classified (see explicit SKIP if not exercised)
+
+[isolate x64] pid=8 trap=6 error=0 rip=100000235 address=0
+PASS AVX is rejected until extended state saving exists
+PASS DEVCTL rejects unknown subsystems and GPU operations
+PASS CPU reservation and network request validation
+PASS network enumeration bounds are enforced
+PASS optional framebuffer mode and display request validation
+PASS input version, physical pointer enumeration and request validation
+PASS pointer reports require exclusive pixel-screen ownership
+PASS optional HDA output format and audio request validation
+PASS PCM writes reject non-frame-aligned lengths and invalid request buffers
+PASS text-only boot has no pixel lease
+PASS text-only boot rejects pixel presentation
+PASS text-only boot cannot release another screen
+PASS unimplemented GPU operations do not modify the request
+PASS BAR output rejects null, kernel, MMIO, read-only and overflowing buffers
+PASS DEVCTL rejects nonzero high pointer bits
+PASS invalid GPU and BAR indices clear the writable response
+PASS BAR wrapper requires an output object
+PASS allocate BAR output-boundary fixture
+PASS 600 partial-output requests rejected without writes
+PASS BAR boundary fixture released
+PASS first valid BAR mapping survives 600 failed requests
+PASS 600 repeated BAR requests reuse the same kernel window
+PASS absent, I/O and non-resource BARs return a zero error response
+
+[isolate x64] pid=9 trap=14 error=5 rip=100000126 address=20000000
+PASS prepared MMIO remains supervisor-only
+PASS create directory
+PASS duplicate directory rejected
+PASS per-process current directory
+PASS relative dot path resolution
+PASS exclusive file creation
+PASS exclusive create is atomic
+PASS file write seek read
+PASS sparse file length
+PASS sparse holes zero-filled
+PASS negative seek overflow rejected
+PASS file size limit enforced
+PASS open file cannot be removed
+PASS close and double-close handling
+PASS truncate file
+PASS append ignores a stale seek offset
+PASS copy refuses destination overwrite
+PASS move file across directories
+PASS directory cycle rejected
+PASS nonempty directory removal rejected
+PASS active working directory protected
+PASS trailing slash requires directory
+PASS directory enumeration
+PASS directory enumeration end
+PASS remove files and empty directory
+PASS parent traversal stays at root
+PASS zero device
+PASS null device
+PASS live memory proc view
+PASS per-process descriptor bound
+PASS filesystem test cleanup
+PASS allocate user heap above 4 GiB
+PASS new user pages are zeroed
+PASS user heap read/write
+PASS shrink user heap
+PASS cross-page output validation is complete
+PASS heap shrink overflow rejected
+PASS native heap virtual bound
+PASS native pointer wrapper preserves allocation errors
+
+[isolate x64] pid=10 trap=14 error=4 rip=1000003be address=1000000000
+PASS separate process address spaces
+PASS user pages and page tables reclaimed
+PASS large model buffer mapping, zeroing and reclaim
+PASS repeated heap growth across page-table boundaries starts zeroed
+PASS full heap shrink removes mappings and recovers every page table
+PASS truncated executable rejected
+PASS prepare malformed ELF fixture
+PASS malformed ELF offsets rejected without leaks
+PASS kernel-address ELF entry rejected
+PASS failed ELF load rolls back mapped pages
+PASS ELF launch and child exit status
+PASS wait status consumed once
+PASS cannot wait for unrelated process
+
+[isolate x64] pid=12 trap=14 error=6 rip=1000003d6 address=0
+Fault case: null
+PASS fault contained to child
+
+[isolate x64] pid=13 trap=14 error=5 rip=100000193 address=100000
+Fault case: kernel
+PASS fault contained to child
+
+[isolate x64] pid=14 trap=14 error=7 rip=1000001c4 address=100000000
+Fault case: text
+PASS fault contained to child
+
+[isolate x64] pid=15 trap=13 error=0 rip=1000001df address=0
+Fault case: io
+PASS fault contained to child
+
+[isolate x64] pid=16 trap=0 error=0 rip=100000201 address=0
+Fault case: divide
+PASS fault contained to child
+
+[isolate x64] pid=17 trap=6 error=0 rip=10000021b address=0
+Fault case: opcode
+PASS fault contained to child
+
+[isolate x64] pid=18 trap=14 error=6 rip=100000396 address=7fffffef7ffc
+Fault case: guard
+PASS fault contained to child
+
+[isolate x64] pid=19 trap=16 error=0 rip=100000263 address=0
+Fault case: fpu
+PASS fault contained to child
+
+[isolate x64] pid=20 trap=14 error=15 rip=1000000000 address=1000000000
+PASS NX prevents execution from user heap
+
+[isolate x64] pid=21 trap=14 error=15 rip=7fffffeffd50 address=7fffffeffd50
+PASS NX prevents execution from user stack
+
+[isolate x64] pid=22 trap=14 error=5 rip=100000140 address=ffff800000100000
+PASS physical RAM alias is supervisor-only
+
+[isolate x64] pid=23 trap=14 error=5 rip=100000158 address=ffffc00000000000
+PASS kernel heap mapping is supervisor-only
+PASS timer preempts two syscall-free busy loops
+PASS full 64-bit registers survive scheduling
+PASS terminate and reap busy processes
+PASS initial process protected
+PASS 40 spawn/wait cycles release all memory
+PASS process table exhaustion returns an error
+PASS process exhaustion recovery has no leak
+PASS uncollected exit status retains no process memory
+PASS exit status survives early memory reclamation
+PASS maximum canonical file path remains usable
+PASS overlong canonical paths rejected before creating nodes
+PASS rename cannot turn a regular file into a trailing-slash path
+PASS exec rejects supervisor path pointer
+PASS exec rejects supervisor argument pointer
+PASS missing exec keeps the calling program alive
+PASS prepare exec rollback fixture
+PASS failed exec after mapping rolls back without leaks
+PASS prepare successful exec fixture
+[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049l[?1049h[?7l[2J[0m[?25h[?7h[?1049lPASS exec preserves PID, parent, children, cwd and file offsets; resets memory and screen
+PASS 12 exec replacement cycles reclaim old and final images
+PASS orphan exits release memory and process table slots
+PASS shell quoted arguments
+PASS shell escaped spaces
+PASS shell unmatched quote rejected
+PASS shell argument count bounded
+PASS CRC32 standard check vector
+PROBE RESULT: 144 passed, 0 failed
+

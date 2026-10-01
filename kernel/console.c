@@ -1,5 +1,6 @@
 #include "kernel.h"
 #include <nv/font5x7.h>
+#include <nv/pixel.h>
 #include <stdarg.h>
 /* One cell buffer is the source of truth for every output path. The BIOS path
  * mirrors it into VGA text memory; the UEFI path renders it into the GOP
@@ -10,7 +11,9 @@ static u32 row, col;
 static bool serial_ok;
 static bool vga_present = true;
 static bool fb_mode, fb_ready;
+static bool fb_quiet;
 static u32 fb_width, fb_height, fb_pitch, fb_format;
+static u32 fb_offset, fb_masks[4];
 static u32 fb_cellw, fb_cellh, fb_offx, fb_offy, fb_scale;
 static u32 fb_cursor_cell = 80 * 25; /* index holding the drawn cursor */
 static u32 input[256];
@@ -21,6 +24,9 @@ static u32 saved_row, saved_col;
 static bool last_valid;
 static u32 input_head, input_tail;
 static bool lshift, rshift, lctrl, rctrl, lalt, ralt, caps, extended, numlock = true;
+static bool lmeta, rmeta;
+static u8 usb_modifiers[8]; /* Counts allow more than one USB keyboard. */
+static u32 reported_modifiers;
 static u32 pause_bytes;
 /* 5x7 glyphs for ASCII 32..126. Bit 4 of each row byte is the left pixel. */
 
@@ -30,10 +36,11 @@ static u32 palette(u8 index) {
     static const u8 blue[16] = {0, 170, 0, 170, 0, 170, 0, 170, 85, 255, 85, 255, 85, 255, 85, 255};
     index &= 15;
     u32 r = red[index], g = green[index], b = blue[index];
+    if (fb_format == NV_FB_BITMASK) return nv_pixel_pack((r << 16) | (g << 8) | b, fb_masks);
     return fb_format == NV_FB_RGBX8 ? r | (g << 8) | (b << 16) : b | (g << 8) | (r << 16);
 }
 static u32 *fb_row(u32 y) {
-    return (u32 *)(void *)((u8 *)FB_WINDOW + (uptr)y * fb_pitch);
+    return (u32 *)(void *)((u8 *)FB_WINDOW + fb_offset + (uptr)y * fb_pitch);
 }
 static void fb_cell(u32 index, u16 cell, bool invert) {
     u32 cx = index % 80, cy = index / 80;
@@ -93,6 +100,7 @@ static void fb_render_all(void) {
     fb_cursor_draw();
 }
 static void cursor(void) {
+    if (fb_quiet) return;
     if (fb_mode) {
         if (fb_ready) {
             fb_cursor_erase();
@@ -106,10 +114,32 @@ static void cursor(void) {
     outb(0x3d4, 15);
     outb(0x3d5, (u8)p);
 }
-void console_fb_enable(void) {
+static u32 fb_rgb(u32 rgb) {
+    if (fb_format==NV_FB_BITMASK) return nv_pixel_pack(rgb,fb_masks);
+    return fb_format==NV_FB_RGBX8?((rgb&255)<<16)|(rgb&0xff00)|(rgb>>16):rgb;
+}
+static void fb_splash(void) {
+    if (!fb_ready) return;
+    for (u32 y=0;y<fb_height;++y) {
+        u32 color=fb_rgb(0x101a30+((y*12/fb_height)<<8));
+        u32 *dst=fb_row(y);
+        for (u32 x=0;x<fb_width;++x) dst[x]=color;
+    }
+    const char *label="NUVORA";
+    u32 scale=MAX(2u,MIN(6u,fb_width/160));
+    u32 left=(fb_width-6*6*scale)/2,top=(fb_height-7*scale)/2;
+    for (u32 i=0;label[i];++i) for (u32 y=0;y<7;++y) for (u32 x=0;x<5;++x)
+        if (nv_font5x7[(u8)label[i]-32][y]&(1u<<(4-x)))
+            for (u32 sy=0;sy<scale;++sy) for (u32 sx=0;sx<scale;++sx)
+                fb_row(top+y*scale+sy)[left+(i*6+x)*scale+sx]=fb_rgb(0xd9eaff);
+    for (u32 y=top+12*scale;y<top+12*scale+2 && y<fb_height;++y)
+        for (u32 x=left;x<left+36*scale;++x) fb_row(y)[x]=fb_rgb(0x7999fa);
+}
+void console_fb_enable(bool quiet) {
     if (fb_mode && fb_window_mapped) {
         fb_ready = true;
-        fb_render_all();
+        fb_quiet=quiet;
+        if (quiet) fb_splash();else fb_render_all();
     }
 }
 void console_clear(void) {
@@ -140,6 +170,8 @@ void console_init(const struct boot_info *bi) {
         fb_height = bi->fb.height;
         fb_pitch = bi->fb.pitch;
         fb_format = bi->fb.format;
+        fb_offset = bi->fb.address & (PAGE - 1u);
+        memcpy(fb_masks, bi->fb.masks, sizeof(fb_masks));
         fb_cellw = fb_width / 80;
         fb_cellh = fb_height / 25;
         fb_offx = (fb_width - 80 * fb_cellw) / 2;
@@ -177,7 +209,7 @@ static void serial_putc(char c) {
         outb(0x3f8, (u8)c);
 }
 void console_putc(char c) {
-    if (screen_owner) {
+    if (screen_owner || fb_quiet) {
         if (c == '\n')
             serial_putc('\r');
         serial_putc(c);
@@ -239,8 +271,10 @@ void kprintf(const char *fmt, ...) {
             continue;
         }
         ++fmt;
-        char b[34];
+        char b[66];
         usize n = 0;
+        bool wide = false;
+        if (fmt[0] == 'l' && fmt[1] == 'l') { wide=true; fmt+=2; }
         switch (*fmt++) {
         case 's': {
             const char *s = va_arg(ap, const char *);
@@ -250,11 +284,11 @@ void kprintf(const char *fmt, ...) {
             break;
         }
         case 'u':
-            n = number(b, va_arg(ap, u32), 10);
+            n = wide ? number64(b, va_arg(ap, u64), 10) : number(b, va_arg(ap, u32), 10);
             console_write(b, n);
             break;
         case 'x':
-            n = number(b, va_arg(ap, u32), 16);
+            n = wide ? number64(b, va_arg(ap, u64), 16) : number(b, va_arg(ap, u32), 16);
             console_write(b, n);
             break;
         case 'd': {
@@ -265,6 +299,10 @@ void kprintf(const char *fmt, ...) {
             console_write(b, n);
             break;
         }
+        case 'p':
+            n = number64(b, (uptr)va_arg(ap, void *), 16);
+            console_write(b, n);
+            break;
         case 'c':
             console_putc((char)va_arg(ap, int));
             break;
@@ -280,7 +318,9 @@ void kprintf(const char *fmt, ...) {
 }
 NORETURN void panic(const char *s) {
     irq_disable();
+    fb_quiet=false;
     console_release(screen_owner);
+    if (fb_ready) fb_render_all();
     kprintf("\nKERNEL PANIC: %s\n", s);
     if (test_mode)
         outl(0xf4, 0x11);
@@ -297,11 +337,37 @@ static const char keys[128] = {
     [45] = 'x',  [46] = 'c', [47] = 'v', [48] = 'b',  [49] = 'n', [50] = 'm',  [51] = ',',
     [52] = '.',  [53] = '/', [57] = ' '};
 static void queue_key(u32 c) {
+    if (c) account_input_activity();
     u32 next = (input_head + 1) % ARRAY_LEN(input);
+    /* A dropped Alt release would leave a desktop switcher captured forever.
+     * Prefer the newest modifier state if a typing burst filled this queue. */
+    if (next==input_tail && (c&4095u)==NV_KEY_MODIFIERS)
+        input_tail=(input_tail+1)%ARRAY_LEN(input);
     if (c && next != input_tail) {
         input[input_head] = c;
         input_head = next;
     }
+}
+static u32 keyboard_modifiers(void) {
+    u8 usb=0;
+    for (u32 i=0;i<8;++i) if (usb_modifiers[i]) usb|=1u<<i;
+    return ((lshift||rshift||(usb&0x22))?NV_KEY_SHIFT:0u) |
+           ((lctrl||rctrl||(usb&0x11))?NV_KEY_CTRL:0u) |
+           ((lalt||ralt||(usb&0x44))?NV_KEY_ALT:0u) |
+           ((lmeta||rmeta||(usb&0x88))?NV_KEY_META:0u);
+}
+static void modifiers_changed(void) {
+    u32 flags=keyboard_modifiers();
+    if (flags==reported_modifiers) return;
+    reported_modifiers=flags;
+    queue_key(NV_KEY_MODIFIERS|NV_KEY_DIRECT|flags);
+}
+void console_usb_modifiers(u8 previous, u8 current) {
+    for (u32 i=0;i<8;++i) if ((previous^current)&(1u<<i)) {
+        if (current&(1u<<i)) ++usb_modifiers[i];
+        else if (usb_modifiers[i]) --usb_modifiers[i];
+    }
+    modifiers_changed();
 }
 void keyboard_irq(void) {
     u8 s = inb(0x60);
@@ -326,6 +392,7 @@ void keyboard_irq(void) {
             rctrl = down;
         else
             lctrl = down;
+        modifiers_changed();
         return;
     }
     if (code == 56) {
@@ -333,14 +400,22 @@ void keyboard_irq(void) {
             ralt = down;
         else
             lalt = down;
+        modifiers_changed();
         return;
     }
     if (!ext && code == 42) {
         lshift = down;
+        modifiers_changed();
         return;
     }
     if (!ext && code == 54) {
         rshift = down;
+        modifiers_changed();
+        return;
+    }
+    if (ext && (code==91 || code==92)) {
+        if (code==91) lmeta=down; else rmeta=down;
+        modifiers_changed();
         return;
     }
     if (!down)
@@ -354,7 +429,8 @@ void keyboard_irq(void) {
         return;
     }
     u32 c = 0;
-    bool shifted = lshift || rshift, ctrl = lctrl || rctrl;
+    u32 modifiers=keyboard_modifiers();
+    bool shifted = (modifiers&NV_KEY_SHIFT)!=0, ctrl = (modifiers&NV_KEY_CTRL)!=0;
     if (!ext && numlock != shifted) {
         switch (code) {
         case 79: c = '1'; break; case 80: c = '2'; break; case 81: c = '3'; break;
@@ -363,7 +439,11 @@ void keyboard_irq(void) {
         case 82: c = '0'; break; case 83: c = '.'; break;
         }
     }
-    if (!c && (ext || (code >= 71 && code <= 83))) {
+    /* Keypad +/- lie inside the navigation scancode range, but always type
+     * operators regardless of Num Lock or Shift. Decode them first. */
+    if (!c && !ext && (code == 55 || code == 74 || code == 78)) {
+        c = code == 55 ? '*' : code == 74 ? '-' : '+';
+    } else if (!c && (ext || (code >= 71 && code <= 83))) {
         switch (code) {
         case 75:
             c = NV_KEY_LEFT;
@@ -402,8 +482,6 @@ void keyboard_irq(void) {
             c = '/';
             break;
         }
-    } else if (!c && (code == 55 || code == 74 || code == 78)) {
-        c = code == 55 ? '*' : code == 74 ? '-' : '+';
     } else if (!c && code >= 59 && code <= 68)
         c = NV_KEY_F1 + code - 59;
     else if (!c && (code == 87 || code == 88))
@@ -423,11 +501,12 @@ void keyboard_irq(void) {
         }
     }
     if (c)
-        queue_key(c | NV_KEY_DIRECT | (shifted ? NV_KEY_SHIFT : 0) | (ctrl ? NV_KEY_CTRL : 0) |
-                  ((lalt || ralt) ? NV_KEY_ALT : 0));
+        queue_key(c | NV_KEY_DIRECT | keyboard_modifiers());
 }
 void console_usb_key(u8 usage, u8 modifiers) {
-    bool shifted = (modifiers & 0x22) != 0, ctrl = (modifiers & 0x11) != 0;
+    u32 combined=keyboard_modifiers();
+    bool shifted = (modifiers & 0x22) != 0 || (combined&NV_KEY_SHIFT),
+         ctrl = (modifiers & 0x11) != 0 || (combined&NV_KEY_CTRL);
     u32 c = 0;
     if (usage == 0x39) {
         caps = !caps;
@@ -482,7 +561,8 @@ void console_usb_key(u8 usage, u8 modifiers) {
     }
     if (c)
         queue_key(c | NV_KEY_DIRECT | (shifted ? NV_KEY_SHIFT : 0) | (ctrl ? NV_KEY_CTRL : 0) |
-                  ((modifiers & 0x44) ? NV_KEY_ALT : 0));
+                  ((modifiers & 0x44) ? NV_KEY_ALT : 0) |
+                  ((modifiers & 0x88) ? NV_KEY_META : 0) | keyboard_modifiers());
 }
 static int raw_key(void) {
     if (input_head != input_tail) {
@@ -504,7 +584,7 @@ int console_getc(void) {
         if (r < 0)
             return -1;
         u32 c = (u32)r & 4095;
-        if (c >= 256 || ((u32)r & NV_KEY_ALT))
+        if (c >= 256 || ((u32)r & (NV_KEY_ALT|NV_KEY_META)))
             continue;
         if (((u32)r & NV_KEY_CTRL) && c >= 'a' && c <= 'z')
             c -= 'a' - 1;
@@ -545,8 +625,9 @@ void console_release(u32 pid) {
     row = saved_row;
     col = saved_col;
     if (fb_mode) {
-        if (fb_ready)
-            fb_render_all();
+        if (fb_ready) {
+            if (fb_quiet) fb_splash();else fb_render_all();
+        }
     } else {
         for (u32 i = 0; i < 2000; ++i)
             vga[i] = screen[i];
@@ -560,6 +641,8 @@ int console_surface(u32 pid, u32 op, const struct nv_surface *screen_ptr) {
     if (graphics_owner)
         return op == NV_SCREEN_ACQUIRE ? -NV_EBUSY : -NV_EACCESS;
     if (op == NV_SCREEN_ACQUIRE) {
+        if (fb_quiet && !account_manager(current) && !test_mode) return -NV_EACCESS;
+        if (!account_interactive_allowed(current)) return -NV_EACCESS;
         if (screen_owner && screen_owner != pid)
             return -NV_EBUSY;
         if (screen_owner == pid)
@@ -643,7 +726,7 @@ int console_display_info(struct nv_display_info *out) {
     if (!fb_ready) return -NV_ENODEV;
     *out = (struct nv_display_info){
         .api_version = NV_DISPLAY_API_VERSION, .width = fb_width, .height = fb_height,
-        .pitch = fb_pitch, .format = fb_format, .max_copy_bytes = NV_DISPLAY_MAX_COPY};
+        .pitch = fb_pitch, .format = fb_format == NV_FB_BITMASK ? NV_DISPLAY_BGRX8 : fb_format, .max_copy_bytes = NV_DISPLAY_MAX_COPY};
     return 0;
 }
 int console_display_acquire(u32 pid) {
@@ -661,7 +744,7 @@ int console_display_acquire(u32 pid) {
 void console_pointer_report(i32 dx, i32 dy, u32 buttons) {
     if (graphics_owner) pointer_push(dx, dy, buttons);
 }
-int input_ioctl(u32 op, u32 pointer) {
+int input_ioctl(u32 op, uptr pointer) {
     if (op != NV_INPUT_INFO && op != NV_INPUT_POINTER_POLL) return -NV_EINVAL;
     u32 size = op == NV_INPUT_INFO ? sizeof(struct nv_input_info) :
                                      sizeof(struct nv_pointer_event);
@@ -685,17 +768,28 @@ int console_display_present(u32 pid, const struct nv_display_present *r) {
         (u64)r->width * r->height * 4 > NV_DISPLAY_MAX_COPY ||
         (u64)r->width * 4 > r->stride) return -NV_EINVAL;
     u64 bytes = (u64)(r->height - 1) * r->stride + (u64)r->width * 4;
-    if (bytes > 0xffffffffu ||
-        !user_range(current->pd, r->pixels, (u32)bytes, false)) return -NV_EFAULT;
+    if (r->reserved) return -NV_EINVAL;
+    if (!user_range(current->pd, r->pixels, bytes, false)) return -NV_EFAULT;
     const u8 *src = (const void *)(uptr)r->pixels;
-    for (u32 row = 0; row < r->height; ++row)
-        memcpy(fb_row(r->y + row) + r->x, src + (uptr)row * r->stride, r->width * 4);
+    for (u32 row = 0; row < r->height; ++row) {
+        u32 *out = fb_row(r->y + row) + r->x;
+        const u8 *in = src + (uptr)row * r->stride;
+        if (fb_format == NV_FB_BITMASK) {
+            for (u32 x=0; x<r->width; ++x) {
+                u32 rgb; memcpy(&rgb, in + (usize)x * 4, 4);
+                out[x] = nv_pixel_pack(rgb, fb_masks);
+            }
+        } else memcpy(out, in, r->width * 4);
+    }
     return 0;
 }
-int display_ioctl(u32 op, u32 pointer) {
+int display_ioctl(u32 op, uptr pointer) {
     if (op == NV_DISPLAY_ACQUIRE || op == NV_DISPLAY_RELEASE) {
         if (pointer) return -NV_EINVAL;
-        if (op == NV_DISPLAY_ACQUIRE) return console_display_acquire(current->pid);
+        if (op == NV_DISPLAY_ACQUIRE) {
+            if (!account_interactive_allowed(current)) return -NV_EACCESS;
+            return console_display_acquire(current->pid);
+        }
         if (!graphics_owner || screen_owner != current->pid) return -NV_EACCESS;
         console_release(current->pid);
         return 0;
@@ -708,11 +802,18 @@ int display_ioctl(u32 op, u32 pointer) {
         if (!r) memcpy((void *)(uptr)pointer, &info, sizeof(info));
         return r;
     }
-    if (op == NV_DISPLAY_PRESENT) {
-        if (!user_range(current->pd, pointer, sizeof(struct nv_display_present), false))
+    if (op == NV_DISPLAY_PRESENT || op == NV_DISPLAY_PRESENT64) {
+        u32 bytes = op == NV_DISPLAY_PRESENT ? sizeof(struct nv_display_present32) :
+                                               sizeof(struct nv_display_present);
+        if (!user_range(current->pd, pointer, bytes, false))
             return -NV_EFAULT;
-        struct nv_display_present rect;
-        memcpy(&rect, (const void *)(uptr)pointer, sizeof(rect));
+        struct nv_display_present rect = {0};
+        if (op == NV_DISPLAY_PRESENT) {
+            struct nv_display_present32 old;
+            memcpy(&old, (const void *)pointer, sizeof(old));
+            rect = (struct nv_display_present){.x=old.x, .y=old.y,
+                .width=old.width, .height=old.height, .stride=old.stride, .pixels=old.pixels};
+        } else memcpy(&rect, (const void *)pointer, sizeof(rect));
         return console_display_present(current->pid, &rect);
     }
     return -NV_EINVAL;

@@ -1,16 +1,17 @@
 #include "runtime.h"
+#include <nv/address.h>
 extern void _start(void);
 int user_main(const char *args) {
     if (app_help("fault", args))
         return 0;
 #ifdef __x86_64__
     if (!strcmp(args, "physical-alias")) {
-        volatile u8 value = *(volatile u8 *)((1ull << 39) + 0x100000u);
+        volatile u8 value = *(volatile u8 *)(NV_PHYS_WINDOW + 0x100000u);
         (void)value;
         return 99;
     }
     if (!strcmp(args, "kernel-heap")) {
-        volatile u8 value = *(volatile u8 *)(2ull << 39);
+        volatile u8 value = *(volatile u8 *)NV_KHEAP_WINDOW;
         (void)value;
         return 99;
     }
@@ -73,9 +74,9 @@ int user_main(const char *args) {
                 return 78;
         }
     } else if (!strcmp(args, "guard"))
-        *(volatile u32 *)(0x7fff0000u - 8 * NV_PAGE - 4) = 1;
+        *(volatile u32 *)(NV_USER_STACK - 8 * NV_PAGE - 4) = 1;
     else if (!strcmp(args, "peer")) {
-        volatile u32 v = *(volatile u32 *)0x50000000;
+        volatile u32 v = *(volatile u32 *)NV_USER_HEAP;
         (void)v;
     } else {
         u32 address = 0;

@@ -50,21 +50,28 @@ UEXTRA := $(BUILD)/user/wide64.o
 BASEFLAGS := $(ARCHFLAGS) -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -mno-sse -mno-sse2 -mno-mmx -msoft-float
 CFLAGS := $(BASEFLAGS) -std=c11 -O2 -g1 -Wall -Wextra -Werror -Iinclude -MMD -MP -ffunction-sections -fdata-sections
 ASFLAGS := $(BASEFLAGS) -g
-KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/pci_decode.c
+KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/power.c common/pci_decode.c common/crypto.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := loom pulse spin fault probe folio relay vector desktop wave media
+APPS := session loom terminal pulse spin fault probe folio relay vector desktop wave media abi1
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
-UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/common/string.o $(UEXTRA)
+UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/user/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
-.PHONY: all clean run window test test-host iso iso-uefi esp media disk check FORCE
+.PHONY: all diagnostics clean run window test test-host iso iso-uefi esp media disk check FORCE
 all: $(BUILD)/boot.elf $(BUILD)/nuvora-uefi.elf $(BUILD)/BOOTX64.EFI
+diagnostics: all $(BUILD)/boot-test.elf $(BUILD)/nuvora-uefi-test.elf
+$(BUILD)/kernel/main-test.o: kernel/main.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DNV_DIAGNOSTIC_BUILD=1 -c $< -o $@
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(if $(filter user/%,$<),$(filter-out -mcmodel=small,$(CFLAGS)) -mcmodel=large,$(CFLAGS)) -c $< -o $@
 $(BUILD)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
+$(BUILD)/user/string.o: common/string.c include/nv/string.h
+	@mkdir -p $(dir $@)
+	$(CC) $(filter-out -mcmodel=small,$(CFLAGS)) -mcmodel=large -c $< -o $@
 $(BUILD)/arch/$(ARCHDIR)/boot.o: arch/cpu_boot.inc
 $(BUILD)/arch/x86_64/uefi.o: arch/x86_64/uefi.c $(wildcard include/nv/*.h)
 	@mkdir -p $(dir $@)
@@ -83,6 +90,9 @@ $(BUILD)/nuvora-uefi-media.img: $(BUILD)/esp.img scripts/mkmedia.py scripts/mkgp
 	$(PYTHON) scripts/mkmedia.py $@
 media: $(BUILD)/nuvora-uefi-media.img
 $(BUILD)/apps/folio.elf: $(BUILD)/user/folio.o $(BUILD)/user/document.o $(UCOMMON) $(ULINK)
+$(BUILD)/apps/abi1.elf: $(BUILD)/user/abi1.o $(ULINK)
+	@mkdir -p $(dir $@)
+	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 --defsym=USER_IMAGE_BASE=0x40000000 -T $(ULINK) -o $@ $<
 $(BUILD)/apps/media.elf: $(BUILD)/user/media.o $(BUILD)/user/media_codecs.o $(UCOMMON) $(ULINK)
 $(BUILD)/user/media.o $(BUILD)/user/media_codecs.o: CFLAGS := $(filter-out -mgeneral-regs-only -msoft-float -mno-sse -mno-sse2,$(CFLAGS)) -msse2 -U_FORTIFY_SOURCE
 $(BUILD)/apps/%.elf: $(BUILD)/user/%.o $(UCOMMON) $(ULINK)
@@ -103,13 +113,22 @@ $(BUILD)/nuvora-uefi.elf: $(KOBJS) $(BUILD)/archive.o arch/$(ARCHDIR)/linker.ld
 $(BUILD)/boot.elf: $(BUILD)/nuvora.elf
 	$(OBJCOPY) -O elf32-i386 $< $@
 	$(PYTHON) scripts/check_image.py $@
+$(BUILD)/nuvora-test.elf: $(filter-out $(BUILD)/kernel/main.o,$(KOBJS)) $(BUILD)/kernel/main-test.o $(BUILD)/archive.o arch/$(ARCHDIR)/linker.ld
+	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 -T arch/$(ARCHDIR)/linker.ld -o $@ $(filter %.o,$^)
+	$(PYTHON) scripts/check_image.py $@
+$(BUILD)/nuvora-uefi-test.elf: $(filter-out $(BUILD)/kernel/main.o,$(KOBJS)) $(BUILD)/kernel/main-test.o $(BUILD)/archive.o arch/$(ARCHDIR)/linker.ld
+	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 --defsym=UEFI_KERNEL_BASE=0x01000000 -T arch/$(ARCHDIR)/linker.ld -o $@ $(filter %.o,$^)
+	$(PYTHON) scripts/check_image.py $@
+$(BUILD)/boot-test.elf: $(BUILD)/nuvora-test.elf
+	$(OBJCOPY) -O elf32-i386 $< $@
+	$(PYTHON) scripts/check_image.py $@
 disk:
 	$(PYTHON) scripts/mkgptdisk.py $(BUILD)/nuvora-store.img --if-missing
 run: all disk
 	$(PYTHON) scripts/run.py
 window: all disk
 	$(PYTHON) scripts/run.py --window
-test: all
+test: diagnostics
 	$(PYTHON) scripts/test.py
 test-host: all
 	$(PYTHON) scripts/test_regressions.py
@@ -121,6 +140,6 @@ check: all
 	$(PYTHON) scripts/check_image.py $(BUILD)/nuvora.elf
 clean:
 	rm -rf $(BUILD)
--include $(KOBJS:.o=.d) $(wildcard $(BUILD)/user/*.d) $(BUILD)/arch/x86_64/uefi.d
+-include $(KOBJS:.o=.d) $(wildcard $(BUILD)/user/*.d) $(BUILD)/arch/x86_64/uefi.d $(BUILD)/kernel/main-test.d
 .SECONDARY: $(UCOMMON) $(patsubst %,$(BUILD)/user/%.o,$(APPS))
 endif

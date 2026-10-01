@@ -68,7 +68,7 @@ static void check_ui(plm_frame_t *frame) {
     assert(media_hit(width, height, &v, 15, 12).kind == MEDIA_HIT_BACK);
     assert(media_hit(width, height, &v, 40, 470).kind == MEDIA_HIT_PAUSE);
     struct media_hit level = media_hit(width, height, &v, 400, 470);
-    assert(level.kind == MEDIA_HIT_VOLUME && level.index == 73);
+    assert(level.kind == MEDIA_HIT_VOLUME && level.index == 64);
     free(full); free(tiled);
 }
 static void got_frame(plm_t *plm, plm_frame_t *frame, void *user) {

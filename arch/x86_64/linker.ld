@@ -18,5 +18,7 @@ SECTIONS {
     .bss ALIGN(4096) : { *(COMMON) *(.bss .bss.*) } :data
     . = ALIGN(4096);
     kernel_end = .;
+    ASSERT(!DEFINED(UEFI_KERNEL_BASE) || kernel_end <= 0x02000000,
+           "UEFI kernel/archive overlaps the reserved EFI stub at 32 MiB")
     /DISCARD/ : { *(.comment) *(.eh_frame*) *(.note*) }
 }

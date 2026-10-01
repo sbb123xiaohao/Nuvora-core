@@ -1,4 +1,5 @@
 #include "runtime.h"
+#include <nv/address.h>
 /* Integration fixtures for exec, orphan cleanup and memory exhaustion. */
 static volatile u32 image_marker;
 static bool find_named(const char *name, struct nv_taskinfo *out) {
@@ -30,7 +31,8 @@ static int replace_begin(void) {
     char *parts[] = {"target", pid, parent, handle, descendant};
     if (join_args(args, sizeof(args), parts, 0, ARRAY_LEN(parts)) < 0)
         return 95;
-    exec_program("./relay-image", args);
+    int result = exec_program("./relay-image", args);
+    report_error("exec replacement fixture", result);
     return 96; /* A successful exec cannot return here. */
 }
 static int replace_target(const char *args) {
@@ -45,7 +47,7 @@ static int replace_target(const char *args) {
     if (!find_named("relay-image", &self) || self.pid != pid || self.parent != parent)
         return 82;
     if (getcwd_path(cwd, sizeof(cwd)) < 0 || strcmp(cwd, "/tmp") || image_marker ||
-        (uptr)grow(0) != 0x50000000u || call(NV_EMIT, 1, 0x50000000u, 1) != -NV_EFAULT)
+        (uptr)grow(0) != NV_USER_HEAP || call(NV_EMIT, 1, NV_USER_HEAP, 1) != -NV_EFAULT)
         return 83;
     char data[3] = {0};
     if (take((int)fd, data, 2) != 2 || strcmp(data, "bc") || emit((int)fd, "done", 4) != 4 ||
@@ -90,7 +92,7 @@ static int pressure_test(void) {
             break;
         }
         children[count++] = pid;
-        u32 start = clock_ticks();
+        u64 start = clock_ticks();
         while (seek_file(ready, 0, 2) < count && clock_ticks() - start < 500)
             nap(10);
         if (seek_file(ready, 0, 2) != count) {

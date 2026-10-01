@@ -1,0 +1,27 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+
+Nuvora Core UEFI stub
+
+Nuvora Core UEFI stub
+entering kernel
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 2 via XSDT, OEM BOCHS; MCFG 1, ECAM 1, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[usb] 0:5 address=1 id=627:1 QEMU USB Keyboard
+[usb] 0:6 address=2 id=627:1 QEMU USB Tablet
+[ok] PCI USB discovery: 1 controller(s)
+[ok] 245 MiB managed RAM, 53451 free pages
+[ok] entering Ring 3: /apps/session, pid 1
+
+[?1049h[?7l[2J

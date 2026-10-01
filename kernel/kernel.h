@@ -7,6 +7,7 @@
 #include <nv/acpi.h>
 #include <nv/string.h>
 #include <nv/bootinfo.h>
+#include <nv/address.h>
 #define PAGE 4096u
 /* Managed RAM ceiling. x64 uses 2 MiB mappings above the protected kernel
  * image and uptr-wide physical page addresses. */
@@ -27,7 +28,7 @@
 #define MMIO_BASE 0x20000000u
 /* Dedicated supervisor PML4 entry. Up to 64 MiB of GOP memory is accessible
  * without sacrificing DMA-capable low physical RAM or exposing it to users. */
-#define FB_WINDOW (3ull << 39)
+#define FB_WINDOW NV_FB_WINDOW
 #define FB_WINDOW_PAGES (64u * 1024u * 1024u / PAGE)
 #define P_PRESENT 1u
 #define P_WRITE 2u
@@ -36,8 +37,8 @@
 #define NV_ARCH_NAME "x86-64"
 typedef u64 pte_t;
 #define P_ADDRESS 0x000ffffffffff000ull
-#define PHYS_WINDOW (1ull << 39)
-#define KHEAP_WINDOW (2ull << 39)
+#define PHYS_WINDOW NV_PHYS_WINDOW
+#define KHEAP_WINDOW NV_KHEAP_WINDOW
 /* One continuous supervisor alias for all allocated RAM. Switching aliases
  * at 1 GiB breaks multi-page buffers that cross the user-address boundary.
  * Preserve zero as the allocation-failure sentinel; physical page 0 is reserved. */
@@ -122,9 +123,13 @@ struct fp_state {
     u32 words[128];
 } ALIGNED(16);
 struct task {
-    u32 pid, parent, state, wake, wait_pid, cpu_ticks, heap_end;
-    int status, cwd;
-    bool collected;
+    u32 pid, parent, state, wait_pid;
+    u64 wake, cpu_ticks;
+    uptr heap_end;
+    u32 abi;
+    u32 uid;
+    int status, cwd, program_node;
+    bool collected, auth_internal;
     pte_t *pd;
     void *kstack;
     struct frame *frame;
@@ -136,13 +141,26 @@ _Static_assert(_Alignof(struct task) >= 16 && sizeof(struct fp_state) == 512,
                "each task requires an aligned FXSAVE area");
 extern struct task tasks[NV_TASK_MAX];
 extern struct task *current;
-extern volatile u32 ticks;
+extern volatile u64 ticks;
 extern pte_t *kernel_pd;
 extern bool test_mode;
+void account_init(void);
+int account_ioctl(u32, uptr);
+void account_task_release(u32);
+bool account_path_allowed(const struct task *, const char *, u32);
+bool account_task_allowed(const struct task *);
+bool account_interactive_allowed(const struct task *);
+bool account_manager(const struct task *);
+bool account_admin_allowed(const struct task *);
+bool account_session_allowed(const struct task *);
+void account_tick(void);
+void account_input_activity(void);
+void task_end_session(u32);
+bool cpu_random(void *, u32);
 extern const struct boot_info *boot_info; /* set before console_init() */
 extern bool fb_window_mapped; /* vm_kernel_init mapped the firmware framebuffer */
 void console_init(const struct boot_info *);
-void console_fb_enable(void);
+void console_fb_enable(bool);
 void console_clear(void);
 void console_putc(char);
 void console_write(const char *, usize);
@@ -154,7 +172,7 @@ int console_surface(u32, u32, const struct nv_surface *);
 int console_display_info(struct nv_display_info *);
 int console_display_acquire(u32);
 int console_display_present(u32, const struct nv_display_present *);
-int input_ioctl(u32, u32);
+int input_ioctl(u32, uptr);
 void console_pointer_report(i32, i32, u32);
 u32 usb_pointer_count(void);
 void pointer_reset(void);
@@ -162,11 +180,18 @@ void pointer_push(i32, i32, u32);
 bool pointer_tablet_report(const u8 *, u32, struct nv_pointer_event *);
 int pointer_next(struct nv_pointer_event *);
 bool pointer_boot_report(const u8 *, u32, struct nv_pointer_event *);
-int display_ioctl(u32, u32);
+int display_ioctl(u32, uptr);
+int window_ioctl(u32, uptr);
+void window_task_release(u32);
+int window_stdio_write(struct task *, const void *, u32);
+int window_stdio_read(struct task *, void *, u32);
+int window_stdio_clear(struct task *);
+bool window_owned(u32);
 bool console_owned(u32);
 void console_release(u32);
 void keyboard_irq(void);
 void console_usb_key(u8, u8);
+void console_usb_modifiers(u8 previous, u8 current);
 void usb_init(void);
 void usb_poll(void);
 bool usb_ecm_link(void);
@@ -184,16 +209,18 @@ void cpu_fp_save(struct fp_state *);
 void cpu_fp_restore(const struct fp_state *);
 void acpi_init(bool, u64 rsdp);
 void acpi_get_info(struct nv_platform_info *);
+bool acpi_power_reset(void);
+bool acpi_power_off(void);
 u32 pci_read(u32, u32);
 void pci_write16(u32, u32, u16);
 void pci_write32(u32, u32, u32);
 void pci_visit(void (*)(u32, u32, u32));
 void net_init(void);
 void audio_init(void);
-int audio_ioctl(u32, u32);
+int audio_ioctl(u32, uptr);
 void net_poll(void);
 void net_task_release(u32);
-int net_ioctl(u32, u32);
+int net_ioctl(u32, uptr);
 bool net_igc_start(u32, u8 mac[6]);
 bool net_igc_link(void);
 int net_igc_send(const void *, u32);
@@ -209,8 +236,8 @@ u32 pci_ecam_configure(const struct nv_mcfg_region *, u32, u32, u32 *,
                        struct nv_mcfg_region *);
 void gpu_init(void);
 int gpu_get_info(u32, struct nv_gpu_info *);
-int gpu_ioctl(u32, u32);
-int cpu_ioctl(u32, u32);
+int gpu_ioctl(u32, uptr);
+int cpu_ioctl(u32, uptr);
 void arch_set_stack(uptr);
 void vm_kernel_init(void);
 void *vm_heap_create(void);
@@ -239,16 +266,17 @@ u32 heap_total(void);
 void memory_selftest(void);
 pte_t *vm_create(void);
 void vm_destroy(pte_t *);
-int vm_map(pte_t *, u32, u32);
-uptr vm_translate(pte_t *, u32);
-void vm_unmap(pte_t *, u32);
-bool user_range(pte_t *, u32, u32, bool);
-int user_string(u32, char *, u32);
-int copy_to_space(pte_t *, u32, const void *, u32);
-u32 vm_page_count(pte_t *);
+int vm_map(pte_t *, uptr, u32);
+uptr vm_translate(pte_t *, uptr);
+void vm_unmap(pte_t *, uptr);
+bool user_range(pte_t *, uptr, usize, bool);
+int user_string(uptr, char *, u32);
+int copy_to_space(pte_t *, uptr, const void *, usize);
+u64 vm_page_count(pte_t *);
 void fs_init(void);
 void fs_unpack(const u8 *, usize);
 int fs_lookup(int, const char *);
+int fs_authorize(const struct task *, int, const char *, u32);
 int fs_kind(int);
 int fs_open(struct task *, const char *, u32);
 int fs_close(struct task *, int);
@@ -265,7 +293,7 @@ int fs_move(int, const char *, const char *);
 int fs_replace(int, const char *, const char *);
 int fs_path(int, char *, usize);
 int fs_display_path(int, char *, usize);
-int fs_blob(const char *, const u8 **, u32 *);
+int fs_blob(const char *, const u8 **, usize *, u8 **);
 u32 fs_node_count(void);
 int fs_export_home(u8 *, u32, u32 *);
 int fs_import_home(const u8 *, u32);
@@ -330,7 +358,7 @@ void task_tick(void);
 void task_exit(int);
 int task_wait(u32);
 int task_stop(u32);
-int task_grow(i32);
+iptr task_grow(i64);
 u32 task_count(void);
 int task_info(u32, struct nv_taskinfo *);
 bool task_cwd_in_use(int);

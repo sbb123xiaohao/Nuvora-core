@@ -8,15 +8,15 @@ bool app_help(const char *name, const char *args) {
         {"loom", "forge loom [--terminal]", "Interactive command shell. Type help for every command.",
          "help ports"},
         {"folio", "folio [FILE]",
-         "Full-screen text and formatted-document editor.\nCtrl-S saves; Ctrl-Q closes; F1 shows "
+         "Text and formatted-document editor; opens in a desktop window.\nCtrl-S saves; Ctrl-Q closes; F1 shows "
          "editor shortcuts.",
          "folio /home/report.nvd"},
         {"desktop", "desktop", "Starts on an empty desktop with app icons and a taskbar.\n"
          "Drag title bars; double-click to maximize; use the taskbar to minimize/restore.\n"
          "F10 opens Start; Alt-Tab switches windows; F2 renames a file; Delete confirms removal.\n"
-         "Media and Folio use the full screen; Return to Loom is in Start.", "desktop"},
+         "Media, Folio and the complete terminal run in separate windows.", "desktop"},
         {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
-         "Graphical MP3/MP2/FLAC, WAV/RF64 and MPEG-1/MP2 player. File picker opens from C:.\n"
+         "Windowed MP3/MP2/FLAC, WAV/RF64 and MPEG-1/MP2 player. File picker opens from C:.\n"
          "Space pauses; Escape returns to the library. Large files stream from the data volume.",
          "media /home/clip.mpg"},
         {"wave", "wave FILE.wav | wave --test",

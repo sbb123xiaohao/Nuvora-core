@@ -13,7 +13,7 @@ int user_main(const char *args) {
     if (nv_display_acquire() < 0) return 2;
     struct nv_display_present rect = {
         .x = (info.width - 64) / 2, .y = (info.height - 64) / 2,
-        .width = 64, .height = 64, .stride = 64 * 4, .pixels = (u32)(uptr)pixels};
+        .width = 64, .height = 64, .stride = 64 * 4, .pixels = (uptr)pixels};
     int result = nv_display_present(&rect);
     if (result >= 0) {
         for (;;) {

@@ -3,7 +3,8 @@ OUTPUT_ARCH(i386:x86-64)
 ENTRY(_start)
 PHDRS { text PT_LOAD FLAGS(5); rodata PT_LOAD FLAGS(4); data PT_LOAD FLAGS(6); }
 SECTIONS {
-    . = 0x40000000;
+    PROVIDE(USER_IMAGE_BASE = 0x100000000);
+    . = USER_IMAGE_BASE;
     .text : { *(.text.start) *(.text .text.*) } :text
     .rodata ALIGN(4096) : { *(.rodata .rodata.*) } :rodata
     .data ALIGN(4096) : { *(.data .data.*) } :data

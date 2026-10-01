@@ -1,7 +1,7 @@
 # Third-party components
 
 The desktop's generated grayscale ASCII atlas in `user/desktop_font.h` uses
-glyphs from DejaVu Sans Mono. The font is not required to build the project;
+glyphs from DejaVu Sans, Sans Bold and Sans Mono. The fonts are not required to build the project;
 the generator is in `scripts/gen_desktop_font.py`. Attribution and license are
 in [DejaVu-FONT-LICENSE.txt](DejaVu-FONT-LICENSE.txt).
 

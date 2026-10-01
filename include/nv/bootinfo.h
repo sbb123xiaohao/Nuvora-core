@@ -10,7 +10,7 @@
 #define NV_BOOT_RES_MAX 16
 #define NV_BOOT_CMDLINE_MAX 512
 /* Framebuffer pixel formats. 0 means "no framebuffer". */
-enum { NV_FB_NONE = 0, NV_FB_BGRX8 = 1, NV_FB_RGBX8 = 2 };
+enum { NV_FB_NONE = 0, NV_FB_BGRX8 = 1, NV_FB_RGBX8 = 2, NV_FB_BITMASK = 3 };
 struct boot_mem_entry {
     u64 base, length;
     u32 type; /* 1 = usable RAM, 0 = reserved */
@@ -21,6 +21,7 @@ struct boot_range {
 struct boot_framebuffer {
     u64 address;
     u32 width, height, pitch, format;
+    u32 masks[4];
 };
 struct boot_info {
     u32 mem_count;

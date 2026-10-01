@@ -4,6 +4,8 @@
 #define NV_KERNEL_H
 #include <nv/abi.h>
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+static u32 activities;
+void account_input_activity(void) { ++activities; }
 #include "../kernel/pointer.c"
 
 int main(void) {
@@ -22,6 +24,7 @@ int main(void) {
     assert(event.dx == -2 && event.dy == 127 && event.buttons == NV_POINTER_LEFT);
     pointer_push(0, 0, NV_POINTER_LEFT); /* unchanged state is not a new click */
     assert(pointer_next(&event) == 0);
+    assert(activities==1);
     assert(pointer_boot_report(release, 3, &event));
     pointer_push(event.dx, event.dy, event.buttons);
     assert(pointer_next(&event) == 1 && event.buttons == 0);
@@ -44,6 +47,11 @@ int main(void) {
            event.buttons == (NV_POINTER_LEFT | NV_POINTER_ABSOLUTE));
     const u8 invalid[] = {0, 0x00, 0x80, 0, 0, 0};
     assert(!pointer_tablet_report(invalid, 6, &event));
+    pointer_reset();
+    pointer_push(12000,16000,NV_POINTER_ABSOLUTE);
+    u32 before=activities;
+    for (u32 i=0;i<100;++i) pointer_push(12000,16000,NV_POINTER_ABSOLUTE);
+    assert(activities==before); /* Stationary tablets cannot defeat idle lock. */
     pointer_reset();
     for (u32 i = 0; i < 10000; ++i) pointer_push(1, 1, 0);
     assert(pointer_next(&event) == 1 && event.dx == 10000 && event.dy == 10000);

@@ -11,7 +11,7 @@ void console_write(const char *p, usize n) { (void)p; (void)n; }
 int console_getc(void) { return -NV_EAGAIN; }
 int task_info(u32 i, struct nv_taskinfo *out) { (void)i; (void)out; return 0; }
 bool task_cwd_in_use(int node) { (void)node; return false; }
-volatile u32 ticks;
+volatile u64 ticks;
 enum { SLOT_SECTORS = 12 * 1024 * 1024 / 512 + 1 };
 static u8 disk_data[2][2][SLOT_SECTORS * 512];
 static bool fail_commit;

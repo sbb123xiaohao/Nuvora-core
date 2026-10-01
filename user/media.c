@@ -1,4 +1,5 @@
 #include "runtime.h"
+#include "window_client.h"
 #include "media_ui.h"
 #include "../third_party/minimp3.h"
 #include "../third_party/dr_flac.h"
@@ -8,13 +9,14 @@
 typedef short i16;
 
 #define MEDIA_ITEMS 512u
-static struct nv_dirent entries[MEDIA_ITEMS];
+static struct nv_dirent64 entries[MEDIA_ITEMS];
 static struct nv_display_info mode;
+static struct app_window app;
 static struct media_view view;
 static u32 *tile, tile_rows;
 static char path[NV_PATH_MAX], status[160], title[NV_NAME_MAX + 1];
 static bool audio_ready, stop_playback;
-static u32 paused_ticks;
+static u64 paused_ticks;
 static u32 pointer_buttons;
 static bool volume_drag;
 static i16 decoded[MINIMP3_MAX_SAMPLES_PER_FRAME];
@@ -49,7 +51,7 @@ static int refresh(void) {
     if (r < 0) return r;
     u32 found = 0;
     for (u32 i = 0; found < MEDIA_ITEMS; ++i) {
-        struct nv_dirent entry;
+        struct nv_dirent64 entry;
         r = list_dir(".", i, &entry);
         if (r <= 0) break;
         if (entry.kind == NV_DIR || (entry.kind == NV_FILE && supported(entry.name)))
@@ -63,15 +65,31 @@ static int refresh(void) {
     return 0;
 }
 static int draw(void) {
+    if (app.id) {
+        int r = app_window_pump(&app);
+        if (r < 0) return r;
+        if (!app.visible || app.closed) return 0;
+        r = app_window_begin(&app);
+        if (r == -NV_EAGAIN) return 0;
+        if (r < 0) return app.closed ? 0 : r;
+        mode.width = app.width; mode.height = app.height;
+        tile_rows = mode.max_copy_bytes / (mode.width * 4);
+        app.resized = false;
+    }
     for (u32 y = 0; y < mode.height; y += tile_rows) {
         struct nv_canvas canvas = {tile, mode.width, y,
                                    MIN(tile_rows, mode.height - y), mode.format};
         media_render(&canvas, mode.height, &view);
         struct nv_display_present rect = {
             .x = 0, .y = y, .width = mode.width, .height = canvas.rows,
-            .stride = mode.width * 4, .pixels = (u32)(uptr)tile};
-        int r = nv_display_present(&rect);
+            .stride = mode.width * 4, .pixels = (uptr)tile};
+        int r = app.id ? app_window_present(&app, &rect) : nv_display_present(&rect);
+        if (r == -NV_EAGAIN && app.id) return 0;
         if (r < 0) return r;
+    }
+    if (app.id) {
+        int r = nv_window_commit(app.id);
+        return r == -NV_EAGAIN ? 0 : r;
     }
     return 0;
 }
@@ -83,9 +101,17 @@ static void scroll_to_selection(void) {
 }
 static int pointer_input(bool *clicked) {
     struct nv_pointer_event event;
-    int r = nv_pointer_poll(&event);
+    int r;
+    if (app.id) {
+        struct nv_window_event local;
+        r = app_window_input(&app, NV_WINDOW_EVENT_POINTER, &local);
+        if (r <= 0) return r;
+        view.pointer_x = (u32)MAX(0, MIN(local.x, (i32)mode.width - 1));
+        view.pointer_y = (u32)MAX(0, MIN(local.y, (i32)mode.height - 1));
+        event = (struct nv_pointer_event){0, 0, local.wheel, local.buttons};
+    } else r = nv_pointer_poll(&event);
     if (r <= 0) return r;
-    view.pointer = true;
+    view.pointer = !app.id;
     if (event.buttons&NV_POINTER_ABSOLUTE) {
         view.pointer_x=(u32)((u64)(u32)MAX(0,MIN(32767,event.dx))*(mode.width-1)/32767);
         view.pointer_y=(u32)((u64)(u32)MAX(0,MIN(32767,event.dy))*(mode.height-1)/32767);
@@ -175,6 +201,14 @@ static int volume_pointer(bool clicked) {
     return set_volume(value);
 }
 static int transport(void) {
+    if (app.id) {
+        int r = app_window_pump(&app);
+        if (r < 0) return r;
+        if (app.closed) { stop_playback = true; view.paused = false; return 0; }
+        if (app.resized) { r = draw(); if (r < 0) return r; }
+    }
+    struct nv_audio_volume setting;
+    if (nv_audio_get_volume(&setting) == 0) view.volume_percent = setting.percent;
     bool clicked = false;
     int mouse = pointer_input(&clicked);
     if (mouse < 0) return mouse;
@@ -186,7 +220,7 @@ static int transport(void) {
         if (hit.kind == MEDIA_HIT_BACK) { stop_playback = true; return 0; }
         if (hit.kind == MEDIA_HIT_PAUSE) view.paused = !view.paused;
     }
-    int key = key_event();
+    int key = app.id ? app_window_key(&app) : key_event();
     if (key >= 0) {
         u32 k = (u32)key & 4095u;
         if (k == 27) stop_playback = true;
@@ -194,13 +228,18 @@ static int transport(void) {
         change=volume_key(k);
         if (change<0) return change;
     } else if (key != -NV_EAGAIN) return key;
-    u32 pause_begin = clock_ticks();
+    u64 pause_begin = clock_ticks();
     bool had_pause = view.paused;
     if (had_pause) {
         int r = draw();
         if (r < 0) return r;
     }
     while (view.paused && !stop_playback) {
+        if (app.id) {
+            int r = app_window_pump(&app); if (r < 0) return r;
+            if (app.closed) { stop_playback = true; break; }
+            if (app.resized) { r = draw(); if (r < 0) return r; }
+        }
         if (mouse || clicked) {
             int r = draw();
             if (r < 0) return r;
@@ -216,7 +255,7 @@ static int transport(void) {
             if (hit.kind == MEDIA_HIT_BACK) stop_playback = true;
             if (hit.kind == MEDIA_HIT_PAUSE) view.paused = false;
         }
-        key = key_event();
+        key = app.id ? app_window_key(&app) : key_event();
         if (key >= 0) {
             u32 k = (u32)key & 4095u;
             if (k == 27) stop_playback = true;
@@ -232,7 +271,7 @@ static int play_mp3(int fd) {
     if (!audio_ready) return -NV_ENODEV;
     mp3dec_t decoder;
     mp3dec_init(&decoder);
-    u32 length = 0, frames = 0, last_draw = clock_ticks();
+    u32 length = 0; u64 frames = 0, last_draw = clock_ticks();
     bool eof = false;
     for (;;) {
         if (transport() < 0) return -NV_EIO;
@@ -308,7 +347,7 @@ static int play_wav(int fd) {
     struct wav_io io = {&fd, source_read, source_seek};
     struct wav_format f;
     r = wav_open(&io, st.size, &f); if (r < 0) return r;
-    u64 bytes = f.bytes; u32 last_draw = clock_ticks();
+    u64 bytes = f.bytes; u64 last_draw = clock_ticks();
     while (bytes && !stop_playback && sound.error >= 0) {
         r = transport(); if (r < 0) return r;
         u32 chunk = (u32)MIN(bytes, sizeof(compressed)/f.frame*f.frame);
@@ -331,7 +370,7 @@ static int play_flac(int fd) {
     struct media_source source = {.context=&fd, .read=source_read, .seek=source_seek, .length=st.size};
     drflac *flac = drflac_open(flac_read, flac_seek, flac_tell, &source, NULL);
     if (!flac) return source.error < 0 ? source.error : -NV_EINVAL;
-    u64 frames = 0; u32 last_draw = clock_ticks(); int r = 0;
+    u64 frames = 0; u64 last_draw = clock_ticks(); int r = 0;
     if (!flac->channels || flac->channels > 8 || flac->sampleRate < 8000 || flac->sampleRate > 655350) r = -NV_EINVAL;
     while (!r && !stop_playback && sound.error >= 0) {
         r = transport(); if (r < 0) break;
@@ -390,13 +429,13 @@ static int play_video(int fd) {
     if (audio_ready && plm_get_num_audio_streams(plm) && plm_get_samplerate(plm) > 0)
         plm_set_audio_decode_callback(plm, video_audio, &state);
     else plm_set_audio_enabled(plm, 0);
-    u32 previous = clock_ticks();
+    u64 previous = clock_ticks();
     while (!plm_has_ended(plm) && !stop_playback && state.error >= 0 && source.error >= 0) {
-        u32 paused_before = paused_ticks;
+        u64 paused_before = paused_ticks;
         r = transport();
         if (r < 0) { state.error = r; break; }
-        u32 now = clock_ticks(), delta = MIN(now - previous, 25u);
-        u32 paused_here = paused_ticks - paused_before;
+        u64 now = clock_ticks(); u32 delta = (u32)MIN(now - previous, 25u);
+        u64 paused_here = paused_ticks - paused_before;
         delta = delta > paused_here ? delta - paused_here : 0;
         previous = now;
         plm_decode(plm, (double)delta / 100.0);
@@ -415,7 +454,7 @@ static int play_mp2(int fd) {
     plm_buffer_t *buffer = plm_buffer_create_with_callbacks(media_stream_load,
         media_stream_seek, media_stream_tell, (size_t)st.size, &source);
     plm_audio_t *decoder = plm_audio_create_with_buffer(buffer, 1);
-    u32 frames = 0, last_draw = clock_ticks();
+    u64 frames = 0, last_draw = clock_ticks();
     while (!stop_playback && source.error >= 0 && sound.error >= 0) {
         r = transport(); if (r < 0) break;
         plm_samples_t *samples = plm_audio_decode(decoder); if (!samples) break;
@@ -435,7 +474,7 @@ static int play_mp2(int fd) {
 static int play(const char *file) {
     int fd = open_file(file, NV_READ);
     if (fd < 0) return fd;
-    u32 heap_mark = (u32)(uptr)grow(0);
+    uptr heap_mark = (uptr)grow(0);
     memset(&sound, 0, sizeof(sound));
     view.playing = true; view.paused = false;
     view.video = suffix(file, ".mpg") || suffix(file, ".mpeg");
@@ -452,8 +491,8 @@ static int play(const char *file) {
                     suffix(file, ".mp2") ? play_mp2(fd) : play_wav(fd);
     close_file(fd);
     view.playing = false; view.frame = NULL;
-    u32 heap_end = (u32)(uptr)grow(0);
-    if (heap_end > heap_mark) grow(-((i32)(heap_end - heap_mark) / (i32)NV_PAGE));
+    uptr heap_end = (uptr)grow(0);
+    if (heap_end > heap_mark) grow(-(i64)((heap_end - heap_mark) / NV_PAGE));
     if (r == -NV_EINVAL) note("Unsupported or damaged media format.");
     else if (r == -NV_ENODEV) note("Audio output unavailable; connect an HDA device.");
     else if (r < 0) failure("Playback", r);
@@ -462,7 +501,7 @@ static int play(const char *file) {
 }
 static int open_selected(void) {
     if (!view.count) return 0;
-    const struct nv_dirent *e = &entries[view.selected];
+    const struct nv_dirent64 *e = &entries[view.selected];
     if (e->kind == NV_DIR) {
         int r = chdir_path(e->name);
         if (r < 0) return r;
@@ -504,12 +543,18 @@ int user_main(const char *args) {
     struct nv_audio_volume setting;
     view.volume_percent=nv_audio_get_volume(&setting)==0 && setting.percent<=100 ?
                         setting.percent : 100;
+    struct nv_window_info window_info;
+    if (nv_window_info(&window_info) == 0 && window_info.server_pid) {
+        r = app_window_open(&app, "Media", MIN(900u, mode.width - 40), MIN(550u, mode.height - 100));
+        if (r < 0) { report_error("Media window", r); return 1; }
+        mode.width = app.width; mode.height = app.height;
+    }
     tile_rows = mode.max_copy_bytes / (mode.width * 4);
     tile = grow((mode.max_copy_bytes + NV_PAGE - 1) / NV_PAGE);
     if ((iptr)tile < 0) { report_error("Media buffer", (int)(iptr)tile); return 1; }
     r = refresh();
     if (r < 0) { report_error("Media files", r); return 1; }
-    r = nv_display_acquire();
+    r = app.id ? 0 : nv_display_acquire();
     if (r < 0) { report_error("Media display", r); return 1; }
     view.pointer_x = mode.width / 2; view.pointer_y = mode.height / 2;
     note(audio_ready ? "" : "No HDA output; silent MPEG video remains available.");
@@ -517,13 +562,18 @@ int user_main(const char *args) {
         r = play(args);
         if (r < 0) goto done;
     }
-    u32 last_click = ~0u, last_tick = 0;
+    u32 last_click = ~0u; u64 last_tick = 0;
+    bool dirty = true;
     for (;;) {
-        r = draw();
-        if (r < 0) break;
+        if (app.id) {
+            r = app_window_pump(&app); if (r < 0 || app.closed) break;
+            if (app.resized) dirty = true;
+        }
+        if (dirty) { r = draw(); if (r < 0) break; dirty = false; }
         bool clicked = false;
         int mouse = pointer_input(&clicked);
         if (mouse < 0) { r = mouse; break; }
+        if (mouse) dirty = true;
         if (clicked) {
             struct media_hit hit = media_hit(mode.width, mode.height, &view,
                                              view.pointer_x, view.pointer_y);
@@ -532,7 +582,7 @@ int user_main(const char *args) {
                 if (r >= 0) { view.selected = view.scroll = 0; r = refresh(); }
                 if (r < 0) failure("Parent folder", r);
             } else if (hit.kind == MEDIA_HIT_ITEM) {
-                u32 tick = clock_ticks();
+                u64 tick = clock_ticks();
                 bool open = last_click == hit.index && tick - last_tick <= 40;
                 view.selected = hit.index; last_click = hit.index; last_tick = tick;
                 if (open) {
@@ -541,8 +591,9 @@ int user_main(const char *args) {
                 }
             }
         }
-        int key = key_event();
-        if (key == -NV_EAGAIN) { nap(25); continue; }
+        int key = app.id ? app_window_key(&app) : key_event();
+        if (key == -NV_EAGAIN) { nap(10); continue; }
+        dirty = true;
         if (key < 0) { r = key; break; }
         u32 k = (u32)key & 4095u;
         if (k == 27) break;
@@ -565,7 +616,8 @@ int user_main(const char *args) {
         scroll_to_selection();
     }
 done:
-    nv_display_release();
+    if (app.id) nv_window_destroy(app.id);
+    else nv_display_release();
     if (r < 0) { report_error("Media", r); return 1; }
     return 0;
 }

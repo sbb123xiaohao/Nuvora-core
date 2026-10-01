@@ -1,4 +1,5 @@
 #include "runtime.h"
+#include "text_window.h"
 #include "document.h"
 #define UNDO_DEPTH 12u
 #define VIEW_TOP 4u
@@ -14,6 +15,36 @@ static bool grouped, preview, new_file, disk_pending;
 static char path[NV_PATH_MAX], message[160], query[192];
 static const char *const styles[] = {"Body", "Heading 1", "Heading 2", "Quote"};
 static const char *const aligns[] = {"Left", "Center", "Right", "Justify"};
+static struct text_window native;
+static int folio_surface(u32 op, const struct nv_surface *value) {
+    if (op == NV_SCREEN_ACQUIRE) {
+        struct nv_window_info info;
+        if (nv_window_info(&info) == 0 && info.server_pid)
+            return text_window_open(&native, "Folio");
+    }
+    if (!native.app.id) return surface(op, value);
+    if (op == NV_SCREEN_RELEASE) return nv_window_destroy(native.app.id);
+    if (op == NV_SCREEN_PRESENT) return text_window_show(&native, value);
+    return 0;
+}
+static int folio_key(void) {
+    if (!native.app.id) return key_event();
+    int r = app_window_pump(&native.app);
+    if (r < 0) return r;
+    if (native.app.closed) {
+        native.app.closed = false;
+        return NV_KEY_DIRECT | NV_KEY_CTRL | 'q';
+    }
+    if (native.app.resized) {
+        r = text_window_show(&native, &screen);
+        if (r < 0) return r;
+    }
+    struct nv_window_event ignored;
+    while (app_window_input(&native.app, NV_WINDOW_EVENT_POINTER, &ignored) == 1) {}
+    return app_window_key(&native.app);
+}
+#define surface folio_surface
+#define key_event folio_key
 static bool dirty(void) {
     return doc_hash(&doc) != saved_hash;
 }
@@ -175,14 +206,14 @@ static int get_key(void) {
     if (k != 27)
         return k;
     /* ANSI serial terminals, including modified cursor and function keys. */
-    u32 deadline = clock_ticks() + 15;
+    u64 deadline = clock_ticks() + 15;
     int c;
     do {
         c = key_event();
         if (c != -NV_EAGAIN)
             break;
         nap(10);
-    } while ((i32)(clock_ticks() - deadline) < 0);
+    } while ((i64)(clock_ticks() - deadline) < 0);
     if (c < 0)
         return 27;
     if (c != '[' && c != 'O')
@@ -193,7 +224,7 @@ static int get_key(void) {
     for (u32 n = 0; n < 16; ++n) {
         c = key_event();
         if (c == -NV_EAGAIN) {
-            if ((i32)(clock_ticks() - deadline) >= 0)
+            if ((i64)(clock_ticks() - deadline) >= 0)
                 return 27;
             nap(10);
             --n;
@@ -412,7 +443,8 @@ static bool suffix(const char *name, const char *ext) {
     return n >= m && !strcmp(name + n - m, ext);
 }
 static void with_extension(char *dest, const char *source, const char *ext) {
-    strlcpy(dest, *source ? source : "/home/Untitled.nvd", NV_PATH_MAX);
+    if (*source) strlcpy(dest,source,NV_PATH_MAX);
+    else default_home_file(dest,"Untitled.nvd");
     u32 n = strlen(dest), dot = n;
     while (dot && dest[dot - 1] != '/' && dest[dot - 1] != '.')
         --dot;
@@ -470,7 +502,7 @@ static int atomic_write(const char *name, const u8 *data, u32 len) {
     memcpy(temp, name, p);
     strlcpy(temp + p, ".folio-", sizeof(temp) - p);
     u32 end = p + 7;
-    number(digits, clock_ticks(), 16);
+    number64(digits, clock_ticks(), 16);
     strlcpy(temp + end, digits, sizeof(temp) - end);
     end = strlen(temp);
     temp[end++] = '-';
@@ -537,7 +569,8 @@ static bool persistent_path(const char *name) {
 }
 static bool save(bool as) {
     char dest[NV_PATH_MAX];
-    strlcpy(dest, *path ? path : "/home/Untitled.nvd", sizeof(dest));
+    if (*path) strlcpy(dest,path,sizeof(dest));
+    else default_home_file(dest,"Untitled.nvd");
     bool need_name = as || new_file;
     if (doc_formatted(&doc) && !suffix(dest, ".nvd")) {
         with_extension(dest, dest, ".nvd");
@@ -975,9 +1008,21 @@ int user_main(const char *args) {
         report_error("Folio: screen unavailable", r);
         return 1;
     }
-    do {
-        redraw();
-    } while (handle(get_key()));
+    redraw();
+    bool running = true;
+    while (running) {
+        running = handle(get_key());
+        /* A burst of typing should update the document before another full
+         * pixel frame. Preserve event order, including modal/close requests. */
+        if (native.app.id && running) for (u32 i = 0; i < 31; ++i) {
+            int key = key_event();
+            if (key == -NV_EAGAIN) break;
+            if (key >= 0 && (key & NV_KEY_DIRECT)) key &= ~NV_KEY_DIRECT;
+            running = handle(key);
+            if (!running) break;
+        }
+        if (running) redraw();
+    }
     surface(NV_SCREEN_RELEASE, NULL);
     println("Folio closed.");
     return 0;

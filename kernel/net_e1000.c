@@ -1,13 +1,11 @@
 #include "kernel.h"
 
-/* Polled legacy-descriptor path for Intel PRO/1000-compatible devices.  This
- * covers the e1000/e1000e adapter VMware exposes (and the same PCI IDs used by
- * QEMU).  DMA is kept below 4 GiB so old virtual NICs and physical 8254x
- * controllers see the descriptor and packet addresses without an IOMMU setup. */
+/* Polled legacy-descriptor path for Intel PRO/1000-compatible devices.
+ * Supported controllers have 64-bit descriptor and ring base addresses. */
 #define E1000_RING 16u
 #define E1000_FRAME 2048u
 #define E1000_MMIO 0x20000u
-#define E1000_DMA_LIMIT 0x100000000ull
+#define E1000_DMA_LIMIT (~0ull)
 #define CTRL 0x0000u
 #define STATUS 0x0008u
 #define TIPG 0x0410u
@@ -70,7 +68,7 @@ static void release_pages(void) {
 }
 
 static bool reset_done(void) {
-    u32 start = ticks;
+    u64 start = ticks;
     while (ticks - start < 100) {
         if (!(rd(CTRL) & CTRL_RST)) return true;
         idle_once();
@@ -84,7 +82,7 @@ bool net_e1000_start(u32 address, u8 mac[6]) {
     if ((bar & 1u) || ((bar & 6u) != 0 && (bar & 6u) != 4u)) return false;
     u64 physical = bar & ~15u;
     if ((bar & 6u) == 4u) physical |= (u64)pci_read(address, 0x14) << 32;
-    if (!physical || physical % PAGE || physical >> 52) return false;
+    if (!physical || physical >> 52) return false;
     regs = vm_mmio_map(physical, E1000_MMIO);
     if (!regs) return false;
     pci_address = address;
@@ -126,9 +124,9 @@ bool net_e1000_start(u32 address, u8 mac[6]) {
     wr(CTRL, rd(CTRL) | (1u << 6)); /* SLU: do not wait for a PHY reset. */
     pci_write16(address, 4, (u16)(saved_command | 6u | (1u << 10)));
 
-    wr(RDBAL, (u32)rx_page); wr(RDBAH, 0); wr(RDLEN, E1000_RING * 16u);
+    wr(RDBAL, (u32)rx_page); wr(RDBAH, (u32)(rx_page >> 32)); wr(RDLEN, E1000_RING * 16u);
     wr(RDH, 0); wr(RDT, E1000_RING - 1u);
-    wr(TDBAL, (u32)tx_page); wr(TDBAH, 0); wr(TDLEN, E1000_RING * 16u);
+    wr(TDBAL, (u32)tx_page); wr(TDBAH, (u32)(tx_page >> 32)); wr(TDLEN, E1000_RING * 16u);
     wr(TDH, 0); wr(TDT, 0);
     wr(TIPG, (10u << 0) | (4u << 10) | (6u << 20));
     fence();

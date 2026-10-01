@@ -1,0 +1,2 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-accounts-qhujopuo/data.img
+PASS UEFI accounts (q35, usb): OOBE, bad password, lock input barrier, users, disable, 10 standard-client kernel permission assertions, rejected password change/retry and reboot persistence. Screens: /workspace/scratch/nuvora-modern/accounts

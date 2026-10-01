@@ -13,7 +13,7 @@ static int active_network(struct nv_net_info *out) {
     if (out->state == NV_NET_ONLINE) return 0;
     if (out->state == NV_NET_DOWN || out->state == NV_NET_LINK ||
         out->state == NV_NET_CONFIGURING) {
-        u32 start = clock_ticks();
+        u64 start = clock_ticks();
         bool requested = out->state == NV_NET_CONFIGURING;
         while (clock_ticks() - start < 1000) {
             if (!requested && out->state == NV_NET_LINK) {
@@ -75,7 +75,7 @@ static int resolve_host(const char *host, const struct nv_net_info *network, u32
     dns_io.data[pos++] = 0; dns_io.data[pos++] = 1;
     dns_io.length = pos;
     for (u32 attempt = 0; attempt < 3; ++attempt) {
-        u32 started = clock_ticks();
+        u64 started = clock_ticks();
         int sent;
         do {
             sent = devctl(NV_SUB_NET, NV_NET_UDP_SEND, &dns_io);
@@ -131,13 +131,13 @@ static int ping_command(int n, char **v) {
     for (u32 i = 0; i < count; ++i) {
         struct nv_net_ping probe = {.index = network.index, .address = address,
                                     .identifier = 0x4e56, .sequence = i + 1};
-        u32 start = clock_ticks();
+        u64 start = clock_ticks();
         for (;;) {
             r = devctl(NV_SUB_NET, NV_NET_PING, &probe);
             if (r == 1) {
                 print_u32(probe.reply_bytes); print(" bytes from "); show_ipv4(address);
                 print("  seq="); print_u32(i + 1); print("  ttl="); print_u32(probe.reply_ttl);
-                print("  time="); print_u32((clock_ticks() - start) * 10); println(" ms");
+                print("  time="); print_u64((clock_ticks() - start) * 10); println(" ms");
                 ++received;
                 break;
             }
@@ -280,7 +280,7 @@ static int wget_command(int n, char **v) {
     if (!*target) return -NV_EINVAL;
     memset(&tcp_io, 0, sizeof(tcp_io));
     tcp_io.index = network.index; tcp_io.address = address; tcp_io.port = port;
-    u32 started = clock_ticks();
+    u64 started = clock_ticks();
     do {
         r = devctl(NV_SUB_NET, NV_NET_TCP_OPEN, &tcp_io);
         if (r < 0) return r;
@@ -314,7 +314,7 @@ static int wget_command(int n, char **v) {
     memcpy(temp, target, prefix);
     strlcpy(temp + prefix, ".download-", sizeof(temp) - prefix);
     u32 end = strlen(temp);
-    number(temp + end, clock_ticks(), 16);
+    number64(temp + end, clock_ticks(), 16);
     end = strlen(temp);
     temp[end++] = '-';
     int fd = -NV_EEXIST;
@@ -323,7 +323,7 @@ static int wget_command(int n, char **v) {
         fd = open_file(temp, NV_WRITE | NV_CREATE | NV_EXCL);
     }
     if (fd < 0) { r = fd; goto done; }
-    u32 header_size = 0, idle_at = clock_ticks();
+    u32 header_size = 0; u64 idle_at = clock_ticks();
     bool headers_done = false, known = false, chunked = false;
     u64 expected = 0, total = 0;
     for (;;) {

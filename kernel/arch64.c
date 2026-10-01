@@ -22,7 +22,7 @@ static struct tss64 tss;
 static u8 emergency_stack[8192] ALIGNED(16);
 extern uptr isr_table[];
 extern void gdt_load(const struct table_ptr64 *);
-volatile u32 ticks;
+volatile u64 ticks;
 void arch_set_stack(uptr top) {
     tss.rsp[0] = top;
 }
@@ -73,13 +73,13 @@ struct frame *interrupt_dispatch(struct frame *f) {
         if (f->vector == 14)
             __asm__ volatile("mov %%cr2,%0" : "=r"(address));
         if ((f->cs & 3) == 3 && current) {
-            kprintf("\n[isolate x64] pid=%u trap=%u error=%x rip=%x address=%x\n", current->pid,
-                    (u32)f->vector, (u32)f->error, (u32)f->eip, (u32)address);
+            kprintf("\n[isolate x64] pid=%u trap=%u error=%x rip=%llx address=%llx\n", current->pid,
+                    (u32)f->vector, (u32)f->error, (u64)f->eip, (u64)address);
             task_exit(128 + (int)f->vector);
             return schedule(f);
         }
-        kprintf("trap=%u error=%x rip=%x address=%x\n", (u32)f->vector, (u32)f->error, (u32)f->eip,
-                (u32)address);
+        kprintf("trap=%u error=%x rip=%llx address=%llx\n", (u32)f->vector, (u32)f->error, (u64)f->eip,
+                (u64)address);
         panic("exception in 64-bit supervisor mode");
     }
     if (f->vector == 39) {
@@ -103,18 +103,26 @@ struct frame *interrupt_dispatch(struct frame *f) {
     if (f->vector >= 40)
         outb(0xa0, 0x20);
     outb(0x20, 0x20);
-    return f->vector == 32 && (f->cs & 3) == 3 && ticks % 5 == 0 ? schedule(f) : f;
+    return f->vector == 32 && (f->cs & 3) == 3 && ticks % 2 == 0 ? schedule(f) : f;
 }
 NORETURN void machine_poweroff(void) {
     irq_disable();
     kprintf("\nNuvora Core halted.\n");
-    outw(0x604, 0x2000);
-    outw(0xb004, 0x2000);
+    if (!acpi_power_off()) kprintf("[power] firmware shutdown unavailable; CPU halted\n");
+    if (test_mode) {
+        outw(0x604, 0x2000);
+        outw(0xb004, 0x2000);
+    }
     for (;;)
         __asm__ volatile("hlt");
 }
 NORETURN void machine_reboot(void) {
     irq_disable();
+    acpi_power_reset();
+    for (u32 i=0;i<100000;++i) __asm__ volatile("pause");
+    /* PC reset-control fallback, followed by the legacy keyboard controller. */
+    outb(0xcf9, 2);
+    outb(0xcf9, 6);
     for (u32 i = 0; i < 100000; ++i)
         if (!(inb(0x64) & 2))
             break;

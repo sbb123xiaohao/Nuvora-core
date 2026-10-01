@@ -201,8 +201,8 @@ void audio_init(void) {
     for (u32 c = 0; c < 15 && !found; ++c)
         if (present & (1u << c)) found = route_codec((u8)c);
     if (!found) goto unavailable;
-    hda.data_page = page_alloc_below(HDA_DMA_LIMIT);
-    hda.bdl_page = page_alloc_below(HDA_DMA_LIMIT);
+    hda.data_page = page_alloc_below((gcap & 1u) ? ~0ull : HDA_DMA_LIMIT);
+    hda.bdl_page = page_alloc_below((gcap & 1u) ? ~0ull : HDA_DMA_LIMIT);
     if (!hda.data_page || !hda.bdl_page || !stream_reset()) goto unavailable;
     hda.ready = true;
     kprintf("[audio] HDA analog output: codec %u, pin %u, DAC %u\n",
@@ -259,8 +259,8 @@ static int play(const void *samples, u32 bytes) {
     w8(o + 3, 0x1c);
     return complete && hda.ready ? (int)bytes : -NV_EIO;
 }
-int audio_ioctl(u32 op, u32 pointer) {
-    if (op != NV_AUDIO_INFO && op != NV_AUDIO_WRITE &&
+int audio_ioctl(u32 op, uptr pointer) {
+    if (op != NV_AUDIO_INFO && op != NV_AUDIO_WRITE && op != NV_AUDIO_WRITE64 &&
         op != NV_AUDIO_GET_VOLUME && op != NV_AUDIO_SET_VOLUME) return -NV_EINVAL;
     if (op == NV_AUDIO_GET_VOLUME || op == NV_AUDIO_SET_VOLUME) {
         if (!user_range(current->pd, pointer, sizeof(struct nv_audio_volume),
@@ -284,10 +284,15 @@ int audio_ioctl(u32 op, u32 pointer) {
         memcpy((void *)(uptr)pointer, &info, sizeof(info));
         return 0;
     }
-    if (!user_range(current->pd, pointer, sizeof(struct nv_audio_write), false))
+    u32 size = op == NV_AUDIO_WRITE ? sizeof(struct nv_audio_write32) : sizeof(struct nv_audio_write);
+    if (!user_range(current->pd, pointer, size, false))
         return -NV_EFAULT;
-    struct nv_audio_write request;
-    memcpy(&request, (const void *)(uptr)pointer, sizeof(request));
+    struct nv_audio_write request = {0};
+    if (op == NV_AUDIO_WRITE) {
+        struct nv_audio_write32 old; memcpy(&old, (const void *)pointer, sizeof(old));
+        request.pixels=old.pixels; request.bytes=old.bytes;
+    } else memcpy(&request, (const void *)pointer, sizeof(request));
+    if (request.reserved) return -NV_EINVAL;
     if (!request.bytes || request.bytes > NV_AUDIO_MAX_WRITE || request.bytes % 4)
         return -NV_EINVAL;
     if (!user_range(current->pd, request.pixels, request.bytes, false))

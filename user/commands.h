@@ -57,16 +57,16 @@ static const struct command_help commands[] = {
      "stitch /home/note.txt \"Second line\"",
      "Creates the file if needed. Use anchor to save /home to disk."},
     {"unfold", "unfold FILE", "Print a file's contents.", "unfold /home/note.txt", ""},
-    {"folio", "folio [FILE]", "Open the full-screen text and formatted-document editor.",
+    {"folio", "folio [FILE]", "Open the text and formatted-document editor in a window.",
      "folio /home/report.nvd",
      "Ctrl-S saves, Ctrl-Q closes, F1 shows shortcuts.\n"
      "Use .nvd for formatted documents or .txt for plain text.\n"
      "Folio saves /home to the Nuvora data disk when it is available."},
     {"desktop", "desktop", "Open the UEFI desktop with app icons and windows.",
-     "desktop", "Double-click icons; drag a title bar or resize corner; F10 opens Start.\n"
+     "desktop", "Double-click icons; drag a title bar or resize any edge; F10 opens Start.\n"
      "F2 renames; Delete confirms removal; Alt-Tab switches windows.\n"
      "Requires a supported framebuffer; BIOS text mode remains in Loom."},
-    {"exit", "exit", "Close the desktop terminal window or return from full Loom.", "exit",
+    {"exit", "exit", "Close the terminal window or return from a secondary Loom shell.", "exit",
      "In the primary shell, use rest to power off or desktop to open the desktop."},
     {"media", "media [FILE.mp3 | FILE.wav | FILE.mpg]",
      "Open the graphical audio and video player.", "media /home/clip.mpg",

@@ -27,7 +27,9 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
         {.x=125,.y=42,.w=MIN(520u,sw-145),.h=MIN(350u,sh-83),.open=true},
         {.x=140,.y=62,.w=MIN(485u,sw-155),.h=MIN(310u,sh-100),.open=all_open},
         {.x=150,.y=86,.w=MIN(475u,sw-160),.h=MIN(250u,sh-126),.open=all_open}};
-    u8 order[]={DESKTOP_TERMINAL,DESKTOP_EDITOR,DESKTOP_FILES};
+    u8 order[DESKTOP_WINDOW_COUNT];
+    for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
+    order[0]=DESKTOP_TERMINAL; order[1]=DESKTOP_EDITOR; order[2]=DESKTOP_FILES;
     struct nv_dirent64 files[24]={0};
     for (u32 i=0;i<ARRAY_LEN(files);++i) {
         files[i].kind=i&1?NV_FILE:NV_DIR;
@@ -46,10 +48,12 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     strlcpy(lines[1],"C:/ :: ls",sizeof(lines[1]));
     strlcpy(lines[2],"[dir] home",sizeof(lines[2]));
     const char *sample="An editable text window\nSecond line with 0123456789\n";
+    struct desktop_launcher launcher={0}; desktop_search(&launcher);
     struct desktop_view v={.path="/home",.message="",.drive="4 drives",
         .entries=files,.count=24,.selected=4,.scroll=2,.volumes=4,
         .pointer=true,.pointer_x=width/2,.pointer_y=height/2,
         .audio_ready=true,.volume_percent=72,
+        .launcher=&launcher,
         .windows=windows,.order=order,.active=DESKTOP_FILES,
         .shortcut_selected=0xffffffffu,
         .editor_path="/home/note.txt",.editor_text=sample,.editor_length=strlen(sample),
@@ -72,7 +76,7 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
         assert(tiled[0]==0x9173ace4 && tiled[n+1]==0x27607845);
         struct desktop_hit home_hit=desktop_hit(width,height,&v,45*s,48*s);
         assert(home_hit.kind==DESKTOP_HIT_SHORTCUT && home_hit.index==0);
-        home_hit=desktop_hit(width,height,&v,45*s,(28+3*70+20)*s);
+        home_hit=desktop_hit(width,height,&v,45*s,(46+3*78+20)*s);
         assert(home_hit.kind==DESKTOP_HIT_SHORTCUT && home_hit.index==3);
         home_hit=desktop_hit(width,height,&v,(sw-40)*s,60*s);
         assert(home_hit.kind==DESKTOP_HIT_NONE);
@@ -124,9 +128,9 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
         preview(getenv("NV_VOLUME_PREVIEW"),full+1,width,height);
     }
     v.volume_open=false;
-    struct desktop_hit hit=desktop_hit(width,height,&v,25*s,height-15*s);
+    struct desktop_hit hit=desktop_hit(width,height,&v,(desktop_dock_x(sw,&v)+25)*s,height-15*s);
     assert(hit.kind==DESKTOP_HIT_START);
-    hit=desktop_hit(width,height,&v,100*s,height-15*s);
+    hit=desktop_hit(width,height,&v,(desktop_dock_x(sw,&v)+125)*s,height-15*s);
     assert(hit.kind==DESKTOP_HIT_TASK && hit.index==DESKTOP_FILES);
     hit=desktop_hit(width,height,&v,(windows[0].x+windows[0].w-12)*s,
                     (windows[0].y+12)*s);
@@ -152,7 +156,8 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8)
         preview(path,full+1,width,height);
     v.menu=true;
-    hit=desktop_hit(width,height,&v,40*s,(sh-220+50+25*2+8)*s);
+    struct desktop_rect menu=desktop_menu_rect(sw,sh);
+    hit=desktop_hit(width,height,&v,(menu.x+40)*s,(menu.y+96+34*2+8)*s);
     assert(hit.kind==DESKTOP_HIT_MENU && hit.index==2);
     desktop_render(&all,height,&v);
     if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8 && all_open)
@@ -195,7 +200,105 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     assert(hit.window==DESKTOP_FILES);
     free(full); free(tiled);
 }
+static void native_render(u32 width,u32 height,u32 format) {
+    u32 s=desktop_scale(width,height),sw=width/s,sh=height/s;
+    struct desktop_window windows[DESKTOP_WINDOW_COUNT]={0};
+    u8 order[DESKTOP_WINDOW_COUNT];
+    for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
+    u32 count=161*99;
+    u32 *source=guarded(count);
+    for (u32 i=0;i<count;++i) source[i+1]=0x402020u+i; /* Window ABI is BGRX. */
+    windows[DESKTOP_MEDIA]=(struct desktop_window){.x=100,.y=44,.w=MIN(420u,sw-112),
+        .h=MIN(250u,sh-86),.client=17,.open=true,.pixels=source+1,
+        .pixel_width=161,.pixel_height=99};
+    strlcpy(windows[DESKTOP_MEDIA].title,"Media - actual application pixels",64);
+    struct desktop_view v={.path="/home",.message="",.drive="1 drive",.windows=windows,
+        .order=order,.active=DESKTOP_MEDIA,.shortcut_selected=~0u,
+        .pointer=true,.pointer_x=260*s,.pointer_y=150*s};
+    u32 n=width*height;
+    u32 *full=guarded(n),*tiled=guarded(n);
+    struct nv_canvas c={full+1,width,0,height,format};
+    desktop_render(&c,height,&v);
+    u32 sx=20*161/((windows[DESKTOP_MEDIA].w-2)*s);
+    u32 sy=20*99/((windows[DESKTOP_MEDIA].h-29)*s);
+    assert(full[1+((44+28)*s+20)*width+101*s+20]==nv_display_rgb(format,source[1+sy*161+sx]));
+    for (u32 y=0;y<height;y+=31) {
+        struct nv_canvas part={tiled+1+(uptr)y*width,width,y,MIN(31u,height-y),format};
+        desktop_render(&part,height,&v);
+    }
+    assert(!memcmp(full+1,tiled+1,(usize)n*4));
+    struct desktop_hit hit=desktop_hit(width,height,&v,220*s,120*s);
+    assert(hit.kind==DESKTOP_HIT_CLIENT && hit.window==DESKTOP_MEDIA);
+    hit=desktop_hit(width,height,&v,101*s,140*s);
+    assert(hit.kind==DESKTOP_HIT_RESIZE && hit.index==1);
+    /* A clip which intersects only the frame must never underflow the pixel
+     * copy width. Repairing the old/new pointer over app content is exact. */
+    c.pixels=tiled+1;
+    struct desktop_clip frame={100*s,44*s,101*s,300*s};
+    desktop_render_clip(&c,height,&v,frame);
+    u32 oldx=v.pointer_x,oldy=v.pointer_y;
+    v.pointer_x=300*s;v.pointer_y=170*s;
+    struct nv_canvas expected={full+1,width,0,height,format};
+    desktop_render(&expected,height,&v);
+    struct desktop_clip old={oldx,oldy,oldx+8*s,oldy+10*s};
+    struct desktop_clip fresh={v.pointer_x,v.pointer_y,v.pointer_x+8*s,v.pointer_y+10*s};
+    desktop_render_clip(&c,height,&v,old);desktop_render_clip(&c,height,&v,fresh);
+    assert(!memcmp(full+1,tiled+1,(usize)n*4));
+    struct nv_surface text={.cursor=166};
+    for (u32 i=0;i<2000;++i) text.cells[i]=0x1700u|(u8)("0123456789"[i%10]);
+    windows[DESKTOP_MEDIA].text=&text;
+    desktop_render(&expected,height,&v);
+    for (u32 y=0;y<height;y+=31) {
+        struct nv_canvas part={tiled+1+(uptr)y*width,width,y,MIN(31u,height-y),format};
+        desktop_render(&part,height,&v);
+    }
+    assert(!memcmp(full+1,tiled+1,(usize)n*4));
+    for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) {
+        windows[i]=windows[DESKTOP_MEDIA]; windows[i].client=i+1;
+        strlcpy(windows[i].title,"Native window",64);
+    }
+    windows[4].minimized=true;
+    v.overview=true; v.overview_selected=10; v.pointer=false;
+    for (u32 page=0;page<2;++page) {
+        if (page) v.overview_selected=0;
+        desktop_render(&expected,height,&v);
+        for (u32 y=0;y<height;y+=31) {
+            struct nv_canvas part={tiled+1+(uptr)y*width,width,y,MIN(31u,height-y),format};
+            desktop_render(&part,height,&v);
+        }
+        assert(!memcmp(full+1,tiled+1,(usize)n*4));
+        u32 size=desktop_overview_page_size(sw),first=page?(DESKTOP_WINDOW_COUNT-1)/size*size:0;
+        u32 visible=MIN(size,DESKTOP_WINDOW_COUNT-first);
+        struct desktop_rect r=desktop_overview_rect(sw,sh,visible,0);
+        hit=desktop_hit(width,height,&v,(r.x+12)*s,(r.y+12)*s);
+        assert(hit.kind==DESKTOP_HIT_OVERVIEW && hit.index==DESKTOP_WINDOW_COUNT-1-first);
+        hit=desktop_hit(width,height,&v,(sw-40)*s,40*s);
+        assert(hit.kind==DESKTOP_HIT_NONE && hit.window==DESKTOP_WINDOW_COUNT);
+    }
+    v.overview=false;
+    struct desktop_switcher switcher={0}; desktop_switch_begin(&switcher,windows,order,10,1);
+    v.switcher=&switcher;
+    desktop_render(&expected,height,&v);
+    for (u32 y=0;y<height;y+=31) {
+        struct nv_canvas part={tiled+1+(uptr)y*width,width,y,MIN(31u,height-y),format};
+        desktop_render(&part,height,&v);
+    }
+    assert(!memcmp(full+1,tiled+1,(usize)n*4));
+    hit=desktop_hit(width,height,&v,125*s,height-15*s);
+    assert(hit.kind==DESKTOP_HIT_NONE && hit.window==DESKTOP_WINDOW_COUNT);
+    switcher.open=false; v.snap_preview=DESKTOP_TILE_RIGHT;
+    desktop_render(&expected,height,&v);
+    assert(full[1+(sw/2)*s]==nv_display_rgb(format,0x91b2f4));
+    assert(full[0]==0x9173ace4 && full[n+1]==0x27607845);
+    assert(tiled[0]==0x9173ace4 && tiled[n+1]==0x27607845);
+    assert(source[0]==0x9173ace4 && source[count+1]==0x27607845);
+    free(source);free(full);free(tiled);
+}
+
 int main(void) {
+    native_render(640,480,NV_DISPLAY_BGRX8);
+    native_render(1024,768,NV_DISPLAY_BGRX8);
+    native_render(1280,800,NV_DISPLAY_RGBX8);
     assert(desktop_scale(1600,900)==2);
     assert(desktop_scale(1920,1080)==2);
     assert(desktop_scale(2560,1000)==2);

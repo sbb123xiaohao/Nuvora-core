@@ -11,6 +11,9 @@ import struct
 import subprocess
 import time
 import zlib
+import shutil
+import tempfile
+from functools import partial
 from qemu import ROOT, BUILD, ARCH, command, find_uefi_firmware, firmware_arguments
 from mkdisk import create, SLOT0_LBA, SLOT1_LBA, SLOT_SECTORS
 from mkgptdisk import create as create_gpt_disk
@@ -18,8 +21,9 @@ from mkgptdisk import create as create_gpt_disk
 REPORT = BUILD / 'test-results'
 REPORT.mkdir(parents=True, exist_ok=True)
 results = []
-VERSION = '0.10.0'
-EXPECTED_ASSERTIONS = 139
+VERSION = '0.15.0'
+command = partial(command, diagnostics=True)
+EXPECTED_ASSERTIONS = 144
 if ARCH != 'x86_64':
     raise SystemExit('Use scripts/arm64.py test for ARM64; 32-bit x86 is retired')
 
@@ -30,16 +34,32 @@ def record(name, detail):
 class VM:
     def __init__(self, name, disk=None, memory=64, iso=None, monitor=False, reboot=False, hardware=None, cpu=None, machine='pc', kernel=True, uefi=False, boot_timeout=15):
         self.name, self.output = name, bytearray()
+        self.boot_media = None
         if uefi:
             firmware = find_uefi_firmware()
             if not firmware:
                 raise RuntimeError('UEFI firmware not found; set NV_OVMF to boot UEFI guests.')
+            if not iso:
+                self.boot_media = tempfile.TemporaryDirectory(prefix='nuvora-diagnostic-esp-')
+                private = pathlib.Path(self.boot_media.name)
+                esp = private / 'esp.img'
+                shutil.copyfile(BUILD / 'esp.img', esp)
+                options = private / 'CMDLINE'
+                options.write_text('nv.test=1 nv.init=loom nv.recovery=1\n')
+                subprocess.run(['mcopy','-o','-i',str(esp),str(BUILD / 'nuvora-uefi-test.elf'),
+                                '::/EFI/NUVORA/NUVORA.ELF'],check=True)
+                subprocess.run(['mcopy','-o','-i',str(esp),str(options),'::/EFI/NUVORA/CMDLINE'],check=True)
             cmd = command(memory, disk, cpu=cpu, machine=machine, kernel=False,
-                          esp=None if iso else BUILD / 'esp.img') + firmware_arguments(firmware)
+                          esp=None if iso else esp) + firmware_arguments(firmware)
         else:
             cmd = command(memory, disk, cpu=cpu, machine=machine, kernel=kernel)
         if hardware:
             cmd += hardware
+        if not uefi and not iso:
+            if '-append' in cmd:
+                at=cmd.index('-append')+1
+                cmd[at]='nv.test=1 nv.init=loom nv.recovery=1 '+cmd[at]
+            else: cmd+=['-append','nv.test=1 nv.init=loom nv.recovery=1']
         if iso:
             if '-kernel' in cmd:
                 i = cmd.index('-kernel')
@@ -136,6 +156,7 @@ class VM:
             self.selector.close()
             self.proc.stdin.close()
             self.proc.stdout.close()
+            if self.boot_media: self.boot_media.cleanup()
     
 def probe(memory, cpu=None, timeout=40):
     cmd = command(memory, cpu=cpu) + ['-append', 'nv.test=1', '-display', 'none', '-serial', 'stdio',
@@ -300,7 +321,8 @@ def build_fingerprint():
         files.update(p for p in (ROOT / directory).rglob('*')
                      if p.is_file() and p.suffix in {'.c', '.h', '.S', '.ld', '.inc', '.py', '.mjs'})
     if ARCH == 'x86_64':
-        files.update([BUILD / 'BOOTX64.EFI', BUILD / 'esp.img'])
+        files.update(BUILD/name for name in ('BOOTX64.EFI','esp.img','nuvora-uefi.elf',
+                     'boot-test.elf','nuvora-test.elf','nuvora-uefi-test.elf'))
     return {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(files)}
 
@@ -724,28 +746,21 @@ def uefi_boot():
 def iso_boot():
     iso = BUILD / f'nuvora-core-{VERSION}-{ARCH}.iso'
     assert iso.is_file(), 'Build ISO first: make iso'
-    vm = VM('bios-iso', iso=iso)
-    try:
-        vm.send('origin', f'Nuvora Core {VERSION}')
-        vm.send('forge pulse quiet', 'exited 7')
-    finally:
-        vm.close()
-    record('GRUB BIOS ISO boot', 'CD-ROM boot reached Ring 3 and executed a child program')
+    subprocess.run(['python3',str(ROOT/'tests/account_console_boot_test.py'),'--iso',str(iso),
+                    '--output',str(REPORT/'bios-iso')],check=True)
+    record('GRUB BIOS ISO boot', 'production CD-ROM: authenticated recovery, saved login, reboot and ACPI shutdown')
     uefi_iso = BUILD / f'nuvora-core-{VERSION}-{ARCH}-uefi.iso'
     if ARCH == 'x86_64' and find_uefi_firmware() and uefi_iso.is_file():
-        vm = VM('uefi-iso', iso=uefi_iso, uefi=True, boot_timeout=90)
-        try:
-            vm.send('origin', f'Nuvora Core {VERSION}')
-            vm.send('forge pulse quiet', 'exited 7')
-        finally:
-            vm.close()
-        record('UEFI ISO boot', 'El Torito UEFI entry started BOOTX64.EFI; kernel reached Ring 3')
+        subprocess.run(['python3',str(ROOT/'tests/session_boot_test.py'),'--iso',str(uefi_iso),
+                        '--boot-only','--output',str(REPORT/'uefi-iso')],check=True)
+        record('UEFI ISO boot', 'production El Torito: graphical OOBE, supervisor, windowed terminal and permission assertions')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--phase', choices=['all', 'memory', 'storage', 'iso', 'usb', 'help', 'hardware'], default='all')
     parser.add_argument('--iso', action='store_true', help='Also boot the previously built ISO')
     args = parser.parse_args()
+    subprocess.run(['make','-s','diagnostics'],cwd=ROOT,check=True)
     fingerprint = build_fingerprint()
     if args.phase in ['all', 'memory']:
         for memory in [32, 64, 128, 256]:

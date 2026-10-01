@@ -1,0 +1,67 @@
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 63 MiB managed RAM, 10586 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora first setup: create the administrator account.
+Username: tester
+Display name: Console User
+Password: 15-128 characters. Spaces are allowed.
+Password: ***************************
+Repeat password: ***************************
+Checking account...
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/users/tester :: horizon
+RAM managed: 65016 KiB; free: 42204 KiB
+Kernel heap: 4441104 / 8388608 bytes
+Tasks: 1; filesystem nodes: 31; uptime: 15 s
+Data disk ready; committed generation: 1
+
+C:/users/tester :: renew
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] restored /home generation 1
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 63 MiB managed RAM, 10585 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora local sign-in
+Username: tester
+Password: *********
+Checking account...
+Sign-in: access denied
+Nuvora local sign-in
+Username: tester
+Password: ***************************
+Checking account...
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/users/tester :: rest
+
+Nuvora Core halted.

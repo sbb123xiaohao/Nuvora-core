@@ -47,7 +47,7 @@ void task_reap(void) {
             memset(t, 0, sizeof(*t));
     }
 }
-static int load_elf(struct task *t, const u8 *data, u32 len, u32 *entry) {
+static int load_elf(struct task *t, const u8 *data, usize len, uptr *entry) {
     if (len < sizeof(struct elf_header))
         return -NV_ENOEXEC;
     const struct elf_header *h = (const void *)(uptr)data;
@@ -69,18 +69,21 @@ static int load_elf(struct task *t, const u8 *data, u32 len, u32 *entry) {
         if (!p->memsz && !p->filesz)
             continue;
         if (p->filesz > p->memsz || p->offset > len || p->filesz > len - p->offset ||
-            p->vaddr < USER_BASE || p->vaddr >= USER_IMAGE_END ||
-            p->memsz > USER_IMAGE_END - p->vaddr || (p->flags & ~7u) || ((p->flags & 3) == 3))
+            p->vaddr < USER_BASE || (p->vaddr >= 0x80000000ull && p->vaddr < NV_USER_IMAGE) || p->vaddr >= (p->vaddr < 0x80000000ull ? USER_IMAGE_END : NV_USER_IMAGE_END) ||
+            p->memsz > (p->vaddr < 0x80000000ull ? USER_IMAGE_END : NV_USER_IMAGE_END) - p->vaddr || (p->flags & ~7u) || ((p->flags & 3) == 3))
             return -NV_ENOEXEC;
         if (p->align > 1 &&
             ((p->align & (p->align - 1)) || ((p->offset ^ p->vaddr) & (p->align - 1))))
             return -NV_ENOEXEC;
         if (!p->memsz)
             continue;
+        u32 abi = p->vaddr >= NV_USER_IMAGE ? NV_ABI_VERSION : NV_ABI_LEGACY;
+        if (t->abi && t->abi != abi) return -NV_ENOEXEC;
+        t->abi = abi;
         if ((p->flags & 1) && h->entry >= p->vaddr && h->entry - p->vaddr < p->memsz)
             executable_entry = true;
-        u32 first = p->vaddr & ~4095u, end = ALIGN_UP(p->vaddr + p->memsz, PAGE);
-        for (u32 va = first; va < end; va += PAGE) {
+        uptr first = p->vaddr & ~(uptr)4095, end = ALIGN_UP(p->vaddr + p->memsz, PAGE);
+        for (uptr va = first; va < end; va += PAGE) {
             int r =
                 vm_map(t->pd, va, ((p->flags & 2) ? P_WRITE : 0) | ((p->flags & 1) ? P_EXEC : 0));
             if (r < 0)
@@ -98,29 +101,33 @@ static int prepare_image(struct task *t, const char *path, const char *args, str
     if (strlen(args) >= NV_ARG_MAX)
         return -NV_E2BIG;
     const u8 *data;
-    u32 len;
-    int r = fs_blob(path, &data, &len);
+    u8 *temporary;
+    usize len;
+    int r = fs_blob(path, &data, &len, &temporary);
     if (r < 0)
         return r;
     t->pd = vm_create();
-    if (!t->pd)
-        return -NV_ENOMEM;
-    u32 entry;
+    if (!t->pd) { r = -NV_ENOMEM; goto done; }
+    uptr entry;
     r = load_elf(t, data, len, &entry);
     if (r < 0)
-        return r;
+        goto done;
+    uptr stack_top = t->abi == NV_ABI_VERSION ? NV_USER_STACK : USER_STACK_TOP;
     for (u32 i = 1; i <= USER_STACK_PAGES; ++i) {
-        r = vm_map(t->pd, USER_STACK_TOP - i * PAGE, P_WRITE);
+        r = vm_map(t->pd, stack_top - i * PAGE, P_WRITE);
         if (r < 0)
-            return r;
+            goto done;
     }
     *frame = (struct frame){.cs = 0x1b,
                             .ss = 0x23,
                             .eflags = 0x202,
                             .eip = entry,
-                            .useresp = USER_STACK_TOP - 512,
-                            .ebx = USER_STACK_TOP - NV_ARG_MAX};
-    return copy_to_space(t->pd, frame->ebx, args, strlen(args) + 1);
+                            .useresp = stack_top - 512,
+                            .ebx = stack_top - NV_ARG_MAX};
+    r = copy_to_space(t->pd, frame->ebx, args, strlen(args) + 1);
+done:
+    kfree(temporary);
+    return r;
 }
 static void name_task(struct task *t, const char *path) {
     const char *name = path;
@@ -164,8 +171,10 @@ int task_spawn(const char *path, const char *args, struct task *parent) {
         t->fd[i].node = -1;
     t->pid = allocate_pid();
     t->parent = parent ? parent->pid : 0;
+    t->uid = parent ? parent->uid : NV_UID_NONE;
+    t->program_node = fs_lookup(0,path);
     t->cwd = parent ? parent->cwd : fs_lookup(0, "/home");
-    t->heap_end = USER_HEAP;
+    t->heap_end = t->abi == NV_ABI_VERSION ? NV_USER_HEAP : USER_HEAP;
     name_task(t, path);
     cpu_fp_reset(&t->fp);
     t->state = NV_READY;
@@ -183,11 +192,15 @@ int task_exec(const char *path, const char *args) {
      * PID, parent, children, working directory and open handles remain intact. */
     pte_t *old = current->pd;
     console_release(current->pid);
+    window_task_release(current->pid);
     net_task_release(current->pid);
+    account_task_release(current->pid);
     current->pd = staged.pd;
-    current->heap_end = USER_HEAP;
+    current->abi = staged.abi;
+    current->heap_end = staged.abi == NV_ABI_VERSION ? NV_USER_HEAP : USER_HEAP;
     *current->frame = frame;
     name_task(current, path);
+    current->program_node = fs_lookup(0,path);
     load_cr3((uptr)current->pd);
     vm_destroy(old);
     cpu_fp_reset(&current->fp);
@@ -204,10 +217,11 @@ NORETURN void task_start(int pid) {
     arch_resume(current->frame);
 }
 void task_tick(void) {
+    account_tick();
     if (current && current->state == NV_READY)
         ++current->cpu_ticks;
     for (u32 i = 0; i < NV_TASK_MAX; ++i)
-        if (tasks[i].state == NV_SLEEPING && (i32)(ticks - tasks[i].wake) >= 0)
+        if (tasks[i].state == NV_SLEEPING && ticks >= tasks[i].wake)
             tasks[i].state = NV_READY;
 }
 struct frame *schedule(struct frame *f) {
@@ -233,7 +247,9 @@ struct frame *schedule(struct frame *f) {
     }
 }
 static void finish(struct task *t, int status) {
+    account_task_release(t->pid);
     console_release(t->pid);
+    window_task_release(t->pid);
     net_task_release(t->pid);
     t->status = status;
     t->state = NV_ZOMBIE;
@@ -278,34 +294,39 @@ int task_stop(u32 pid) {
     finish(t, 143);
     return 0;
 }
-int task_grow(i32 delta) {
-    u32 old = current->heap_end;
-    if (!delta)
-        return (int)old;
+void task_end_session(u32 except) {
+    for (u32 i=0;i<NV_TASK_MAX;++i)
+        if (tasks[i].state && tasks[i].state!=NV_ZOMBIE &&
+            tasks[i].pid!=1 && tasks[i].pid!=except) finish(&tasks[i],143);
+    task_reap();
+}
+iptr task_grow(i64 delta) {
+    uptr old = current->heap_end;
+    uptr base = current->abi == NV_ABI_VERSION ? NV_USER_HEAP : USER_HEAP;
+    uptr limit = current->abi == NV_ABI_VERSION ? NV_USER_HEAP_END : USER_HEAP_END;
+    if (!delta) return (iptr)old;
     if (delta < 0) {
-        u32 n = 0u - (u32)delta;
-        if (n > (old - USER_HEAP) / PAGE)
-            return -NV_EINVAL;
-        u32 end = old - n * PAGE;
-        for (u32 va = end; va < old; va += PAGE)
-            vm_unmap(current->pd, va);
+        u64 count = 0ull - (u64)delta;
+        if (count > (old - base) / PAGE) return -NV_EINVAL;
+        uptr end = old - count * PAGE;
+        for (uptr va = end; va < old; va += PAGE) vm_unmap(current->pd, va);
         current->heap_end = end;
-        return (int)old;
+        return (iptr)old;
     }
-    if ((u32)delta > (USER_HEAP_END - old) / PAGE)
-        return -NV_ENOMEM;
-    u32 end = old + (u32)delta * PAGE;
-    for (u32 va = old; va < end; va += PAGE) {
+    if ((u64)delta > (limit - old) / PAGE) return -NV_ENOMEM;
+    /* Fail immediately when a request exceeds the current physical budget. */
+    if ((u64)delta > pages_free()) return -NV_ENOMEM;
+    uptr end = old + (u64)delta * PAGE;
+    for (uptr va = old; va < end; va += PAGE) {
         int r = vm_map(current->pd, va, P_WRITE);
         if (r < 0) {
-            for (u32 p = old; p <= va; p += PAGE)
-                vm_unmap(current->pd, p);
+            for (uptr p = old; p <= va; p += PAGE) vm_unmap(current->pd, p);
             return r;
         }
     }
     current->heap_end = end;
     load_cr3((uptr)current->pd);
-    return (int)old;
+    return (iptr)old;
 }
 u32 task_count(void) {
     u32 n = 0;

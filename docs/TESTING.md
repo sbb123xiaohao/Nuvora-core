@@ -1,6 +1,242 @@
 # 测试与复现
 
-## 0.10.0 当前结果
+## 0.15.0 当前结果
+
+生产/诊断 BIOS 与 UEFI 构建、GPT/FAT32 启动镜像和 UEFI ISO 已构建。
+**37 组**宿主回归通过，包括真实账户服务的空闲计时、有效输入重置、
+时间回绕、管理进程丢失、可信入口和权限检查；C 夹具使用 UBSan。
+UEFI 夹具新增规范 ACPI GUID、版本优先级、空表与高地址来源验证。
+
+QEMU **10.0.11 / TCG** 下，32、256、5120 MiB、碎片化 32 MiB 以及
+64 MiB `core2duo` 每轮 **144 项 Ring 3 断言**通过；每轮仍有 1 项
+SSE #XM 递交明确跳过。高地址原生 ABI 和旧 ABI 1 实际执行均保留。
+`max` 启用 SMEP；无 SMEP 的 `core2duo` 使用原有页保护继续执行。
+
+OVMF / q35、256 MiB、USB 键鼠下，完整桌面操作与账户专项通过；新增
+普通应用分别在管理员/普通会话执行 7/10 项真实内核权限断言。生产 USB
+介质故意加入 `nv.test=1` 仍显示认证流程；实际等待 1 分钟验证内核自动
+锁屏、错误密码拒绝和恢复。图形重启/关机验证默认 Cancel、账户/偏好
+持久保存及真实 ACPI 断电；生产 BIOS 恢复登录、重启与 ACPI 关机也通过。
+独立诊断内核通过可移动 GPT/FAT32 固件启动并完成 144 项自测。
+
+```sh
+make -j4 diagnostics esp media iso-uefi
+make test-host
+python3 tests/desktop_boot_test.py --machine q35 --keyboard usb
+python3 tests/account_boot_test.py --machine q35 --keyboard usb
+python3 tests/session_boot_test.py
+python3 tests/session_boot_test.py --iso build/x86_64/nuvora-core-0.15.0-x86_64-uefi.iso --boot-only
+python3 tests/uefi_media_boot_test.py
+python3 tests/account_console_boot_test.py
+```
+
+`make test` 显式构建并使用独立诊断内核；生产镜像不会因引导参数关闭认证。
+生产 ISO 回归使用真实账户/图形流程，不期待未登录的裸 shell。
+当前证据见 [verification/0.15.0](verification/0.15.0/RESULTS.md)。没有实体
+电脑接入，也未重跑所有历史网络、断电、BIOS ISO 或 ARM64 矩阵。
+
+## 0.14.0 历史结果
+
+`make -j6 all`、`make media iso-uefi` 和 **37 组** `make test-host` 通过。
+新增原生页表/ELF/用户复制/堆夹具，将真实物理页放在 4 GiB 以上，覆盖
+跨 4 GiB、PDPT/PML4、最高用户地址、只读/NX/共享 supervisor 隔离及
+分配回滚。xHCI/e1000 检查高地址环与 DMA 完成指针；UEFI 夹具覆盖
+10-bit GOP 掩码、非整页高地址、保留当前模式和 SetMode 失败回退。
+ACPI 电源夹具检查高地址 FADT/DSDT/GAS、校验和及静态 S5 的有界解析。
+
+QEMU **10.0.11 / TCG**：32、64、256、5120 MiB 以及碎片化 32 MiB
+配置下，每次 **144 项 Ring 3 断言**通过，退出码 33。新断言实际运行
+4 GiB 代码、高地址栈/堆、原生 syscall 和旧 ABI 1 ELF64 fixture。
+每轮 SSE #XM 递交仍明确 SKIP 1 项；不将它计作异常递交已验证。
+
+OVMF / q35，256 MiB、xHCI USB 键盘/Tablet、HDA 无声后端：完整桌面
+专项通过，包括 OOBE、数字键盘、原生终端/Folio/Media、未保存文档、
+窗口拖动/缩放/平铺、搜索/MRU/总览及实际 MPEG 解码和切换窗口。
+这是回归模拟环境；HDA 无声后端没有验证实体扬声器或耳机路由。
+
+GPT/FAT32 镜像作为可移动 USB 介质由 OVMF 启动，并完成 144 项原生/旧
+ABI 断言；未通过 `-kernel` 绕过固件加载。正常 BIOS 账户专项完成用户
+命令 `renew` 重启及 `rest` ACPI 关机，退出码 0，没有使用测试模式的
+固定虚拟关机端口。生产启动镜像不携带 `nv.test=1`。
+
+```sh
+make -j4 all media iso-uefi
+make test-host
+python3 tests/desktop_boot_test.py --machine q35 --keyboard usb
+python3 tests/uefi_media_boot_test.py
+python3 tests/account_console_boot_test.py
+```
+
+本轮证据保存在 [verification/0.14.0](verification/0.14.0/RESULTS.md)。
+没有实体机器接入，也未重跑所有历史网络、断电和 ARM64 矩阵。
+物理兼容范围与上机步骤见 [NATIVE64-HARDWARE](NATIVE64-HARDWARE.md)。
+
+## 0.13.1 历史结果
+
+`make -j4 all esp` 和 **35 组** `make test-host` 回归通过。
+新增账户回归在修复前的真实服务上失败：连续五次输错旧密码后，改密码
+仍接受新验证；空闲服务在 `0x80000001` tick 误报等待。修复后检查登录
+与改密共同限速、等待期间不启动作业、正确验证清除失败计数、计时器
+回绕、剩余 1 tick/到期边界，以及长时间未查询后的过期状态。
+
+QEMU 8.2.2 / SeaBIOS，64 MiB：掩码 OOBE、错误密码及保存后重启登录
+通过。OVMF 的 q35 + USB，256 MiB：OOBE、登录/锁屏、用户管理、未保存
+文本退出确认、普通账户、错误旧密码后重新输入、成功改密及重启拒绝
+旧密码/接受新密码，以及 Loom/桌面管理权交接通过。
+
+```sh
+make -j4 all esp
+make test-host
+python3 tests/account_boot_test.py --machine q35 --keyboard usb
+python3 tests/account_console_boot_test.py
+```
+
+本轮重跑账户专项与全部宿主回归，未重新执行上一版完整桌面、Ring 3
+及实体硬件矩阵。账户和数据卷格式保持兼容。
+
+## 0.13.0 历史结果
+
+`make -j4 all`、`make esp` 和 **35 组** `make test-host` 回归通过。
+新增 SHA-256 / RFC 4231 HMAC / PBKDF2 向量；账户夹具使用与 Python
+`hashlib` 独立核对的 600,000 轮结果，检查持久重载、密码修改、禁用、
+限速、最后管理员、别名路径/私有目录、锁屏交互权限及存储失败。账户
+界面在 640×480、1024×768、1280×800、1600×900 和 1920×1080 的 RGBX/
+BGRX 输出验证分块等价、缓冲边界、比例字宽、秘密清理及安全删除焦点；
+既有桌面夹具继续覆盖更大的分辨率。
+
+QEMU 8.2.2 / SeaBIOS，64 MiB：**140 项 Ring 3 断言**通过，退出码 33；
+TCG 不触发 SSE #XM 的一项检查明确 SKIP。账户在专用 `nv.test=1`
+回归启动中关闭，正常 BIOS/UEFI 启动启用。
+
+QEMU 8.2.2 / OVMF，256 MiB：pc + PS/2、q35 + USB 两条实际桌面路径
+通过原生窗口、键盘数字/运算符、未保存文档、搜索输入隔离、MRU/总览、
+鼠标拖动/缩放、键盘和拖动平铺、实际 MPEG 解码/暂停/窗口切换。
+测试从真实 OOBE 建立账户，再检查桌面。异步客户关闭后显式恢复终端
+焦点，拖动坐标从实际标题栏提取，避免使用旧字号下的固定坐标。
+
+q35 + USB 的账户专项实际完成 OOBE、错误密码、锁屏时禁止打开 Start、
+添加/禁用/启用用户、未保存文本取消/丢弃后退出、干净的新会话、普通
+账户修改密码、重启保留账户/拒绝旧密码/接受新密码，以及 Loom 返回
+桌面的管理权交接。正常 BIOS 文本模式另用 64 MiB 完成掩码密码设置、
+错误密码和重启登录，串口中没有测试密码明文。
+
+```sh
+make -j4 all esp
+make test-host
+python3 tests/account_boot_test.py --machine q35 --keyboard usb
+python3 tests/account_console_boot_test.py
+python3 tests/desktop_boot_test.py --machine pc --keyboard ps2 --output build/desktop-pc
+python3 tests/desktop_boot_test.py --machine q35 --keyboard usb --output build/desktop-q35
+```
+
+测试均使用独立数据镜像；实际截图已人工检查 OOBE、登录、账户管理、
+开始菜单、编辑器、拖动和视频。音频仍是无声虚拟后端，没有证明实体
+扬声器输出。图形仍是 GOP 软件合成，未实现 GPU 加速；字体仍为 ASCII，
+这轮没有新增实体机认证，也未重跑所有历史硬件矩阵。
+
+## 0.12.1 历史结果
+
+`make -j4 all`、`make esp` 和 **32 组** `make test-host` 回归通过。
+新增回归在修复前的真实 `kernel/console.c` 上失败：PS/2 小键盘 `+`、`-`
+没有产生输入事件。修复后检查 PS/2 与 USB 的 `-+*/`，覆盖 Num Lock
+开/关、Shift 按下/松开，确认按键释放不会重复输入，数字/导航切换仍正确。
+
+QEMU 8.2.2 / OVMF 实际启动 pc + PS/2、q35 + USB 两条 UEFI 桌面路径，
+均使用 256 MiB 和独立临时数据盘。在 Text Editor 中将主键区的 `-+*/`
+与小键盘输入逐像素对比：旧 0.12.0 的 PS/2 路径只显示 `*/`，对比失败；
+修复后两条路径均完全一致，串口无 panic/trap。复现命令：
+
+```sh
+make -j4 all
+make esp
+make test-host
+python3 tests/desktop_boot_test.py --machine pc --keyboard ps2 --keypad-only --output build/keypad-pc
+python3 tests/desktop_boot_test.py --machine q35 --keyboard usb --keypad-only --output build/keypad-q35
+```
+
+本轮修复内核输入解码，未重新运行下方完整桌面交互与历史 Ring 3 启动组合。
+
+## 0.12.0 历史结果
+
+`make -j4 all`、`make esp` 和 **32 组** `make test-host` 回归通过。
+新增搜索多词/空结果、稳定 MRU 与客户退出、平铺/恢复、预览布局夹具；
+实际 PS/2/USB 解码代码验证 Super、修饰键松开、多键盘合并和满队列释放。
+xHCI 的真实 Boot 报告处理另检查短包、按键重复、rollover 中的修饰键释放、
+Caps/Num Lock 不自动重复。合成器检查 RGBX 红蓝转换、预览/切换器的整屏与
+分块一致性和输入命中边界；C 夹具使用 UBSan。
+
+QEMU 8.2.2 / SeaBIOS 的 64 MiB 客户机完成 **140 项 Ring 3 断言**，
+退出码 33；TCG 不触发 SSE #XM 的一项检查在日志中明确 SKIP。
+
+OVMF 的 q35 + USB Boot 键盘、pc + PS/2 键盘两条实际 UEFI 桌面路径，
+均使用 256 MiB、USB Tablet、模拟 HDA 与临时 128 MiB 数据盘，检查：
+
+- 原生 Terminal/Media/Folio 并行、数字输入、未保存取消/丢弃、连续开关；
+- Super 打开 Start、应用多词搜索、空结果 Enter、全选替换，以及查询
+  输入没有写入终端；Escape 清空查询，再关闭菜单；
+- 按住 Alt 连续选择，松开提交、Esc 取消、正向/反向 MRU；
+- 窗口总览恢复最小化窗口、七个窗口翻页、鼠标选择已有窗口；
+- Win 方向键平铺/最大化/恢复，标题拖动与边缘缩放，从最大化拖回自由
+  窗口，贴边预览在释放后提交，恢复拖动前的位置和大小；
+- 等待真实 MPEG 彩色图像，检查暂停及切换到终端和 Files。
+
+测试的 QMP 使用 stdin/stdout 管道；各实例复制自己的 ESP 和 OVMF 变量，
+不会打开用户的数据镜像，也可同时运行。音频采用无声虚拟后端，不能证明
+扬声器可听见声音。截图是实际软件合成输出，已人工检查菜单、总览、
+切换器和平铺；没有用示意图片替代运行画面。
+
+Ubuntu 装好依赖、QEMU、OVMF、mtools 和 FFmpeg 后：
+
+```sh
+make -j4 all
+make esp
+make test-host
+python3 tests/desktop_boot_test.py --machine q35 --keyboard usb --output build/desktop-q35
+python3 tests/desktop_boot_test.py --machine pc --keyboard ps2 --output build/desktop-pc
+```
+
+PPM 截图和串口日志保存到输出目录。FFmpeg 只在宿主延长已提交的短视频
+测试片段。未验证实体机、Windows 宿主、长时间影音同步、GPU 加速、屏幕
+阅读器或显示器帧率；桌面仍为 ASCII 界面，本轮未重跑历史多 GiB 组合和
+全部故障注入。下方记录是历史结果。
+
+## 0.11.0 历史结果
+
+`make -j4 all`、`make esp` 与 `make test-host` 的 **30 组**通过。
+窗口夹具执行真实 `kernel/window.c`，检查整帧提交、跨页复制、配置序号、
+旧快照拒绝、分配失败回滚、所有者权限、按键/鼠标顺序、终端继承输入输出
+和进程清理。新增原生画面与字符窗口的整屏/分块绘制、裁剪和光标修复检查；
+C 夹具使用 UBSan。普通文件的程序读取另验证临时缓冲的内容、OOM 和 I/O 回滚。
+
+QEMU 8.2.2 / SeaBIOS 的 64 MiB 客户机完成 **140 项 Ring 3 断言**，
+包含成功/失败 exec、12 次替换回收、进程和内存隔离；TCG 不触发 SSE #XM
+的检查在日志中明确 SKIP。内核栈上下保护页与初始化异常三种故障注入均
+达到预期诊断和退出码。
+
+q35 与 pc 两种机型的 UEFI 桌面交互检查均通过，使用 OVMF、256 MiB、
+USB 键盘/Tablet、模拟 HDA 和独立
+128 MiB 数据盘，检查终端命令输入、Media/Folio 窗口、数字输入、未保存
+取消/丢弃、连续开关窗口、最小化、最大化、恢复、鼠标拖动和边缘缩放。
+视频检查等待实际 MPEG 彩色图像，再验证暂停及切换到终端、Files；
+不是仅检查播放器界面是否出现。测试使用无输出的虚拟音频后端，不能证明
+扬声器可听见声音。启动盘与数据盘均为临时副本，不打开用户现有数据镜像。
+
+Ubuntu 装好构建依赖、QEMU、OVMF、mtools 和 FFmpeg 后可复现：
+
+```sh
+make -j4 all
+make esp
+make test-host
+python3 tests/desktop_boot_test.py --machine q35 --output build/desktop-q35
+python3 tests/desktop_boot_test.py --machine pc --output build/desktop-pc
+```
+
+PPM 截图与串口日志保存在指定输出目录，供人工检查。FFmpeg 只在宿主延长
+已提交的半秒测试片段，测试素材不进入内核。尚未验证实体机、Windows
+宿主、长时间视频同步、GPU 加速或实际显示器帧率；本轮未重跑所有历史
+多 GiB 客户机组合。下方版本数字和旧环境限制为历史记录。
+
+## 0.10.0 历史结果
 
 本次窗口桌面增量：`make all` 和 `make test-host` 的 28 组宿主回归通过。
 桌面栅格夹具覆盖空桌面与窗口的 640×480、1024×768、1280×800、

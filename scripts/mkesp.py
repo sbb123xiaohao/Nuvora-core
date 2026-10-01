@@ -32,7 +32,10 @@ def main() -> None:
     # looking partial target and an existing ESP survives packaging errors.
     with tempfile.TemporaryDirectory(prefix='nuvora-esp-', dir=esp.parent) as directory:
         pending = pathlib.Path(directory) / 'esp.img'
-        subprocess.run(['mformat', '-i', str(pending), '-C', '-T', '32768', '-h', '16', '-s', '32'],
+        # A FAT32 ESP also works with PC firmware that rejects FAT16 system
+        # partitions on USB media. One-sector clusters fit the 64 MiB image.
+        subprocess.run(['mformat', '-i', str(pending), '-C', '-F', '-c', '1',
+                        '-T', '131072', '-h', '16', '-s', '32'],
                        check=True)
         def run(tool, *cmd):
             subprocess.run([tool, '-i', str(pending), *cmd], check=True)

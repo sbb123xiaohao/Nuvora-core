@@ -11,7 +11,7 @@ IDE/AHCI 仅在设备声明支持 FLUSH CACHE EXT 时使用扩展刷盘命令；
 否则使用普通 FLUSH CACHE，命令出错仍向提交方报告失败。
 仅选择 512 字节扇区、无 metadata 和保护信息的 NVM namespace。控制器
 使用轮询管理队列和一个 I/O 队列；
-IDENTIFY、读、写和 Flush 在 4 GiB 以下的独立 DMA 页上执行。
+IDENTIFY、读、写和 Flush 使用带 64 位 PRP 的独立 DMA 页。
 当前一次只处理一个 512 字节扇区，命令超时或出错后停用该 namespace。
 AHCI 在命令完成后还检查任务文件错误和 DMA 的实际字节数；不足 512
 字节的传输会报告 I/O 错误并停用该端口，不交付部分读取的数据。
@@ -38,7 +38,7 @@ ATA/AHCI 驱动拒绝 4Kn 逻辑扇区盘，允许 512e；当前没有 4Kn 写�
 ## 鼠标
 
 xHCI 按控制器能力读取最多 255 个根端口与 1023 个暂存缓冲区，超过 512 个
-暂存指针时使用连续两页的低于 4 GiB 的 DMA 表；不能完整分配则不启动该控制器。
+暂存指针时使用连续两页 DMA 表；AC64 控制器可使用高地址，否则限制在 4 GiB 以下。不能完整分配则不启动该控制器。
 支持协议扩展能力中的端口区间按实际端口数检查。控制器停止失败后隔离已交给
 设备的页，避免作为普通内存重新分配。
 
@@ -56,7 +56,7 @@ QEMU 图形窗口使用 USB Tablet 的六字节绝对坐标报告，避免宿主
 x86-64 枚举 PCI class 04:03 的 Intel High Definition Audio 控制器，从
 `STATESTS` 找到 codec，沿模拟输出 pin 的连接列表寻找支持 48 kHz
 双声道 16-bit PCM 的 DAC。驱动设置 pin、转换器、必要的功放/电源状态，
-用两个 HDA BDL 项和 4 GiB 以下 DMA 页播放交错 PCM。数据先从用户地址
+用两个 HDA BDL 项播放交错 PCM；GCAP 声明 64 位 DMA 时可用高地址，否则使用 4 GiB 以下页。数据先从用户地址
 复制进内核 DMA 缓冲，应用不能访问 MMIO 或 DMA 页。
 
 当前版本用 HDA 的可选 immediate-command 通道，固件/控制器不支持时

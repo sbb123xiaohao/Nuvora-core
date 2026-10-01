@@ -58,6 +58,59 @@ static efi_status MSABI mock_pages(u32 kind, u32 type, uptr pages, u64 *address)
     assert(p == (void *)(uptr)*address);
     return EFI_SUCCESS;
 }
+static struct efi_gop_mode_info gop_modes[3];
+static u32 queries, sets, rejected_mode = 3;
+static efi_status MSABI mock_query(struct efi_gop *g,u32 index,uptr *n,
+                                  struct efi_gop_mode_info **out) {
+    (void)g; assert(index<3); ++queries; *n=sizeof(**out);
+    *out=malloc(*n); assert(*out); **out=gop_modes[index]; return EFI_SUCCESS;
+}
+static efi_status MSABI mock_set(struct efi_gop *g,u32 index) {
+    ++sets;
+    if (index==rejected_mode) return EFI_DEVICE_ERROR;
+    g->mode->mode=index; g->mode->info=&gop_modes[index]; return EFI_SUCCESS;
+}
+static void check_gop(struct efi_boot_services *bs) {
+    gop_modes[0]=(struct efi_gop_mode_info){.horizontal=800,.vertical=600,
+        .pixels_per_scanline=800,.pixel_format=1};
+    gop_modes[1]=(struct efi_gop_mode_info){.horizontal=640,.vertical=480,
+        .pixels_per_scanline=640,.pixel_format=2,
+        .pixel_information={0x3ff00000u,0x000ffc00u,0x000003ffu,0xc0000000u}};
+    gop_modes[2]=(struct efi_gop_mode_info){.horizontal=640,.vertical=480,
+        .pixels_per_scanline=640,.pixel_format=3};
+    struct efi_gop_mode mode={.max_mode=3,.mode=2,.info=&gop_modes[2],
+        .framebuffer_base=0x200000003ull,.framebuffer_size=800*600*4};
+    struct efi_gop gop={.mode=&mode,.query_mode=mock_query,.set_mode=mock_set};
+    select_framebuffer(bs,&gop);
+    assert(queries==3 && sets==1 && mode.mode==1 && bi.fb.format==NV_FB_BITMASK);
+    assert(bi.fb.address==0x200000003ull && bi.fb.masks[0]==0x3ff00000u);
+    select_framebuffer(bs,&gop); assert(queries==3 && sets==1); /* Keep a usable active mode. */
+    mode.info=&gop_modes[2]; rejected_mode=1; sets=0;
+    select_framebuffer(bs,&gop); assert(sets==2 && mode.mode==0 && bi.fb.width==800);
+    gop_modes[1].pixel_information[1]=gop_modes[1].pixel_information[0];
+    mode.info=&gop_modes[1]; fill_framebuffer(&gop); assert(!bi.fb.format);
+    mode.info=&gop_modes[0]; mode.framebuffer_base=(1ull<<52)-16;
+    fill_framebuffer(&gop); assert(!bi.fb.format);
+    fill_framebuffer(NULL); assert(!bi.fb.format);
+}
+
+static void check_acpi_tables(void) {
+    /* Literal UEFI specification GUIDs catch an incorrect discovery constant. */
+    struct efi_config_table tables[] = {
+        {{0xeb9d2d30,0x2d88,0x11d3,{0x9a,0x16,0x00,0x90,0x27,0x3f,0xc1,0x4d}},
+         (void *)(uptr)0x12340000ull},
+        {{0x8868e871,0xe4f1,0x11d3,{0xbc,0x22,0x00,0x80,0xc7,0x3c,0x88,0x81}},
+         (void *)(uptr)0x100002000ull}
+    };
+    struct efi_system_table st={.number_of_table_entries=1,.configuration_table=tables};
+    assert(find_rsdp(&st)==0x12340000ull);
+    st.number_of_table_entries=2;
+    assert(find_rsdp(&st)==0x100002000ull); /* Prefer ACPI 2 even after ACPI 1. */
+    tables[1].vendor_table=NULL;
+    assert(find_rsdp(&st)==0x12340000ull);
+    tables[0].vendor_table=NULL;
+    assert(!find_rsdp(&st));
+}
 
 int main(int argc, char **argv) {
     assert(argc == 2);
@@ -68,6 +121,8 @@ int main(int argc, char **argv) {
     early_console = NULL;
     struct efi_boot_services bs = {.allocate_pool = mock_pool, .free_pool = mock_free,
                                    .allocate_pages = mock_pages};
+    check_gop(&bs);
+    check_acpi_tables();
     struct efi_sfs volume = {.open_volume = mock_volume};
     root_file = (struct efi_file){.open = mock_open, .close = mock_close};
     input_file = (struct efi_file){.close = mock_close, .read = mock_read,
@@ -141,6 +196,6 @@ int main(int argc, char **argv) {
     }
     assert(!munmap((void *)(uptr)kernel_first, mapped_length));
     free(elf);
-    puts("PASS UEFI: partial reads/rewind, memory-map replacement, malformed ELF, page ownership, segment copy/BSS");
+    puts("PASS UEFI: ACPI GUID/preference/high address, partial reads/rewind, memory-map replacement, malformed ELF, page ownership, segment copy/BSS");
     return 0;
 }

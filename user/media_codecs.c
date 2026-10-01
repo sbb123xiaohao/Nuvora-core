@@ -5,12 +5,12 @@ int abs(int n) { return n < 0 ? -n : n; }
 /* The process owns these pages until exit. pl_mpeg frees individual buffers,
  * but its small allocation count makes page-granular reclamation unnecessary. */
 static void *media_alloc(size_t bytes) {
-    if (bytes > 0x7fffffffu - sizeof(size_t) - NV_PAGE) {
+    if (bytes > (size_t)-1 - sizeof(size_t) - (NV_PAGE - 1)) {
         println("Media: decoder allocation exceeds the address space.");
         finish(1);
     }
-    u32 pages = (u32)(bytes + sizeof(size_t) + NV_PAGE - 1) / NV_PAGE;
-    u8 *block = grow((i32)MAX(1u, pages));
+    usize pages = (bytes + sizeof(size_t) + NV_PAGE - 1) / NV_PAGE;
+    u8 *block = grow((i64)MAX((usize)1, pages));
     if ((iptr)block < 0) {
         println("Media: insufficient memory for decoding.");
         finish(1);

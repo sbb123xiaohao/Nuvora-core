@@ -4,15 +4,18 @@
 #include "hardware.h"
 #include "network.h"
 #include "net_tools.h"
+#ifndef NV_WINDOW_TERMINAL
+#include "account_console.h"
+#endif
 static bool terminal_session;
 static void status(void) {
-    struct nv_info i;
-    if (info(&i) < 0)
+    struct nv_info64 i;
+    if (info64(&i) < 0)
         return;
     print("RAM managed: ");
-    print_u32(i.ram_pages * 4);
+    print_u64(i.ram_pages * 4);
     print(" KiB; free: ");
-    print_u32(i.free_pages * 4);
+    print_u64(i.free_pages * 4);
     println(" KiB");
     print("Kernel heap: ");
     print_u32(i.heap_used);
@@ -24,7 +27,7 @@ static void status(void) {
     print("; filesystem nodes: ");
     print_u32(i.nodes);
     print("; uptime: ");
-    print_u32(i.ticks / i.hz);
+    print_u64(i.ticks / i.hz);
     println(" s");
     if (i.disk_present) {
         print("Data disk ready; committed generation: ");
@@ -93,8 +96,8 @@ static void process_list(void) {
     println("PID  PARENT  STATE  TICKS  PAGES  PROGRAM");
     static const char *const state[] = {"unused", "ready", "sleep", "wait", "done"};
     for (u32 n = 0; n < NV_TASK_MAX; ++n) {
-        struct nv_taskinfo t;
-        if (task_at(n, &t) <= 0)
+        struct nv_taskinfo64 t;
+        if (task_at64(n, &t) <= 0)
             continue;
         print_u32(t.pid);
         print("  ");
@@ -102,9 +105,9 @@ static void process_list(void) {
         print("  ");
         print(state[t.state]);
         print("  ");
-        print_u32(t.cpu_ticks);
+        print_u64(t.cpu_ticks);
         print("  ");
-        print_u32(t.pages);
+        print_u64(t.pages);
         print("  ");
         println(t.name);
     }
@@ -299,7 +302,7 @@ static int dispatch(int n, char **v) {
         return r;
     }
     if (!strcmp(cmd, "tempo") && n == 1) {
-        print_u32(clock_ticks());
+        print_u64(clock_ticks());
         println(" ticks @ 100 Hz");
         return 0;
     }
@@ -328,19 +331,41 @@ static int dispatch(int n, char **v) {
 int user_main(const char *args) {
     if (app_help("loom", args))
         return 0;
-    if (*args && strcmp(args, "--terminal")) {
-        println("Usage: loom [--terminal]");
+    bool recovery=!strcmp(args,"--recovery");
+    if (*args && strcmp(args, "--terminal") && !recovery) {
+        println("Usage: loom [--terminal | --recovery]");
         return 1;
     }
-    terminal_session = *args != 0;
+    terminal_session = *args != 0 && !recovery;
+#ifdef NV_WINDOW_TERMINAL
+    struct nv_display_info terminal_mode;
+    int opened = nv_display_info(&terminal_mode);
+    if (opened < 0) return 1;
+    struct nv_window_create terminal = {.width = MIN(960u, terminal_mode.width - 40),
+        .height = MIN(650u, terminal_mode.height - 100)};
+    strlcpy(terminal.title, "Terminal", sizeof(terminal.title));
+    opened = nv_window_create(&terminal);
+    if (opened < 0) return 1;
+    struct nv_window_id binding = {terminal.id};
+    opened = nv_window_call(NV_WINDOW_BIND_STDIO, &binding);
+    if (opened < 0) { nv_window_destroy(terminal.id); return 1; }
+    terminal_session = true;
+#endif
     struct nv_display_info display;
-    if (!terminal_session && nv_display_info(&display) == 0) {
+    if (!terminal_session && !recovery && nv_display_info(&display) == 0) {
         int pid = spawn("/apps/desktop", "");
         if (pid > 0) {
             int r = wait_task(pid);
             if (r < 0) report_error("Desktop", r);
         } else report_error("Desktop", pid);
     }
+#ifndef NV_WINDOW_TERMINAL
+    if (!terminal_session) {
+        if (recovery) println("Nuvora recovery console / local sign-in required");
+        int r=console_account_gate();
+        if (r<0) { report_error("Accounts",r);for (;;) nap(1000); }
+    }
+#endif
     println("Loom / Nuvora command environment");
     println("Type help for all commands; NAME --help explains one command.");
     char line[512], cwd[NV_PATH_MAX];
@@ -353,6 +378,9 @@ int user_main(const char *args) {
         print(" :: ");
         int n = read_line(line, sizeof(line));
         if (n < 0) {
+#ifdef NV_WINDOW_TERMINAL
+            if (n == -NV_EIO || n == -NV_ENODEV) { nv_window_destroy(terminal.id); return 0; }
+#endif
             report_error("Input discarded", n);
             continue;
         }

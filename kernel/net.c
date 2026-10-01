@@ -6,22 +6,26 @@ static struct nv_net_info adapters[NV_NET_MAX];
 static u32 count, active = NV_NET_MAX, wired = NV_NET_MAX, usb_index = NV_NET_MAX;
 enum { WIRED_NONE, WIRED_IGC, WIRED_E1000 };
 static u32 wired_driver;
-static u32 last_dhcp, dhcp_xid;
+static u64 last_dhcp;
+static u32 dhcp_xid;
 static u8 lease_state; /* 0 idle; 1 discover; 2 request */
 static u32 offered, server;
 static struct nv_net_udp inbox;
 static bool inbox_full, polling;
 static u8 frame[1514];
 static u8 peer_mac[6];
-static u32 peer_ip, peer_valid_until;
+static u32 peer_ip;
+static u64 peer_valid_until;
 static struct {
-    u32 address, identifier, sequence, started, ttl, bytes;
+    u32 address, identifier, sequence, ttl, bytes;
+    u64 started;
     bool pending, replied;
 } echo_probe;
 enum { TCP_IDLE, TCP_SYN_SENT, TCP_ESTABLISHED, TCP_ERROR };
 static struct {
     u32 owner, index, address, source_ip, next_tx, acked_tx, next_rx;
-    u32 last_send, attempts, queued, used;
+    u64 last_send;
+    u32 attempts, queued, used;
     u16 local_port, remote_port;
     u8 state, buffer[NV_NET_DATA_MAX], outgoing[NV_NET_DATA_MAX];
     bool eof;
@@ -211,7 +215,7 @@ static int udp_raw(const u8 *mac, u32 src, u32 dest, u16 source_port, u16 dest_p
 static int echo_request(u32 address, u32 identifier, u32 sequence) {
     u32 next = route(address);
     if (!next) return -NV_ENODEV;
-    if (peer_ip != next || (i32)(ticks - peer_valid_until) >= 0) {
+    if (peer_ip != next || ticks >= peer_valid_until) {
         arp_request(next);
         return -NV_EAGAIN;
     }
@@ -228,7 +232,7 @@ static int tcp_packet(u32 sequence, u8 flags, const u8 *body, u32 length) {
         adapters[active].ip != stream.source_ip) return -NV_ENODEV;
     u32 next = route(stream.address);
     if (!next) return -NV_ENODEV;
-    if (peer_ip != next || (i32)(ticks - peer_valid_until) >= 0) {
+    if (peer_ip != next || ticks >= peer_valid_until) {
         arp_request(next);
         return -NV_EAGAIN;
     }
@@ -445,7 +449,7 @@ static void input_ipv4(const u8 *p, u32 size) {
     } else if (p[9] == 1 && n->ip && bytes >= 8 && data[0] == 8 &&
                checksum(data, bytes) == 0) {
         u32 next = route(src);
-        if (!next || peer_ip != next || (i32)(ticks - peer_valid_until) >= 0) {
+        if (!next || peer_ip != next || ticks >= peer_valid_until) {
             arp_request(next); return;
         }
         u8 echo[1480];
@@ -490,7 +494,7 @@ void net_poll(void) {
 void net_task_release(u32 pid) {
     if (stream.state != TCP_IDLE && stream.owner == pid) stream.state = TCP_IDLE;
 }
-int net_ioctl(u32 op, u32 pointer) {
+int net_ioctl(u32 op, uptr pointer) {
     if (op >= NV_NET_TCP_OPEN && op <= NV_NET_TCP_CLOSE) {
         if (!user_range(current->pd, pointer, sizeof(struct nv_net_tcp),
                         op == NV_NET_TCP_OPEN || op == NV_NET_TCP_RECV)) return -NV_EFAULT;
@@ -671,7 +675,7 @@ int net_ioctl(u32 op, u32 pointer) {
             !item.address || item.length > NV_NET_DATA_MAX) return -NV_EINVAL;
         u32 next = route(item.address);
         if (!next) return -NV_ENODEV;
-        if (peer_ip != next || (i32)(ticks - peer_valid_until) >= 0) {
+        if (peer_ip != next || ticks >= peer_valid_until) {
             arp_request(next);
             return -NV_EAGAIN;
         }

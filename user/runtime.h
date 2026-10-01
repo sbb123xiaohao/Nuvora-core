@@ -2,7 +2,7 @@
 #define NV_RUNTIME_H
 #include <nv/sdk.h>
 #include <nv/string.h>
-static inline int call(u32 op, u32 a, u32 b, u32 c) {
+static inline iptr call(u32 op, uptr a, uptr b, uptr c) {
     return nv_syscall(op, a, b, c);
 }
 static inline int emit(int fd, const void *p, u32 n) {
@@ -17,8 +17,10 @@ static inline int open_file(const char *p, u32 flags) {
 static inline int close_file(int fd) {
     return call(NV_CLOSE, (u32)fd, 0, 0);
 }
-static inline int seek_file(int fd, i32 off, u32 origin) {
-    return call(NV_SEEK, (u32)fd, (u32)off, origin);
+static inline iptr seek_file(int fd, i64 off, u32 origin) {
+    struct nv_seek64 io = {.offset=off, .origin=origin};
+    int r = call(NV_SEEK64, (u32)fd, (uptr)&io, 0);
+    return r < 0 ? r : (iptr)io.position;
 }
 static inline int seek_file64(int fd, i64 off, u32 origin, u64 *position) {
     struct nv_seek64 io = {.offset = off, .origin = origin};
@@ -59,6 +61,15 @@ static inline int platform_info(struct nv_platform_info *out) {
 static inline int devctl(u32 subsystem, u32 op, void *request) {
     return call(NV_DEVCTL, subsystem, op, (uptr)request);
 }
+static inline int account_call(u32 op,void *request) {
+    return devctl(NV_SUB_ACCOUNT,op,request);
+}
+static inline void default_home_file(char out[NV_PATH_MAX],const char *name) {
+    struct nv_account_info account;
+    const char *home=account_call(NV_ACCOUNT_INFO,&account)==0 && *account.home?account.home:"/home";
+    u32 n=strlcpy(out,home,NV_PATH_MAX);out[n++]='/';out[n]=0;
+    strlcpy(out+n,name,NV_PATH_MAX-n);
+}
 static inline int volume_info(u32 index, struct nv_volume_info *out) {
     return call(NV_VOLUME, index, (uptr)out, 0);
 }
@@ -77,8 +88,8 @@ static inline int gpu_prepare_bar(u32 index, u32 bar, struct nv_gpu_map_bar_res 
 static inline int replace_file(const char *from, const char *to) {
     return call(NV_REPLACE, (uptr)from, (uptr)to, 0);
 }
-static inline int list_dir(const char *p, u32 i, struct nv_dirent *e) {
-    return call(NV_LIST, (uptr)p, i, (uptr)e);
+static inline int list_dir(const char *p, u32 i, struct nv_dirent64 *e) {
+    return call(NV_LIST64, (uptr)p, i, (uptr)e);
 }
 static inline int mkdir_path(const char *p) {
     return call(NV_MKDIR, (uptr)p, 0, 0);
@@ -114,17 +125,23 @@ static inline int nap(u32 ms) {
 static inline int yield(void) {
     return call(NV_YIELD, 0, 0, 0);
 }
-static inline void *grow(i32 pages) {
-    return (void *)(iptr)call(NV_GROW, (u32)pages, 0, 0);
+static inline void *grow(i64 pages) {
+    return (void *)(iptr)call(NV_GROW, (uptr)pages, 0, 0);
 }
 static inline int info(struct nv_info *p) {
     return call(NV_INFO, (uptr)p, 0, 0);
 }
+static inline int info64(struct nv_info64 *p) {
+    return call(NV_INFO64, (uptr)p, 0, 0);
+}
+static inline int task_at64(u32 i, struct nv_taskinfo64 *p) {
+    return call(NV_TASK64, i, (uptr)p, 0);
+}
 static inline int task_at(u32 i, struct nv_taskinfo *p) {
     return call(NV_TASK, i, (uptr)p, 0);
 }
-static inline u32 clock_ticks(void) {
-    return (u32)call(NV_CLOCK, 0, 0, 0);
+static inline u64 clock_ticks(void) {
+    return (u64)call(NV_CLOCK64, 0, 0, 0);
 }
 static inline int control(u32 op, u32 arg) {
     return call(NV_CONTROL, op, arg, 0);

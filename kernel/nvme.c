@@ -2,7 +2,7 @@
 /* NVMe PCI transport, one active controller and 512-byte NVM namespace. Poll one
  * command at a time; data crosses a private DMA page, never an arbitrary
  * kernel/user address. See NVM Express 1.0e, sections 3, 4, 5 and 6. */
-#define NVME_DMA_LIMIT 0x100000000ull
+#define NVME_DMA_LIMIT (~0ull)
 #define NVME_DEPTH 16u
 #define NVME_POLLS 50000000u
 #define NVME_LAST_NSID 0xfffffffeu
@@ -167,7 +167,7 @@ static void nvme_discover(u32 address, u32 id, u32 class_code) {
     if ((bar & 1u) || ((bar & 6u) != 0 && (bar & 6u) != 4u)) return;
     u64 physical = bar & ~15u;
     if ((bar & 6u) == 4u) physical |= (u64)pci_read(address, 0x14) << 32;
-    if (!physical || (physical & (PAGE - 1)) || physical >> 52) return;
+    if (!physical || (physical & 15u) || physical >> 52) return;
     nvme.regs = vm_mmio_map(physical, 2 * PAGE);
     if (nvme.regs) nvme.pci = address;
 }

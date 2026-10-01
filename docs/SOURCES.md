@@ -47,3 +47,23 @@ GRUB 是唯一随 ISO 提供的第三方引导组件，其来源、许可证及�
 
 - [UEFI 2.10 Boot Services](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html)：服务表顺序、AllocatePages 的内存所有权、GetMemoryMap 与 ExitBootServices 的 MapKey 重试规则。
 - 本轮没有修改、编译或链接 Linux 核心。外层原附 Linux 压缩包随修复包保留；上文“未打包其中实现”描述的是 Nuvora 子项目及其二进制，外层参考材料不属于 Nuvora 构建输入。
+
+## 0.11.0 桌面窗口参考
+
+用户提供的 `mutter-main.zip`（Mutter 51.0 开发树，GPL-2.0-or-later）：
+读取 `doc/code-overview.md`、`src/wayland/meta-wayland-surface.c` 的 damage
+裁剪与提交关系、`meta-wayland-xdg-shell.c` 的配置序号、窗口焦点代码，以及
+`src/compositor/meta-surface-actor.c` 的重绘调度。Nuvora 据此划分桌面合成、
+应用画面与输入路由，窗口 ABI、缓冲和绘制代码在本项目独立编写；
+Mutter 源码未复制、编译、链接或打包。当前协议不兼容 Wayland/X11，
+也没有引入 GLib、Clutter、Cogl、KMS 或 EGL。
+
+## 0.12.0 桌面交互参考
+
+用户提供的 `gnome-shell-main.zip`（`meson.build` 标记为 51.0，
+GPL-2.0-or-later）：对照 `js/ui/overview.js` 的模态输入抓取、
+`js/ui/altTab.js` 的最近使用窗口列表及反向切换，以及
+`js/ui/search.js` 的查询更新、空结果与应用激活流程。
+Nuvora 使用自己的窗口协议、应用表和软件合成器独立实现这些操作；
+GNOME Shell 源码未复制、编译、链接或打包，也未引入 GJS/Mutter 运行时。
+当前搜索只覆盖本项目注册的应用，不查询文件内容或互联网。

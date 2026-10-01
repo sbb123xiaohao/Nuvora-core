@@ -7,13 +7,15 @@
 #define PAGE 4096u
 static u8 dma[40][PAGE];
 static u32 registers[0x20000u / 4u], pages, pci_command, received, received_size;
-static u32 ticks;
+static u64 ticks;
+static const uptr dma_base = 0x100000000ull;
 static uptr page_alloc_below(u64 limit) {
-    assert(limit == 0x100000000ull && pages + 1 < 40);
-    ++pages; memset(dma[pages], 0, PAGE); return pages * PAGE;
+    assert(limit == ~0ull && pages + 1 < 40);
+    ++pages; memset(dma[pages], 0, PAGE); return dma_base + pages * PAGE;
 }
-static void page_free(uptr page) { assert(page / PAGE <= pages); }
+static void page_free(uptr page) { assert((page - dma_base) / PAGE <= pages); }
 static void *phys_ptr(uptr address) {
+    assert(address > dma_base); address -= dma_base;
     assert(address && address / PAGE <= pages);
     return dma[address / PAGE] + address % PAGE;
 }
@@ -52,9 +54,11 @@ int main(void) {
     assert(mac[0] == 2 && mac[1] == 1 && mac[5] == 5);
     assert((pci_command & 6u) == 6u && rx[0].address == rx_buf[0]);
     assert(registers[RDLEN / 4] == 16 * E1000_RING);
+    assert(registers[RDBAH / 4] == 1 && registers[TDBAH / 4] == 1);
     u8 frame[60] = {0x42};
     assert(!net_e1000_send(frame, sizeof(frame)) && tx[0].length == sizeof(frame));
     assert(tx[0].command == 0x0b && tx[0].status == 1);
+    assert(tx[0].address > 0xffffffffull && rx[0].address > 0xffffffffull);
     memcpy(phys_ptr(rx_buf[0]), frame, sizeof(frame));
     rx[0].length = sizeof(frame); rx[0].status = 3;
     net_e1000_poll(receive_frame);
@@ -62,5 +66,5 @@ int main(void) {
     assert(rx[0].status == 0 && registers[RDT / 4] == 0);
     registers[STATUS / 4] = 0;
     assert(net_e1000_send(frame, sizeof(frame)) == -NV_ENODEV);
-    puts("PASS e1000: BAR/MAC, DMA ring setup, TX completion, RX recycle and link loss");
+    puts("PASS e1000: BAR/MAC, DMA above 4 GiB, TX completion, RX recycle and link loss");
 }

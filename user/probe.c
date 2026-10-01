@@ -1,4 +1,5 @@
 #include "runtime.h"
+#include <nv/address.h>
 static u32 passed, failed;
 static void check(bool ok, const char *what) {
     print(ok ? "PASS " : "FAIL ");
@@ -31,7 +32,19 @@ static void abi_tests(void) {
                      : "0"(NV_INFO), "b"(0x100000000ull + (uptr)&s), "c"(0u), "d"(0u)
                      : "memory", "cc");
     check(sizeof(void *) == 8 && wide_result == -NV_EINVAL,
-          "64-bit code and high ABI bits checked");
+          "legacy ABI rejects high pointer bits");
+    struct nv_info64 full;
+    check((uptr)&full > 0xffffffffull && (uptr)abi_tests >= NV_USER_IMAGE &&
+              info64(&full) == 0 && full.abi == NV_ABI_VERSION &&
+              full.ticks <= clock_ticks(),
+          "native syscall uses high image and stack addresses");
+    check(call(NV_EMIT, 0x100000001ull, (uptr)"x", 1) == -NV_EINVAL,
+          "native descriptor high bits cannot alias a valid descriptor");
+    check(call(NV_INFO64, NV_USER_END - 1, 0, 0) == -NV_EFAULT,
+          "native output cannot cross the canonical user boundary");
+    int compat = spawn("/apps/abi1", "");
+    check(compat > 0 && wait_task(compat) == 0,
+          "legacy ELF64, INFO, signed GROW and EXIT run on the native kernel");
     check(open_file("/apps/pulse", NV_WRITE) == -NV_EACCESS, "embedded programs read-only");
     check(open_file("/apps/pulse", NV_READ | NV_TRUNC) == -NV_EINVAL,
           "truncation requires write access");
@@ -118,7 +131,7 @@ static void filesystem_tests(void) {
     check(remove_path("sub") == -NV_ENOTEMPTY, "nonempty directory removal rejected");
     check(remove_path(".") == -NV_EBUSY, "active working directory protected");
     check(open_file("note/", NV_READ) == -NV_ENOTDIR, "trailing slash requires directory");
-    struct nv_dirent ent;
+    struct nv_dirent64 ent;
     check(list_dir("sub", 0, &ent) == 1 && !strcmp(ent.name, "moved") && ent.kind == NV_FILE,
           "directory enumeration");
     check(list_dir("sub", 1, &ent) == 0, "directory enumeration end");
@@ -160,8 +173,8 @@ static void memory_tests(void) {
     struct nv_info before, after;
     info(&before);
     u8 *p = grow(2);
-    check((i32)(uptr)p > 0, "allocate user heap pages");
-    if ((i32)(uptr)p < 0)
+    check((iptr)p > 0 && (uptr)p >= NV_USER_HEAP, "allocate user heap above 4 GiB");
+    if ((iptr)p < 0)
         return;
     bool zero = true;
     for (u32 i = 0; i < 2 * NV_PAGE; ++i)
@@ -171,15 +184,16 @@ static void memory_tests(void) {
     p[0] = 0x5a;
     p[2 * NV_PAGE - 1] = 0xa5;
     check(p[0] == 0x5a && p[2 * NV_PAGE - 1] == 0xa5, "user heap read/write");
-    check((i32)(uptr)grow(-1) > 0, "shrink user heap");
+    check((iptr)grow(-1) > 0, "shrink user heap");
     int fd = open_file("/dev/zero", NV_READ);
     p[NV_PAGE - 1] = 0x5a;
     check(take(fd, p + NV_PAGE - 1, 2) == -NV_EFAULT && p[NV_PAGE - 1] == 0x5a,
           "cross-page output validation is complete");
     close_file(fd);
-    check(call(NV_GROW, 0x80000000u, 0, 0) == -NV_EINVAL, "heap shrink overflow rejected");
-    check(call(NV_GROW, 131073, 0, 0) == -NV_ENOMEM, "per-process heap bound");
-    check((iptr)grow(131073) == -NV_ENOMEM, "native pointer wrapper preserves allocation errors");
+    check(call(NV_GROW, 1ull << 63, 0, 0) == -NV_EINVAL, "heap shrink overflow rejected");
+    i64 beyond_heap = (NV_USER_HEAP_END - NV_USER_HEAP) / NV_PAGE + 1;
+    check(call(NV_GROW, (uptr)beyond_heap, 0, 0) == -NV_ENOMEM, "native heap virtual bound");
+    check((iptr)grow(beyond_heap) == -NV_ENOMEM, "native pointer wrapper preserves allocation errors");
     int pid = spawn("/apps/fault", "peer");
     check(pid > 0 && wait_task(pid) == 142, "separate process address spaces");
     settle();
@@ -208,7 +222,8 @@ static void memory_tests(void) {
     static const u32 lengths[] = {1, 511, 512, 513, 1023, 2048};
     bool contents = true, reclaimed = true;
     for (u32 round = 0; round < 2 * ARRAY_LEN(lengths); ++round) {
-        u32 count = lengths[round % ARRAY_LEN(lengths)];
+        u32 count = MIN(lengths[round % ARRAY_LEN(lengths)],
+                        before.free_pages > 32 ? before.free_pages - 32 : 0);
         u8 *span = grow((i32)count);
         if ((iptr)span < 0) {
             contents = false;
@@ -251,7 +266,7 @@ static void process_tests(void) {
     pid = spawn("/apps/fault", "kernel-heap");
     check(pid > 0 && wait_task(pid) == 142, "kernel heap mapping is supervisor-only");
     int a = spawn("/apps/spin", ""), b = spawn("/apps/spin", "");
-    u32 start = clock_ticks();
+    u64 start = clock_ticks();
     nap(350);
     u32 at = 0, bt = 0;
     for (u32 i = 0; i < NV_TASK_MAX; ++i) {
@@ -425,9 +440,9 @@ static void exec_tests(void) {
           "missing exec keeps the calling program alive");
     check(copy_file("/apps/pulse", "/tmp/exec-bad") == 0, "prepare exec rollback fixture");
     int fd = open_file("/tmp/exec-bad", NV_WRITE);
-    u32 entry = 0x100000;
+    u64 entry = 0x100000;
     seek_file(fd, 24, 0);
-    emit(fd, &entry, 4);
+    emit(fd, &entry, sizeof(entry));
     close_file(fd);
     struct nv_info before, after;
     info(&before);
@@ -555,9 +570,43 @@ static void restored_growth_tests(void) {
     check(after.heap_used == before.heap_used && after.free_pages == before.free_pages,
           "removing the grown file returns its metadata and data page");
 }
+static int session_security_tests(void) {
+    struct nv_account_info account={0};
+    check(account_call(NV_ACCOUNT_INFO,&account)==0 && account.uid!=NV_UID_NONE &&
+        (account.flags&NV_AUTH_SIGNED_IN) && !(account.flags&NV_AUTH_LOCKED),"authenticated session identity");
+    int r=account_call(NV_ACCOUNT_CLAIM,NULL);
+    check(r==-NV_EACCESS || r==-NV_EBUSY,"application cannot claim login authority");
+    struct nv_account_request request={0};
+    check(account_call(NV_ACCOUNT_UPDATE,&request)==-NV_EACCESS,"application cannot edit account roles");
+    check(account_call(NV_ACCOUNT_LOGOUT,NULL)==-NV_EACCESS,"application cannot end the session");
+    check(account_call(NV_ACCOUNT_LOCK,NULL)==-NV_EACCESS,"application cannot own the lock screen");
+    struct nv_account_policy policy={NV_AUTH_IDLE_MIN,0};
+    check(account_call(NV_ACCOUNT_POLICY_SET,&policy)==-NV_EACCESS,"application cannot change the idle policy");
+    r=nv_display_acquire();
+    check(r==-NV_EACCESS || r==-NV_EBUSY,"application cannot take the desktop display");
+    if (account.role!=NV_ACCOUNT_ADMIN) {
+        check(control(NV_CTL_REBOOT,0)==-NV_EACCESS,"standard user cannot restart the computer");
+        check(control(NV_CTL_POWEROFF,0)==-NV_EACCESS,"standard user cannot power off the computer");
+        struct nv_net_static network={0};
+        check(call(NV_DEVCTL,NV_SUB_NET,NV_NET_DHCP,(uptr)&network)==-NV_EACCESS,"standard user cannot configure the network");
+    }
+    char result[96]="SESSION SECURITY RESULT: ";
+    u32 end=strlen(result);end+=number(result+end,passed,10);
+    end+=strlcpy(result+end," passed, ",sizeof(result)-end);
+    end+=number(result+end,failed,10);
+    strlcpy(result+end," failed\n",sizeof(result)-end);
+    print(result);
+    char path[NV_PATH_MAX];strlcpy(path,account.home,sizeof(path));
+    strlcpy(path+strlen(path),"/session-security.txt",sizeof(path)-strlen(path));
+    int fd=open_file(path,NV_WRITE|NV_CREATE|NV_TRUNC);
+    if (fd<0) return 1;
+    r=emit(fd,result,strlen(result));close_file(fd);
+    return failed || r!=(int)strlen(result)?1:0;
+}
 int user_main(const char *args) {
     if (app_help("probe", args))
         return 0;
+    if (!strcmp(args,"session-security")) return session_security_tests();
     println("Nuvora Core integration probe (running in Ring 3)");
     if (!strcmp(args, "devctl")) {
         devctl_tests();

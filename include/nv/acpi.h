@@ -12,7 +12,7 @@ struct nv_mcfg_region {
 };
 
 struct nv_acpi_result {
-    u64 rsdp_address;
+    u64 rsdp_address, fadt_address;
     u32 revision, root_kind, mcfg_entries, rejected_entries, region_count;
     char oem_id[8], oem_table_id[9];
     struct nv_mcfg_region regions[NV_ACPI_MCFG_MAX];

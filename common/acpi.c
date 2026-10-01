@@ -132,9 +132,11 @@ static bool parse_root(nv_physical_read read, void *context, u64 address, bool x
         if (!read(context, address + sizeof(root) + (u64)i * width, &table, width))
             return false;
         struct acpi_header candidate;
-        if (table && read(context, table, &candidate, sizeof(candidate)) &&
-            !memcmp(candidate.signature, "MCFG", 4))
-            parse_mcfg(read, context, table, out);
+        if (table && read(context, table, &candidate, sizeof(candidate))) {
+            if (!memcmp(candidate.signature, "MCFG", 4)) parse_mcfg(read, context, table, out);
+            else if (!memcmp(candidate.signature, "FACP", 4) &&
+                     header(read, context, table, "FACP", &candidate)) out->fadt_address=table;
+        }
     }
     return true;
 }
@@ -163,6 +165,7 @@ static bool parse_rsdp(nv_physical_read read, void *context, u64 address,
     memset(out->regions, 0, sizeof(out->regions));
     out->root_kind = NV_ACPI_ROOT_NONE;
     out->mcfg_entries = out->rejected_entries = out->region_count = 0;
+    out->fadt_address = 0;
     return r.rsdt && parse_root(read, context, r.rsdt, false, out);
 }
 

@@ -22,6 +22,9 @@ void pointer_push(i32 dx, i32 dy, u32 state) {
         if (dx < 0 || dx > 32767 || dy < 0 || dy > 32767) return;
         if (state == buttons && dx == absolute_x && dy == absolute_y) return;
     } else if (!dx && !dy && state == buttons) return;
+    /* A stationary absolute HID report is not user activity. Apps cannot
+     * reset the idle timer by polling this queue or a synthetic syscall. */
+    account_input_activity();
     bool same_buttons = state == buttons;
     /* Compress a run of motion, but retain the first event after a button
      * transition so a press still occurs at its original coordinates. */
