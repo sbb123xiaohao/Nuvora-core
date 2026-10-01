@@ -116,9 +116,10 @@ int main(void) {
     n = fs_lookup(0, "/home/large");
     u8 *saved_page = nodes[n].pages[0];
     nodes[n].pages[0] = NULL; nodes[n].backing_slot = 0;
+    nodes[n].backing_size = (u32)nodes[n].size;
     assert(fs_blob("/home/large", &image, &image_length, &temporary) == -NV_EIO);
     assert(!image && !image_length && !temporary && heap_used() == before);
-    nodes[n].pages[0] = saved_page; nodes[n].backing_slot = -1;
+    nodes[n].pages[0] = saved_page; nodes[n].backing_slot = -1; nodes[n].backing_size = 0;
     assert(fs_close(&t, fd) == 0 && fs_remove(0, "/home/large") == 0);
 
     fs_mount_volumes(2);

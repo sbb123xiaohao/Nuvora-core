@@ -15,6 +15,7 @@ volatile u64 ticks;
 enum { SLOT_SECTORS = 12 * 1024 * 1024 / 512 + 1 };
 static u8 disk_data[2][2][SLOT_SECTORS * 512];
 static bool fail_commit;
+static int fail_commit_slot = 1;
 static u32 writes;
 bool disk_ready(void) { return true; }
 u32 disk_volume_count(void) { return 2; }
@@ -35,7 +36,7 @@ int disk_volume_read(u32 i, u64 lba, void *out) {
     return 0;
 }
 int disk_volume_write(u32 i, u64 lba, const void *in) {
-    if (fail_commit && i == 0 && lba == 8 + SLOT_SECTORS &&
+    if (fail_commit && i == 0 && lba == 8 + (u32)fail_commit_slot * SLOT_SECTORS &&
         !memcmp(in, "NVSS0001", 8)) return -NV_EIO;
     memcpy(sector_at(i, lba), in, 512);
     ++writes;
@@ -67,6 +68,68 @@ static void reboot(void) {
     clear_volume(0);
     clear_volume(1);
     store_init();
+}
+static void expect_sparse_extension(const char *path, u32 original, bool edited) {
+    struct task t = task_at(home_node);
+    int fd = fs_open(&t, path, NV_READ);
+    assert(fd >= 3);
+    const u32 end = 4 * PAGE + 3, changed = 2 * PAGE + 17;
+    u8 bytes[PAGE];
+    for (u32 at = 0; at <= end;) {
+        u32 size = MIN((u32)sizeof(bytes), end + 1 - at);
+        assert(fs_read(&t, fd, bytes, size) == (int)size);
+        for (u32 i = 0; i < size; ++i) {
+            u32 offset = at + i;
+            u8 expected = offset < original ? 'A' : offset == end ? 'Z' : 0;
+            if (edited && offset == changed) expected = '?';
+            if (edited && offset == original + 3) expected = '!';
+            assert(bytes[i] == expected);
+        }
+        at += size;
+    }
+    assert(!fs_read(&t, fd, bytes, 1));
+    assert(!fs_close(&t, fd));
+}
+static void sparse_extension_regression(void) {
+    /* Saved legacy files are lazy views into a shared snapshot. Extending
+     * one must never expose the metadata or data of the following file. */
+    const u32 sizes[] = {0, 513, PAGE - 1, PAGE, PAGE + 13};
+    char original[PAGE + 13], neighbour[4 * PAGE];
+    memset(original, 'A', sizeof(original));
+    memset(neighbour, 'S', sizeof(neighbour));
+    for (u32 i = 0; i < ARRAY_LEN(sizes); ++i) {
+        write_file("C:/sparse-growth", original, sizes[i]);
+        write_file("C:/neighbour", neighbour, sizeof(neighbour));
+        assert(!store_sync());
+        if (i & 1u) reboot(); /* cover both rebase after save and boot restore */
+        struct task t = task_at(home_node);
+        int fd = fs_open(&t, "C:/sparse-growth", NV_READ | NV_WRITE);
+        assert(fd >= 3 && fs_seek(&t, fd, 4 * PAGE + 3, 0) == 4 * PAGE + 3);
+        assert(fs_write(&t, fd, "Z", 1) == 1);
+        expect_sparse_extension("C:/sparse-growth", sizes[i], false);
+        /* Populating a new RAM page in the gap has the same backing limit. */
+        assert(fs_seek(&t, fd, 2 * PAGE + 17, 0) == 2 * PAGE + 17);
+        assert(fs_write(&t, fd, "?", 1) == 1);
+        /* The page containing the old EOF must copy only its saved prefix. */
+        assert(fs_seek(&t, fd, sizes[i] + 3, 0) == (int)sizes[i] + 3);
+        assert(fs_write(&t, fd, "!", 1) == 1);
+        assert(!fs_close(&t, fd));
+        expect_sparse_extension("C:/sparse-growth", sizes[i], true);
+        fail_commit_slot = volume[0].active_slot == 0 ? 1 : 0;
+        fail_commit = true;
+        assert(store_sync() == -NV_EIO);
+        fail_commit = false;
+        expect_sparse_extension("C:/sparse-growth", sizes[i], true);
+        assert(!store_sync());
+        reboot();
+        expect_sparse_extension("C:/sparse-growth", sizes[i], true);
+        fd = fs_open(&t, "C:/neighbour", NV_READ);
+        u8 block[PAGE];
+        assert(fd >= 3 && fs_read(&t, fd, block, sizeof(block)) == (int)sizeof(block));
+        for (u32 j = 0; j < sizeof(block); ++j) assert(block[j] == 'S');
+        assert(!fs_close(&t, fd));
+    }
+    puts("PASS legacy sparse extension: zero holes, adjacent-file isolation, page writes, save and reboot");
 }
 int main(void) {
     heap = aligned_alloc(PAGE, HEAP_SIZE);
@@ -159,6 +222,8 @@ int main(void) {
     expect_file("C:/old.dat", oldbytes, sizeof(oldbytes) - 1);
     assert(store_sync() == 0 && store_generation() == 45);
     assert(writes > 0 && !heap_used());
+    sparse_extension_regression();
+    assert(!heap_used());
     free(heap);
     puts("PASS streaming snapshots: 8 MiB sparse file, lazy restore, power-loss and CRC fallback");
 }

@@ -8,7 +8,7 @@ struct node {
     char name[32];
     u8 *data; /* embedded programs and old in-memory imports */
     u8 **pages; /* modified 4 KiB pages; holes need no physical RAM */
-    u32 page_count, backing_offset;
+    u32 page_count, backing_offset, backing_size;
     int backing_slot;
     u32 backing_volume;
 };
@@ -49,7 +49,7 @@ static void release_file(struct node *n) {
     }
     kfree(n->data);
     n->pages = NULL; n->data = NULL; n->page_count = n->capacity = 0;
-    n->backing_slot = -1; n->backing_offset = 0;
+    n->backing_slot = -1; n->backing_offset = n->backing_size = 0;
 }
 static int file_copy(const struct node *n, u64 offset, void *buf, u32 len) {
     if (n->extents || (n->backing_volume < NV_VOLUME_MAX &&
@@ -64,10 +64,15 @@ static int file_copy(const struct node *n, u64 offset, void *buf, u32 len) {
         u32 page = offset / PAGE, part = MIN(len, PAGE - offset % PAGE);
         if (page < n->page_count && n->pages && n->pages[page])
             memcpy(out, n->pages[page] + offset % PAGE, part);
-        else if (n->backing_slot >= 0) {
+        else if (n->backing_slot >= 0 && offset < n->backing_size) {
+            /* Logical growth adds zero holes, not bytes from the next file
+             * in the shared snapshot. Its original backing length is fixed
+             * until a successful commit rebases the file. */
+            u32 backed = MIN(part, n->backing_size - offset);
             int r = store_read_bytes(n->backing_volume, n->backing_slot,
-                                     n->backing_offset + offset, out, part);
+                                     n->backing_offset + offset, out, backed);
             if (r < 0) return r;
+            memset(out + backed, 0, part - backed);
         } else
             memset(out, 0, part);
         out += part; offset += part; len -= part;
@@ -510,8 +515,8 @@ int fs_write(struct task *t, int fd, const void *buf, u32 len) {
             if (!fresh) goto rollback_pages;
             memset(fresh, 0, PAGE);
             u32 base = i * PAGE;
-            if (base < n->size && n->backing_slot >= 0) {
-                u32 valid = MIN(PAGE, n->size - base);
+            if (base < n->backing_size && n->backing_slot >= 0) {
+                u32 valid = MIN(PAGE, n->backing_size - base);
                 int r = store_read_bytes(n->backing_volume, n->backing_slot,
                                          n->backing_offset + base, fresh, valid);
                 if (r < 0) {
@@ -1066,6 +1071,7 @@ int fs_import_stream(u32 volume, int slot, u32 length) {
                 nodes[n].backing_volume = volume;
                 nodes[n].backing_slot = slot;
                 nodes[n].backing_offset = pos;
+                nodes[n].backing_size = size;
             }
             pos += size;
         }
@@ -1086,6 +1092,7 @@ void fs_rebase_volume(u32 volume, int slot, const u32 offsets[FS_NODES]) {
         nodes[i].backing_volume = volume;
         nodes[i].backing_slot = slot;
         nodes[i].backing_offset = offsets[i];
+        nodes[i].backing_size = (u32)nodes[i].size;
     }
 }
 

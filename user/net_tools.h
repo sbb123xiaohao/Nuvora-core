@@ -201,46 +201,79 @@ static int http_url(const char *url, char host[254], char path[768], u32 *port) 
     }
     return 0;
 }
+static char *http_header_value(char *value) {
+    while (*value == ' ' || *value == '\t') ++value;
+    usize end = strlen(value);
+    while (end && (value[end - 1] == ' ' || value[end - 1] == '\t')) value[--end] = 0;
+    return value;
+}
+static bool ascii_equal(const char *a, const char *b) {
+    return ascii_prefix(a, b) && strlen(a) == strlen(b);
+}
+static bool http_field_char(u8 ch) {
+    if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))
+        return true;
+    static const char punctuation[] = "!#$%&'*+-.^_`|~";
+    for (u32 i = 0; i < sizeof(punctuation) - 1; ++i)
+        if (ch == (u8)punctuation[i]) return true;
+    return false;
+}
 static int http_response(u32 size, bool *known, u64 *length, bool *chunked) {
-    if (size < 12 || strncmp(http_headers, "HTTP/1.", 7) ||
+    *known = *chunked = false; *length = 0;
+    if (size >= sizeof(http_headers)) return -NV_E2BIG;
+    if (size < 14 || strnlen(http_headers, size) != size || strncmp(http_headers, "HTTP/1.", 7) ||
+        (http_headers[7] != '0' && http_headers[7] != '1') ||
         http_headers[8] != ' ' || http_headers[9] != '2' ||
-        http_headers[10] != '0' || http_headers[11] != '0') {
+        http_headers[10] != '0' || http_headers[11] != '0' ||
+        (http_headers[12] != ' ' && !(http_headers[12] == '\r' && http_headers[13] == '\n'))) {
         println("HTTP server did not return 200 OK.");
         return -NV_EIO;
     }
-    *known = *chunked = false;
     for (u32 i = 0; i + 1 < size;) {
         u32 end = i;
         while (end + 1 < size && !(http_headers[end] == '\r' && http_headers[end + 1] == '\n')) ++end;
         if (end + 1 >= size) return -NV_EIO;
         http_headers[end] = 0;
+        if (end == i) return end + 2 == size ? 0 : -NV_EIO;
         const char *line = http_headers + i;
-        if (ascii_prefix(line, "Content-Length:")) {
-            const char *digits = line + 15;
-            while (*digits == ' ' || *digits == '\t') ++digits;
-            u64 value = 0;
-            if (!*digits) return -NV_EIO;
-            while (*digits >= '0' && *digits <= '9') {
-                if (value > (~0ull - 9u) / 10u) return -NV_E2BIG;
-                value = value * 10 + (u32)(*digits++ - '0');
+        for (u32 at = i; at < end; ++at) {
+            u8 ch = (u8)http_headers[at];
+            if ((ch < 32 && ch != '\t') || ch == 127) return -NV_EIO;
+        }
+        if (i) {
+            const char *colon = line;
+            while (*colon && *colon != ':') {
+                if (!http_field_char((u8)*colon)) return -NV_EIO;
+                ++colon;
             }
-            if (*digits) return -NV_EIO;
+            if (colon == line || *colon != ':') return -NV_EIO;
+        }
+        if (ascii_prefix(line, "Content-Length:")) {
+            const char *digits = http_header_value(http_headers + i + 15);
+            u64 value = 0;
+            if (*digits < '0' || *digits > '9') return -NV_EIO;
+            while (*digits >= '0' && *digits <= '9') {
+                u32 digit = (u32)(*digits++ - '0');
+                if (value > (~0ull - digit) / 10u) return -NV_E2BIG;
+                value = value * 10 + digit;
+            }
+            if (*digits || (*known && *length != value)) return -NV_EIO;
             *length = value; *known = true;
-        } else if (ascii_prefix(line, "Transfer-Encoding:") &&
-                   ascii_prefix(line + 18, " chunked")) *chunked = true;
-        else if (ascii_prefix(line, "Content-Encoding:") &&
-                 !ascii_prefix(line + 17, " identity")) {
+        } else if (ascii_prefix(line, "Transfer-Encoding:")) {
+            const char *value = http_header_value(http_headers + i + 18);
+            *chunked = ascii_equal(value, "chunked");
+            /* No transfer decoder exists. Whitespace or a coding list must
+             * not let framed/compressed bytes be published as file data. */
+            println("Transfer-Encoding is not supported by this downloader.");
+            return -NV_ENOSYS;
+        } else if (ascii_prefix(line, "Content-Encoding:") &&
+                   !ascii_equal(http_header_value(http_headers + i + 17), "identity")) {
             println("Compressed HTTP transfer is not supported.");
             return -NV_ENOSYS;
         }
         i = end + 2;
-        if (!http_headers[i]) break;
     }
-    if (*chunked) {
-        println("Chunked HTTP transfer is not supported by this downloader.");
-        return -NV_ENOSYS;
-    }
-    return 0;
+    return -NV_EIO; /* the terminating empty header line is mandatory */
 }
 static int http_write(int fd, const u8 *data, u32 count) {
     while (count) {
