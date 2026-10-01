@@ -46,12 +46,27 @@ static void receive_frame(const void *data, u32 size) {
     ++received; received_size = size;
 }
 int main(void) {
+    /* Reject an unprogrammed, zero, multicast or broadcast station address. */
+    u8 mac[6];
     registers[RAL / 4] = 0x03020102u;
+    registers[RAH / 4] = 0x00000504u;
+    assert(!net_e1000_start(0x3000, mac) && !pages);
+    registers[RAL / 4] = 0;
+    registers[RAH / 4] = 0x80000000u;
+    assert(!net_e1000_start(0x3000, mac) && !pages);
+    registers[RAL / 4] = 0x03020103u;
+    registers[RAH / 4] = 0x80000504u;
+    assert(!net_e1000_start(0x3000, mac) && !pages);
+    registers[RAL / 4] = 0xffffffffu;
+    registers[RAH / 4] = 0x8000ffffu;
+    assert(!net_e1000_start(0x3000, mac) && !pages);
+    /* 0xff inside a unicast address is legal; only the first octet's
+     * multicast bit determines whether it can be a station address. */
+    registers[RAL / 4] = 0x03ff0102u;
     registers[RAH / 4] = 0x80000504u;
     registers[STATUS / 4] = 2u;
-    u8 mac[6];
     assert(net_e1000_start(0x3000, mac));
-    assert(mac[0] == 2 && mac[1] == 1 && mac[5] == 5);
+    assert(!memcmp(mac, "\x02\x01\xff\x03\x04\x05", sizeof(mac)));
     assert((pci_command & 6u) == 6u && rx[0].address == rx_buf[0]);
     assert(registers[RDLEN / 4] == 16 * E1000_RING);
     assert(registers[RDBAH / 4] == 1 && registers[TDBAH / 4] == 1);

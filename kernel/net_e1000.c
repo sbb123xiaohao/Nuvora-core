@@ -92,8 +92,9 @@ bool net_e1000_start(u32 address, u8 mac[6]) {
     u32 low = rd(RAL), high = rd(RAH);
     for (u32 i = 0; i < 4; ++i) mac[i] = (u8)(low >> (8 * i));
     mac[4] = (u8)high; mac[5] = (u8)(high >> 8);
+    /* Interior 0xff octets are valid in a unicast station address. The
+     * multicast bit also rejects the all-ones broadcast address. */
     bool valid = (high & (1u << 31)) && (low | (high & 0xffffu)) && !(mac[0] & 1u);
-    for (u32 i = 0; i < 6; ++i) valid &= mac[i] != 0xff;
     if (!valid) {
         pci_write16(address, 4, (u16)((saved_command | 2u) & ~4u));
         release_pages(); regs = NULL; return false;

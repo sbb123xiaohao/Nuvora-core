@@ -65,7 +65,7 @@ make iso-uefi   # 需要 mtools 和 xorriso
 make media      # 生成 GPT/ESP 启动镜像，不写宿主磁盘
 ```
 
-当前通过 37 组宿主回归，包括原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
+当前通过 38 组宿主回归，包括原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、ACPI 电源解析、高地址 DMA 与网络配置状态清理。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
 
 目前只挂载 Nuvora 自有格式，**不会格式化或写入普通 Windows/Linux 分区**。4Kn 逻辑扇区、USB 存储挂载、笔记本内置 PCI Wi-Fi、USB NCM、VirtIO/SCSI、Secure Boot、多核和 Linux/POSIX 应用兼容尚未实现。完整边界与历史变更见[测试说明](docs/TESTING.md)、[架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)和[更新记录](docs/CHANGELOG.md)。
 

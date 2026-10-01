@@ -13,6 +13,8 @@ static bool link_up = true;
 static bool bridge_up;
 static u8 sent[1514];
 static u32 sent_length, transmissions;
+static void *user_buffer;
+static usize user_size;
 static void pci_visit(void (*cb)(u32, u32, u32)) {
     cb(0x00002000, (0x15f3u << 16) | 0x8086, 0x02000000);
     cb(0x00002800, (0x2723u << 16) | 0x8086, 0x02800000);
@@ -44,11 +46,30 @@ static int usb_ecm_send(const void *p, u32 size) {
 static int usb_wifi_command(const char *p, u32 n) { (void)p; (void)n; return -NV_ENODEV; }
 static int usb_wifi_read(char *p, u32 n) { (void)p; (void)n; return -NV_ENODEV; }
 static bool user_range(void *pd, uptr address, usize size, bool write) {
-    (void)pd; (void)address; (void)size; (void)write; return false;
+    (void)pd; (void)write;
+    return user_buffer && address == (uptr)user_buffer && size == user_size;
 }
 static void kprintf(const char *format, ...) { (void)format; }
 #include "../kernel/net.c"
 
+static int call_net(u32 op, void *buffer, usize size) {
+    user_buffer = buffer; user_size = size;
+    int result = net_ioctl(op, (uptr)buffer);
+    user_buffer = NULL; user_size = 0;
+    return result;
+}
+static void exercise_adapter_selection(void) {
+    u32 previous = active;
+    const u32 absent[] = {NV_NET_MAX, NV_NET_MAX + 1u, 0xffffffffu, 1u};
+    for (u32 i = 0; i < ARRAY_LEN(absent); ++i) {
+        struct nv_net_static config = {.index = absent[i]};
+        assert(call_net(NV_NET_SELECT, &config, sizeof(config)) == -NV_ENODEV);
+        assert(active == previous);
+    }
+    struct nv_net_static config = {.index = wired};
+    assert(!call_net(NV_NET_SELECT, &config, sizeof(config)) && active == previous);
+    puts("PASS adapter selection: absent/unsupported indices rejected without changing active NIC");
+}
 static void fixture_message(u8 *message, u8 type, u32 address) {
     memset(message, 0, 300);
     message[0] = 2; message[1] = 1; message[2] = 6;
@@ -68,6 +89,41 @@ static void deliver(const u8 *body, u32 length, u32 source, u16 source_port, u16
     assert(!udp_raw(mac, source, 0xffffffffu, source_port, dest_port, body, length));
     u8 packet[1514]; u32 size = sent_length;
     memcpy(packet, sent, size); receive(packet, size);
+}
+static void exercise_configuration_reset(void) {
+    link_up = true;
+    const u32 operations[] = {NV_NET_STATIC, NV_NET_DHCP};
+    for (u32 i = 0; i < ARRAY_LEN(operations); ++i) {
+        struct nv_net_static config = {.index = active, .ip = 0xc0a80164,
+            .mask = 0xffffff00, .gateway = 0xc0a80101, .dns = 0x08080808};
+        assert(!call_net(NV_NET_STATIC, &config, sizeof(config)));
+        u8 arp[28] = {0};
+        put16(arp, 1); put16(arp + 2, 0x0800); arp[4] = 6; arp[5] = 4;
+        put16(arp + 6, 2); arp[8] = 2; arp[13] = 1;
+        put32(arp + 14, config.gateway);
+        input_arp(arp, sizeof(arp));
+        const u8 payload[] = {'o', 'l', 'd'};
+        deliver(payload, sizeof(payload), config.gateway, 7000, 40000);
+        assert(inbox_full && inbox.length == sizeof(payload));
+        struct nv_net_ping ping = {.index = active, .address = config.gateway,
+            .identifier = 7, .sequence = i + 1};
+        assert(!call_net(NV_NET_PING, &ping, sizeof(ping)) && echo_probe.pending);
+        struct nv_net_tcp tcp = {.index = active, .address = config.gateway, .port = 80};
+        assert(!call_net(NV_NET_TCP_OPEN, &tcp, sizeof(tcp)) && stream.state == TCP_SYN_SENT);
+
+        /* A rejected configuration must preserve existing traffic. */
+        config.mask = 0xfffffeff;
+        assert(call_net(NV_NET_STATIC, &config, sizeof(config)) == -NV_EINVAL);
+        assert(inbox_full && echo_probe.pending && stream.state == TCP_SYN_SENT &&
+               peer_ip == config.gateway && adapters[active].ip == config.ip);
+        config.mask = 0xffffff00; ++config.ip;
+        assert(!call_net(operations[i], &config, sizeof(config)));
+        assert(!inbox_full && !echo_probe.pending && !peer_ip && stream.state == TCP_IDLE);
+        struct nv_net_udp udp = {.index = active, .local_port = 40000};
+        assert(call_net(NV_NET_UDP_RECV, &udp, sizeof(udp)) == -NV_EAGAIN);
+        assert(adapters[active].ip == (operations[i] == NV_NET_STATIC ? config.ip : 0));
+    }
+    puts("PASS IPv4 reconfiguration: stale UDP/ping/ARP/TCP cleared; rejected config preserves traffic");
 }
 static void deliver_tcp(u32 seq, u32 ack, u8 flags, const u8 *body, u32 size) {
     u8 packet[20 + NV_NET_DATA_MAX] = {0};
@@ -155,11 +211,22 @@ static void exercise_tcp_icmp(void) {
     net_task_release(3);
     assert(stream.state == TCP_IDLE);
 }
-int main(void) {
+int main(int argc, char **argv) {
     net_init();
     assert(count == 2 && active == 0 && adapters[0].type == NV_NET_WIRED);
     assert(adapters[1].type == NV_NET_WIFI && adapters[1].state == NV_NET_UNSUPPORTED);
     net_poll(); assert(adapters[0].state == NV_NET_LINK);
+    task_object.pid = 3;
+    assert(argc == 1 || argc == 2);
+    if (argc == 2) {
+        if (!strcmp(argv[1], "select")) exercise_adapter_selection();
+        else {
+            assert(!strcmp(argv[1], "reconfigure"));
+            exercise_configuration_reset();
+        }
+        return 0;
+    }
+    exercise_adapter_selection();
 
     lease_state = 1; dhcp_xid = 0x01234567;
     dhcp_send(false);
@@ -219,5 +286,6 @@ int main(void) {
     net_usb_detach();
     net_usb_attach(0x303a, 0x0001, bridge);
     assert(count == 3 && usb_index == 2); /* hotplug reuses its adapter slot */
+    exercise_configuration_reset();
     puts("PASS network: PCI/USB, DHCP, UDP, ICMP and TCP frames, checksum, link loss");
 }

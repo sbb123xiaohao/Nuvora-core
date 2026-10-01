@@ -69,8 +69,9 @@ bool net_igc_start(u32 address, u8 mac[6]) {
     u32 low = rd(RAL), high = rd(RAH);
     for (u32 i = 0; i < 4; ++i) mac[i] = (u8)(low >> (8 * i));
     mac[4] = (u8)high; mac[5] = (u8)(high >> 8);
+    /* Interior 0xff octets are valid in a unicast station address. The
+     * multicast bit also rejects the all-ones broadcast address. */
     bool valid = (high & (1u << 31)) && !(mac[0] & 1);
-    for (u32 i = 0; i < 6; ++i) valid &= mac[i] != 0xff;
     if (!(low | (high & 0xffff)) || !valid) return false;
     rx_page = page_alloc_below(DMA_LIMIT);
     tx_page = page_alloc_below(DMA_LIMIT);

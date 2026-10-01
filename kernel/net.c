@@ -31,6 +31,12 @@ static struct {
     bool eof;
 } stream;
 
+/* Traffic and neighbour state belong to the current interface and IPv4
+ * configuration. Never return a packet or finish a probe from the old one. */
+static void reset_protocol_state(void) {
+    lease_state = 0; peer_ip = 0; inbox_full = false;
+    echo_probe.pending = false; stream.state = TCP_IDLE;
+}
 static u16 be16(const u8 *p) { return ((u16)p[0] << 8) | p[1]; }
 static u32 be32(const u8 *p) {
     return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
@@ -134,8 +140,7 @@ void net_usb_detach(void) {
     adapters[usb_index].ip = adapters[usb_index].mask = 0;
     if (active == usb_index) {
         active = wired;
-        lease_state = 0; inbox_full = false; peer_ip = 0;
-        stream.state = TCP_IDLE;
+        reset_protocol_state();
     }
     usb_index = NV_NET_MAX;
 }
@@ -479,9 +484,8 @@ void net_poll(void) {
     bool link = is_active();
     if (!link) {
         n->ip = n->mask = n->gateway = n->dns = 0;
-        n->state = NV_NET_DOWN; lease_state = 0; peer_ip = 0; inbox_full = false;
-        echo_probe.pending = false;
-        stream.state = TCP_IDLE;
+        n->state = NV_NET_DOWN;
+        reset_protocol_state();
     } else {
         if (n->state == NV_NET_DOWN) n->state = NV_NET_LINK;
         if (active == wired) wired_poll(receive);
@@ -628,19 +632,19 @@ int net_ioctl(u32 op, uptr pointer) {
         struct nv_net_static config;
         memcpy(&config, (void *)(uptr)pointer, sizeof(config));
         if (op == NV_NET_SELECT) {
-            if (config.index != wired && config.index != usb_index) return -NV_ENODEV;
+            if (config.index >= count || (config.index != wired && config.index != usb_index))
+                return -NV_ENODEV;
             if (active != config.index) {
                 active = config.index;
-                lease_state = 0; peer_ip = 0; inbox_full = false;
-                echo_probe.pending = false; stream.state = TCP_IDLE;
+                reset_protocol_state();
             }
             return 0;
         }
         if (config.index != active || !is_active()) return -NV_ENODEV;
         struct nv_net_info *n = &adapters[active];
         if (op == NV_NET_DHCP) {
+            reset_protocol_state();
             n->ip = n->mask = n->gateway = n->dns = 0;
-            stream.state = TCP_IDLE;
             n->state = NV_NET_CONFIGURING;
             dhcp_xid = 0x4e560000u ^ ticks ^ (u32)n->mac[5] << 8 ^ n->product;
             lease_state = 1; dhcp_send(false);
@@ -649,11 +653,10 @@ int net_ioctl(u32 op, uptr pointer) {
             if (!config.ip || !config.mask || (host & (host + 1u)) != 0 ||
                 (config.gateway && (config.gateway & config.mask) !=
                                    (config.ip & config.mask))) return -NV_EINVAL;
+            reset_protocol_state();
             n->ip = config.ip; n->mask = config.mask;
             n->gateway = config.gateway; n->dns = config.dns;
             n->state = NV_NET_ONLINE; lease_state = 0;
-            peer_ip = 0;
-            stream.state = TCP_IDLE;
             arp_request(n->ip); /* announce source address */
         }
         return 0;
