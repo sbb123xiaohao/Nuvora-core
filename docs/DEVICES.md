@@ -32,8 +32,10 @@ ATA/AHCI 驱动拒绝 4Kn 逻辑扇区盘，允许 512e；当前没有 4Kn 写�
 `anchor` 把各卷内存状态提交到其快照槽。
 在配有 OVMF、mtools 和 QEMU 的宿主上，`python3 start.py --uefi --window
 --disk-bus nvme` 可将已有的 GPT 数据镜像挂为模拟 NVMe 设备；
-`--disk-bus ahci` 使用 SATA/AHCI，省略参数使用 IDE。该命令仅提供复验入口，
-当前环境未执行 QEMU 启动。
+`--disk-bus ahci` 使用 SATA/AHCI，省略参数使用 IDE。QEMU/OVMF 已验证
+SATA 端口 0/5、第二 AHCI 控制器，以及单/多 namespace、多控制器与 PCIe
+root port 后的 NVMe 保存和重启恢复；复验入口为
+`python3 tests/pc_storage_boot_test.py`，范围见 [TESTING](TESTING.md)。
 
 ## 鼠标
 
@@ -47,7 +49,8 @@ Interrupt IN 端点，切换到 Boot Protocol，接收三个字节的按键与 X
 相对位移。`NV_SUB_INPUT` 向像素屏租约的应用提供事件；`desktop` 使用
 单击选中和双击打开。拔出鼠标后清除按键状态和设备计数。
 QEMU 图形窗口使用 USB Tablet 的六字节绝对坐标报告，避免宿主鼠标与
-虚拟机指针偏移；普通 Boot 鼠标仍使用相对坐标。目前只配置第一只鼠标；
+虚拟机指针偏移；普通 Boot 鼠标仍使用相对坐标。一次只激活一只鼠标；
+主设备拔除后，扫描会选择已枚举且健康的备用指针。
 滚轮、多点触控、其他非 Boot HID 报告和 PS/2 鼠标尚不支持。
 没有有效 UEFI 像素帧缓冲时，图形桌面不可用。
 
@@ -92,8 +95,9 @@ AHCI 夹具还覆盖前控制器仅有外来盘、后控制器有有效卷，以
 PCIe ECAM 夹具覆盖空总线、后续总线有效设备和 MCFG 不匹配回退。
 xHCI 夹具检查 64/255 个端口、跨页暂存指针、4 GiB 以下连续 DMA 分配
 和初始化分配失败时的回收。
-这些是宿主模拟，不代表已在 QEMU AHCI/NVMe/xHCI/HDA、任何笔记本或实体设备
-上启动或运行。驱动部署前还需
+这些夹具是宿主模拟。另已实际运行 QEMU/OVMF 的 AHCI/NVMe 保存恢复、
+xHCI 键鼠热插拔和网络设备专项，详细矩阵见 [TESTING](TESTING.md)。
+HDA 实体音频输出和实体设备尚未验证；驱动部署前还需
 不同控制器和固件的实机测试、长时间 I/O、突然断电及热插拔测试。
 
 实现依据：NVM Express Base Specification 1.0e 的寄存器、队列与 NVM

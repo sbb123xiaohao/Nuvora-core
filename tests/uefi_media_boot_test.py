@@ -4,6 +4,7 @@
 This is an OVMF firmware regression, not physical hardware certification.
 Only private ESP, GPT and variable-store copies are modified.
 """
+import argparse
 import pathlib
 import re
 import shutil
@@ -19,11 +20,19 @@ from test import EXPECTED_ASSERTIONS
 
 
 def main():
-    subprocess.run(['make','-s','diagnostics'],cwd=qemu.ROOT,check=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--memory', type=int, default=256, metavar='MIB',
+                        help='Guest memory in MiB (default: 256)')
+    parser.add_argument('--output', type=pathlib.Path,
+                        help='Directory for the serial log')
+    args = parser.parse_args()
+    if args.memory < 32:
+        parser.error('--memory must be at least 32 MiB')
+    subprocess.run(['make','-s','diagnostics','esp'],cwd=qemu.ROOT,check=True)
     firmware = qemu.find_uefi_firmware()
     if not firmware:
         raise SystemExit('Install OVMF or set NV_OVMF')
-    output = qemu.BUILD / 'media-smoke'
+    output = (args.output or qemu.BUILD / 'media-smoke').resolve()
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='nuvora-removable-') as directory:
         private = pathlib.Path(directory)
@@ -37,7 +46,7 @@ def main():
                         '::/EFI/NUVORA/CMDLINE'], check=True)
         media = private / 'boot.img'
         create(esp, media)
-        command = qemu.command(memory=256, machine='q35', kernel=False)
+        command = qemu.command(memory=args.memory, machine='q35', kernel=False)
         original = qemu.BUILD
         try:
             qemu.BUILD = private
@@ -61,7 +70,7 @@ def main():
         match = re.search(r'PROBE RESULT: (\d+) passed, 0 failed', out)
         assert run.returncode == 33 and match and int(match[1]) == EXPECTED_ASSERTIONS, out
         assert 'FAIL ' not in out and 'PANIC' not in out
-        print(f'PASS removable UEFI GPT/FAT32: BOOTX64.EFI, USB xHCI and '
+        print(f'PASS removable UEFI GPT/FAT32 ({args.memory} MiB): BOOTX64.EFI, USB xHCI and '
               f'{EXPECTED_ASSERTIONS} native/legacy Ring 3 assertions; QEMU exit 33')
 
 

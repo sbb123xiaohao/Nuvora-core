@@ -140,7 +140,8 @@ void net_usb_attach(u32 vendor, u32 product, const u8 *mac) {
 void net_usb_detach(void) {
     if (usb_index >= count) return;
     adapters[usb_index].state = NV_NET_DOWN;
-    adapters[usb_index].ip = adapters[usb_index].mask = 0;
+    adapters[usb_index].ip = adapters[usb_index].mask =
+        adapters[usb_index].gateway = adapters[usb_index].dns = 0;
     if (active == usb_index) {
         active = wired;
         reset_protocol_state();

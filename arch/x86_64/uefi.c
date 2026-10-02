@@ -29,7 +29,7 @@ enum efi_memory_type {
     EFI_RUNTIME_SERVICES_DATA = 6,
     EFI_CONVENTIONAL = 7
 };
-enum efi_allocate_type { EFI_ANY_PAGES = 0, EFI_ALLOCATE_ADDRESS = 2 };
+enum efi_allocate_type { EFI_ANY_PAGES = 0, EFI_ALLOCATE_MAX_ADDRESS = 1, EFI_ALLOCATE_ADDRESS = 2 };
 enum efi_pool_type { EFI_LOADER_POOL = 2 };
 enum efi_open_mode { EFI_FILE_MODE_READ = 1 };
 struct efi_table_header {
@@ -185,6 +185,7 @@ static struct boot_info bi;
 static efi_status kernel_load_status = EFI_LOAD_ERROR;
 static u64 kernel_first, kernel_limit, pending_entry;
 static bool kernel_pages_owned;
+static uptr kernel_file_pages;
 static const u8 *pending_kernel;
 static u8 handover_stack[32768] ALIGNED(16);
 _Static_assert(sizeof(struct elf64_ehdr) == 64, "ELF64 header");
@@ -327,9 +328,20 @@ static bool find_kernel_entry(const u8 *file, uptr size, const struct elf64_ehdr
     }
     return false;
 }
-static bool load_kernel(struct efi_boot_services *bs, const u8 *file, uptr size,
+static void free_kernel_file(struct efi_boot_services *bs, u8 *file) {
+    if (kernel_file_pages)
+        bs->free_pages((u64)(uptr)file, kernel_file_pages);
+    else
+        bs->free_pool(file);
+    kernel_file_pages = 0;
+}
+static bool load_kernel(struct efi_boot_services *bs, u8 **image, uptr size,
                         u64 stub_base, u64 stub_size, u64 *entry) {
-    if (size < sizeof(struct elf64_ehdr) || memcmp(file, "\x7f" "ELF", 4) ||
+    const u8 *file = image ? *image : NULL;
+    kernel_file_pages = 0;
+    kernel_load_status = EFI_LOAD_ERROR;
+    if (!file || size > ~(uptr)0 - 4095 || size > ~0ull - (u64)(uptr)file ||
+        size < sizeof(struct elf64_ehdr) || memcmp(file, "\x7f" "ELF", 4) ||
         stub_size > ~0ull - stub_base)
         return false;
     const struct elf64_ehdr *eh = (const void *)file;
@@ -360,8 +372,7 @@ static bool load_kernel(struct efi_boot_services *bs, const u8 *file, uptr size,
             continue;
         u64 start_page = p->paddr & ~4095ull;
         u64 end_page = ALIGN_UP(p->paddr + p->memsz, 4096ull);
-        if (range_overlaps(start_page, end_page, stub_base, stub_base + stub_size) ||
-            range_overlaps(start_page, end_page, (u64)(uptr)file, (u64)(uptr)file + size))
+        if (range_overlaps(start_page, end_page, stub_base, stub_base + stub_size))
             return false;
         for (u16 j = 0; j < i; ++j)
             if (ph[j].type == 1 && ph[j].memsz &&
@@ -375,6 +386,28 @@ static bool load_kernel(struct efi_boot_services *bs, const u8 *file, uptr size,
     }
     if (!executable_entry || end <= first)
         return false;
+    /* Pool allocation can place the ELF inside its own fixed destination on
+     * low-memory firmware. Move it only after validating every segment, and
+     * keep the replacement below the first destination page. Firmware owns
+     * both allocations until ExitBootServices; never overwrite live pages. */
+    if (range_overlaps(first, end, (u64)(uptr)file, (u64)(uptr)file + size)) {
+        u64 staging = first - 1;
+        uptr pages = ALIGN_UP(size, 4096ull) / 4096;
+        kernel_load_status = bs->allocate_pages(EFI_ALLOCATE_MAX_ADDRESS,
+                                                EFI_LOADER_DATA, pages, &staging);
+        if (EFI_ERROR(kernel_load_status))
+            return false;
+        if (staging > first || pages > (first - staging) / 4096 ||
+            range_overlaps(staging, staging + pages * 4096, stub_base, stub_base + stub_size)) {
+            bs->free_pages(staging, pages);
+            kernel_load_status = EFI_DEVICE_ERROR;
+            return false;
+        }
+        memcpy((void *)(uptr)staging, file, size);
+        bs->free_pool(*image);
+        *image = (void *)(uptr)staging;
+        kernel_file_pages = pages;
+    }
     /* Firmware still owns RAM here. AllocateAddress must succeed before copy. */
     u64 address = first;
     kernel_load_status = bs->allocate_pages(EFI_ALLOCATE_ADDRESS, EFI_LOADER_CODE,
@@ -676,9 +709,9 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
         bs->free_pool(cmdline);
     }
     u64 entry = 0;
-    if (!load_kernel(bs, kernel, kernel_size, stub_base, stub_size, &entry)) {
+    if (!load_kernel(bs, &kernel, kernel_size, stub_base, stub_size, &entry)) {
         loader_status("kernel ELF validation/allocation failed: ", kernel_load_status);
-        bs->free_pool(kernel);
+        free_kernel_file(bs, kernel);
         return EFI_LOAD_ERROR;
     }
     pending_kernel = kernel;

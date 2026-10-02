@@ -47,7 +47,11 @@ def main():
     parser.add_argument('--output', type=pathlib.Path, default=qemu.BUILD / 'session-smoke')
     parser.add_argument('--iso', type=pathlib.Path, help='Boot an unmodified production UEFI ISO')
     parser.add_argument('--boot-only', action='store_true', help='Verify graphical login and native client permissions only')
+    parser.add_argument('--memory', type=int, default=256, metavar='MIB',
+                        help='Guest memory in MiB (default: 256)')
     args = parser.parse_args()
+    if args.memory <= 0:
+        parser.error('--memory must be a positive integer')
     if args.iso:
         args.iso=args.iso.resolve()
         if not args.iso.is_file(): parser.error('Production ISO not found')
@@ -68,7 +72,7 @@ def main():
             create_media(esp, media)
         original = qemu.BUILD; qemu.BUILD = private
         try:
-            command = qemu.command(memory=256, disk=disk, machine='q35', kernel=False)
+            command = qemu.command(memory=args.memory, disk=disk, machine='q35', kernel=False)
             command += qemu.firmware_arguments(firmware)
         finally:
             qemu.BUILD = original

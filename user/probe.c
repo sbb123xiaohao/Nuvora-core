@@ -541,7 +541,9 @@ static void restored_growth_tests(void) {
     const u32 fixture_size = 128u * 1024u;
     struct nv_info before, after;
     info(&before);
-    int fd = open_file(path, NV_READ | NV_WRITE | NV_APPEND);
+    /* Seek to the restored EOF explicitly. An O_APPEND handle would ignore
+     * the later seek used to verify the legacy volume's file-size limit. */
+    int fd = open_file(path, NV_READ | NV_WRITE);
     check(fd >= 3 && seek_file(fd, 0, 2) == (int)fixture_size - 1,
           "restored file has its exact saved length");
     if (fd < 0)

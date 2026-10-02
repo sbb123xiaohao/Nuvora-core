@@ -454,7 +454,9 @@ struct frame *syscall_dispatch(struct frame *f) {
             machine_poweroff();
         else if (a == NV_CTL_REBOOT)
             machine_reboot();
-        else if (a == NV_CTL_TEST_EXIT && test_mode) {
+        else if (a == NV_CTL_TEST_EXIT && test_mode && current->pid == 1) {
+            /* Interactive diagnostic children return to their parent shell;
+             * only the initial probe owns the emulator's exit status. */
             outl(0xf4, b ? 0x11 : 0x10);
             machine_poweroff();
         } else

@@ -1,5 +1,65 @@
 # 测试与复现
 
+## 未发布：PC 硬件模拟修复的验证
+
+在包含此前全部修复的 `a6ac234` 上，用 Arch QEMU **11.1.1 / TCG**、
+OVMF **202608-1** 实际启动 BIOS/UEFI 客户机。本轮复现并修复：
+
+- 未被固件初始化的第二个 AHCI 控制器保持 `PxSIG=0xffffffff`；在接收
+  初始 D2H FIS 前检查签名导致有效盘漏检。现在先启用私有 FIS 缓冲，
+  有界等待任务文件就绪，再检查签名；延迟 FIS 的宿主回归也先红后绿。
+- 64 MiB UEFI USB 启动中，ELF 暂存 pool 落入内核固定目标范围，加载器
+  因重叠拒绝启动。完整验证 ELF 后安全搬移暂存文件，保留目标/stub
+  重叠检查、分配失败处理和退出固件服务前的内存归属检查。
+- 交互 `trial` / `forge probe` 无条件关闭诊断客户机。测试退出控制只对
+  初始 PID 1 生效；子进程返回 shell，直接启动的 probe 仍退出 33。
+- 拔掉主 USB 鼠标后，已枚举的备用鼠标没有被激活。扫描处理旧设备后，
+  无活动指针时选择健康备用设备，仍只保留一个活动指针。
+- USB 网卡卸载后残留网关与 DNS；断连清理现在与其他 IPv4 状态一致。
+
+另修复文件增长诊断的误判：`NV_APPEND` 会忽略写入前的 seek，不能用于
+测试 64 MiB 旧卷上限；改用显式定位的读写句柄，未改变文件系统限制。
+Folio 串口测试改为等待文档标题，不依赖旧版标题栏的空格数。
+
+生产/诊断 BIOS 与 UEFI 构建和全部 **38 组**宿主回归通过，C 夹具使用 UBSan。
+
+| 实际运行配置 | 检查 |
+| --- | --- |
+| BIOS：core2duo / Nehalem / phenom / max | 每个模型 144 项断言；8 种必要 CPU 特性缺失时稳定拒绝 |
+| 32 / 64 / 128 / 256 / 1024 / 5120 MiB | 每轮 144 项断言；碎片化 32 MiB、OOM 回收、预期内核故障 |
+| Q35、默认/无/多功能 VGA | 交互诊断返回 shell；ECAM 与 CF8 回退；硬件阶段 18 组检查 |
+| OVMF、USB GPT/FAT32、64 / 128 / 256 MiB | 每轮 144 项断言，退出码 33；64 MiB 原版本启动失败 |
+| AHCI 端口 0 / 5、第二控制器 | 保存、关机后重启恢复、交互 144 项断言；外来盘整盘哈希不变 |
+| NVMe 单控制器 / 第二 namespace / 第二控制器 / PCIe root port | 同样验证保存恢复、交互诊断和外来盘不变，共 7 个存储拓扑 |
+| xHCI、无 PS/2、键鼠和两级 Hub | 534 个 HID 报告、66 次热插拔、24 次重扫、备用鼠标接管；8 组通过，未泄漏页 |
+| e1000 / e1000e / USB RNDIS | DHCP、3 次 ping、断连重连、256 KiB HTTP 下载及保存内容逐字节核对 |
+| 生产 UEFI 图形会话 | 实际空闲锁屏、错误密码拒绝、解锁、重启持久化与 ACPI 关机 |
+
+网络下载的 SHA-256 为
+`2312394bd99545d9de131c24efb781e765ac1aec243f2ed9347597a793a415e9`。
+SSE #XM 递交仍有明确 SKIP；不将它计作已验证的硬件异常递交。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 scripts/test.py --phase hardware
+python3 scripts/test.py --phase memory
+python3 scripts/test.py --phase storage
+python3 scripts/test.py --phase usb
+python3 tests/pc_storage_boot_test.py
+python3 tests/pc_network_boot_test.py
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/uefi_media_boot_test.py --memory 128
+python3 tests/uefi_media_boot_test.py --memory 256
+python3 tests/session_boot_test.py --memory 64
+```
+
+新增存储/网络专项只使用临时数据盘、ESP 和私有 VARS，失败返回非零；
+日志与结果分别输出到 `build/x86_64/pc-storage`、`pc-network-results`
+和已有专项目录。UEFI 专项会重建 ESP，避免使用旧 `BOOTX64.EFI`。
+这里验证的是 QEMU 模拟 PC；实体主板、真实磁盘突然断电、硬件音频输出、
+KVM、多核和未列出的设备组合仍需单独验证。
+
 ## 未发布 Arch Linux 支持与 USB 网卡修复的验证
 
 在包含此前全部修复的 `2d7efc8` 上，官方 Arch `edk2-ovmf` 已安装时，

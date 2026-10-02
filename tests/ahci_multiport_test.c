@@ -12,6 +12,8 @@ static u8 dma[32][PAGE], mmio[2][AHCI_MMIO], nuvora_header[512];
 static u32 next_page, pci_command[2], port_command[2][2], clb[2][2], writes[2][2], lba28_reads;
 static bool first_supports_lba48 = true;
 static bool first_is_4kn, second_controller, invalid_first_bar;
+static bool second_fis_pending;
+static u32 second_fis_delay;
 static u32 controller(void);
 static uptr page_alloc_below(u64 limit) {
     assert(limit == 0x100000000ull && next_page + 1 < 32);
@@ -73,7 +75,15 @@ static u32 sim_read(u32 offset) {
     if (offset >= 0x100 && offset < 0x200) {
         u32 port = (offset - 0x100) / 0x80, reg = (offset - 0x100) % 0x80;
         if (reg == 0x18) return port_command[n][port];
-        if (reg == 0x24) return 0x101u;
+        if (reg == 0x24) return n && second_fis_pending ? 0xffffffffu : 0x101u;
+        if (reg == 0x20 && n && second_fis_pending) {
+            /* An attached port does not receive its initial D2H FIS until
+             * the OS enables FRE; delivery may follow asynchronously. */
+            if (!(port_command[n][port] & AHCI_CMD_FRE)) return 0x7fu;
+            if (second_fis_delay) { --second_fis_delay; return 0x7fu; }
+            second_fis_pending = false;
+            return 0x50u;
+        }
         if (reg == 0x28) return 0x103u;
         if (reg == 0x38) return 0;
     }
@@ -155,5 +165,12 @@ int main(void) {
     next_page = 0; invalid_first_bar = true;
     assert(disk_init() && ahci_disk && ahci.pci == 0x3000 && ahci.port == 0);
     assert(ahci_shutdown());
-    puts("PASS AHCI: foreign LBA28/4Kn disks, later controllers and malformed BAR5 skipped");
+    next_page = 0; invalid_first_bar = false;
+    second_fis_pending = true; second_fis_delay = 3;
+    assert(disk_init() && ahci_disk && ahci.pci == 0x3000 && ahci.port == 0);
+    assert(!second_fis_pending);
+    assert(!disk_volume_write(0, 8, buffer));
+    assert(writes[0][0] == 0 && writes[1][0] == 2);
+    assert(ahci_shutdown());
+    puts("PASS AHCI: foreign disks, later controllers, deferred initial FIS and malformed BAR5 skipped");
 }

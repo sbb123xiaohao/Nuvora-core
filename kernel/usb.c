@@ -1018,6 +1018,18 @@ static void scan(void) {
     for (u32 i = 0; i < ARRAY_LEN(devices); ++i)
         if (devices[i].slot && !devices[i].info.parent && devices[i].info.state == NV_USB_HUB)
             scan_hub(&devices[i]);
+    /* A connected backup was identified while the first pointer owned input.
+     * Promote it only after root and hub removals have retired all old slots. */
+    for (u32 i = 0; !mouse_device && i < ARRAY_LEN(devices); ++i) {
+        struct device *d = &devices[i];
+        if (!d->slot || d->dead || !d->mouse_ep || d->host->info.state != NV_USB_RUNNING ||
+            (d->info.state != NV_USB_CONFIGURED && d->info.state != NV_USB_KEYBOARD))
+            continue;
+        if (configure_mouse(d) < 0) {
+            d->dead = true;
+            d->host->changed = true;
+        }
+    }
     last_scan = ticks;
 }
 static bool host_capabilities(struct host *h, u32 cap, u32 hcs1, u32 hcc) {

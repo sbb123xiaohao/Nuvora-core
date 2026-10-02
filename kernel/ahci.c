@@ -100,6 +100,14 @@ static void discover(u32 address, u32 id, u32 class_code) {
     if (ahci.regs) ahci.pci = address;
 }
 
+static bool task_file_ready(void) {
+    for (u32 i = 0; i < AHCI_TIMEOUT; ++i) {
+        if (!(pr(0x20) & (0x80u | 0x08u))) return true; /* BSY / DRQ */
+        pause_cpu();
+    }
+    return false;
+}
+
 static bool issue(u8 opcode, u64 lba, bool write, bool data) {
     struct ahci_header *header = phys_ptr(ahci.command_page);
     u8 *table = phys_ptr(ahci.table_page);
@@ -125,12 +133,7 @@ static bool issue(u8 opcode, u64 lba, bool write, bool data) {
         fis[7] = 0xe0u | (u8)((lba >> 24) & 15u);
         fis[12] = 1;
     }
-    u32 ready = 0;
-    for (; ready < AHCI_TIMEOUT; ++ready) {
-        if (!(pr(0x20) & (0x80u | 0x08u))) break; /* task file BSY / DRQ */
-        pause_cpu();
-    }
-    if (ready == AHCI_TIMEOUT) return false;
+    if (!task_file_ready()) return false;
     pw(0x10, 0xffffffffu);
     pw(0x30, 0xffffffffu);
     pw(0x38, 1u);
@@ -189,11 +192,16 @@ bool ahci_init(u64 *capacity, u32 first_pci, u32 first_port,
             for (u32 port = address == first_pci ? first_port : 0; port < 32; ++port) {
                 if (!(implemented & (1u << port))) continue;
                 ahci.port = port;
-                u32 ssts = pr(0x28), signature = pr(0x24);
+                u32 ssts = pr(0x28);
                 if ((ssts & 0xfu) != 3u || ((ssts >> 8) & 0xfu) != 1u) continue;
-                if (signature && signature != 0x00000101u) continue;
                 if (!stop_engine()) { stopped = false; break; }
-                if (!start_engine() || !identify()) {
+                /* A port unused by firmware can retain the reset signature
+                 * until FRE receives its first register D2H FIS. Start the
+                 * private FIS buffer and wait for the task file before using
+                 * PxSIG to distinguish an ATA disk from other devices. */
+                bool started = start_engine() && task_file_ready();
+                u32 signature = pr(0x24);
+                if (!started || (signature && signature != 0x00000101u) || !identify()) {
                     if (!stop_engine()) { stopped = false; break; }
                     continue;
                 }

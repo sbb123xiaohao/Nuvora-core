@@ -97,7 +97,23 @@ static void exercise_usb_mac(void) {
     assert(count == before + 1 && usb_index == slot &&
            call_net(NV_NET_INFO, &info, sizeof(info)) == 1 &&
            info.product == 2 && !memcmp(info.mac, replacement, 6));
+    bridge_up = true;
+    struct nv_net_static config = {.index = slot, .ip = 0xc0a80165,
+        .mask = 0xffffff00, .gateway = 0xc0a80101, .dns = 0x08080808};
+    assert(!call_net(NV_NET_SELECT, &config, sizeof(config)));
+    assert(!call_net(NV_NET_STATIC, &config, sizeof(config)));
+    info.index = slot;
+    assert(call_net(NV_NET_INFO, &info, sizeof(info)) == 1 &&
+           info.ip == config.ip && info.mask == config.mask &&
+           info.gateway == config.gateway && info.dns == config.dns);
+    net_usb_detach();
+    info.index = slot;
+    assert(call_net(NV_NET_INFO, &info, sizeof(info)) == 1 &&
+           info.state == NV_NET_DOWN && !info.ip && !info.mask &&
+           !info.gateway && !info.dns && !info.reserved[0]);
+    assert(active == previous && count == before + 1 && usb_index == NV_NET_MAX);
     puts("PASS USB network MAC: invalid addresses rejected, ff unicast accepted, hotplug slot preserved");
+    puts("PASS USB network detach: the disconnected interface exposes no stale IPv4 routes or DNS");
 }
 static void fixture_message(u8 *message, u8 type, u32 address) {
     memset(message, 0, 300);

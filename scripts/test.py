@@ -462,7 +462,7 @@ def folio_editor():
         vm.wait_for(b' :: ', start, 10)
 
     try:
-        launch('', b'Folio  Untitled.nvd')
+        launch('', b'Untitled.nvd')
         raw(b'Project title')
         raw(b'\x01')  # Ctrl-A: select the title.
         raw(b'\x02')  # Ctrl-B: bold selection.
@@ -657,6 +657,31 @@ def usb_tests():
         vm.send('ports --scan', '1 controller(s), 0 device(s).')
         assert 'stopped after an error' not in vm.text(), vm.text()
         record('USB hubs and control ring wrap', 'two-level hub routing, full-speed keyboard input, 24 rescans, downstream unplug/replug with no leak, whole-tree removal')
+    finally:
+        vm.close()
+
+    hardware = ['-machine', 'pc,i8042=off', '-device', 'qemu-xhci,id=xhci',
+                '-device', 'usb-kbd,id=kbd,bus=xhci.0,port=1',
+                '-device', 'usb-mouse,id=primary,bus=xhci.0,port=2',
+                '-device', 'usb-mouse,id=backup,bus=xhci.0,port=3']
+    vm = VM('usb-mouse-fallback', monitor=True, hardware=hardware)
+    try:
+        out = vm.send('ports', '1 controller(s), 3 device(s).')
+        assert out.count('input=active') == 2 and 'identification only' in out, out
+        vm.monitor('human-monitor-command', {'command-line': 'device_del primary'})
+        out = vm.send('ports --scan', '1 controller(s), 2 device(s).')
+        assert out.count('input=active') == 2 and 'identification only' not in out, out
+        before = int(re.findall(r'reports=(\d+)', out)[1])
+        vm.monitor('human-monitor-command', {'command-line': 'mouse_move 20 10'})
+        out = vm.send('ports')
+        assert int(re.findall(r'reports=(\d+)', out)[1]) > before, out
+        free = int(re.search(r'free: (\d+) KiB', vm.send('horizon')).group(1))
+        for _ in range(24):
+            out = vm.send('ports --scan', '1 controller(s), 2 device(s).')
+            assert out.count('input=active') == 2, out
+        assert int(re.search(r'free: (\d+) KiB', vm.send('horizon')).group(1)) == free
+        assert 'stopped after an error' not in vm.text(), vm.text()
+        record('USB mouse fallback after unplug', 'PS/2 disabled; removing the active mouse activates an already-enumerated backup, real movement reports increase, and 24 rescans leak no pages')
     finally:
         vm.close()
 

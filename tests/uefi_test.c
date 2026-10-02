@@ -6,6 +6,8 @@
 #include "../arch/x86_64/uefi.c"
 
 static uptr position, file_length, reads, closes, allocations, mapped_length;
+static uptr staging_allocations, staging_frees, overlap_length;
+static u8 *overlap_pool;
 static u8 *file_bytes;
 static char16 printed[256];
 static u32 print_length;
@@ -18,13 +20,20 @@ static efi_status MSABI mock_output(struct efi_simple_text_output *out, const ch
     return EFI_SUCCESS;
 }
 static struct efi_file root_file, input_file;
-static bool deny_pages;
+static bool deny_pages, deny_staging, bad_staging;
+static efi_status target_status;
 static efi_status MSABI mock_pool(u32 type, uptr size, void **out) {
     (void)type;
     *out = malloc(size);
     return *out ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
-static efi_status MSABI mock_free(void *p) { free(p); return EFI_SUCCESS; }
+static efi_status MSABI mock_free(void *p) {
+    if (p == overlap_pool) {
+        assert(!munmap(p, overlap_length));
+        overlap_pool = NULL;
+    } else free(p);
+    return EFI_SUCCESS;
+}
 static efi_status MSABI mock_close(struct efi_file *f) {
     (void)f; ++closes; return EFI_SUCCESS;
 }
@@ -49,13 +58,29 @@ static efi_status MSABI mock_read(struct efi_file *f, uptr *n, void *out) {
     return EFI_SUCCESS;
 }
 static efi_status MSABI mock_pages(u32 kind, u32 type, uptr pages, u64 *address) {
+    if (kind == EFI_ALLOCATE_MAX_ADDRESS) {
+        assert(type == EFI_LOADER_DATA);
+        ++staging_allocations;
+        if (deny_staging) return EFI_DEVICE_ERROR;
+        *address = bad_staging ? 0x2000000 : ((*address + 1) & ~4095ull) - pages * 4096;
+        void *p = mmap((void *)(uptr)*address, pages * 4096, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+        assert(p == (void *)(uptr)*address);
+        return EFI_SUCCESS;
+    }
     assert(kind == EFI_ALLOCATE_ADDRESS && type == EFI_LOADER_CODE);
     ++allocations;
+    if (target_status) return target_status;
     if (deny_pages) return EFI_NOT_FOUND;
     mapped_length = pages * 4096;
     void *p = mmap((void *)(uptr)*address, mapped_length, PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
     assert(p == (void *)(uptr)*address);
+    return EFI_SUCCESS;
+}
+static efi_status MSABI mock_free_pages(u64 address, uptr pages) {
+    ++staging_frees;
+    assert(!munmap((void *)(uptr)address, pages * 4096));
     return EFI_SUCCESS;
 }
 static struct efi_gop_mode_info gop_modes[3];
@@ -120,7 +145,7 @@ int main(int argc, char **argv) {
     assert(print_length == 16 && printed[14] == '\r' && printed[15] == '\n');
     early_console = NULL;
     struct efi_boot_services bs = {.allocate_pool = mock_pool, .free_pool = mock_free,
-                                   .allocate_pages = mock_pages};
+                                   .allocate_pages = mock_pages, .free_pages = mock_free_pages};
     check_gop(&bs);
     check_acpi_tables();
     struct efi_sfs volume = {.open_volume = mock_volume};
@@ -166,18 +191,21 @@ int main(int argc, char **argv) {
     assert(fread(elf, 1, (usize)length, f) == (usize)length); fclose(f);
     struct elf64_ehdr *eh = (void *)elf;
     u64 entry = 0, saved = eh->phoff;
+    assert(!load_kernel(&bs, &elf, ~(uptr)0, 0x2000000, 0x10000, &entry) && !allocations);
+    u8 *wrapped = (void *)(uptr)(~(uptr)0 - 31);
+    assert(!load_kernel(&bs, &wrapped, 64, 0x2000000, 0x10000, &entry) && !allocations);
     eh->phoff = ~0ull - 7;
-    assert(!load_kernel(&bs, elf, length, 0x2000000, 0x10000, &entry) && !allocations);
+    assert(!load_kernel(&bs, &elf, length, 0x2000000, 0x10000, &entry) && !allocations);
     eh->phoff = saved;
     saved = eh->shoff; eh->shoff = ~0ull - 7;
-    assert(!load_kernel(&bs, elf, length, 0x2000000, 0x10000, &entry) && !allocations);
+    assert(!load_kernel(&bs, &elf, length, 0x2000000, 0x10000, &entry) && !allocations);
     eh->shoff = saved;
     struct elf64_phdr *ph = (void *)(elf + eh->phoff);
     saved = ph[eh->phnum - 1].offset; ph[eh->phnum - 1].offset = ~0ull;
-    assert(!load_kernel(&bs, elf, length, 0x2000000, 0x10000, &entry) && !allocations);
+    assert(!load_kernel(&bs, &elf, length, 0x2000000, 0x10000, &entry) && !allocations);
     ph[eh->phnum - 1].offset = saved;
     deny_pages = true;
-    assert(load_kernel(&bs, elf, length, 0x2000000, 0x10000, &entry) && allocations == 1);
+    assert(load_kernel(&bs, &elf, length, 0x2000000, 0x10000, &entry) && allocations == 1);
     assert(kernel_first == 0x01000000ull && kernel_limit < 0x02000000ull);
     assert(!kernel_pages_owned && !kernel_destination_ready());
     bi.mem_count = 2;
@@ -187,7 +215,7 @@ int main(int argc, char **argv) {
     bi.mem[bi.mem_count++] = (struct boot_mem_entry){kernel_first + 4096, 4096, 0};
     assert(!kernel_destination_ready());
     deny_pages = false;
-    assert(load_kernel(&bs, elf, length, 0x2000000, 0x10000, &entry));
+    assert(load_kernel(&bs, &elf, length, 0x2000000, 0x10000, &entry));
     copy_kernel_segments(elf);
     for (u16 i = 0; i < eh->phnum; ++i) if (ph[i].type == 1) {
         assert(!memcmp((void *)(uptr)ph[i].paddr, elf + ph[i].offset, ph[i].filesz));
@@ -195,7 +223,57 @@ int main(int argc, char **argv) {
             assert(!((u8 *)(uptr)ph[i].paddr)[j]);
     }
     assert(!munmap((void *)(uptr)kernel_first, mapped_length));
+    /* Model the real 64 MiB firmware: AllocatePool returned staging pages
+     * inside the 16..30 MiB kernel destination. Validate before relocating. */
+    overlap_length = ALIGN_UP((uptr)length, 4096);
+    overlap_pool = mmap((void *)0x01b00000, overlap_length, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    assert(overlap_pool == (void *)0x01b00000);
+    memcpy(overlap_pool, elf, (usize)length);
+    u8 *staged = overlap_pool;
+    struct elf64_ehdr *staged_eh = (void *)staged;
+    struct elf64_phdr *staged_ph = (void *)(staged + staged_eh->phoff);
+    saved = staged_ph[staged_eh->phnum - 1].offset;
+    staged_ph[staged_eh->phnum - 1].offset = ~0ull;
+    uptr previous = allocations;
+    assert(!load_kernel(&bs, &staged, length, 0x2000000, 0x10000, &entry));
+    assert(staged == overlap_pool && !staging_allocations && allocations == previous);
+    staged_ph[staged_eh->phnum - 1].offset = saved;
+    deny_staging = true;
+    assert(!load_kernel(&bs, &staged, length, 0x2000000, 0x10000, &entry));
+    assert(staged == overlap_pool && staging_allocations == 1 && allocations == previous);
+    assert(kernel_load_status == EFI_DEVICE_ERROR && !memcmp(staged, elf, (usize)length));
+    deny_staging = false;
+    bad_staging = true;
+    assert(!load_kernel(&bs, &staged, length, 0x2000000, 0x10000, &entry));
+    assert(staged == overlap_pool && staging_allocations == 2 && allocations == previous);
+    assert(staging_frees == 1 && kernel_load_status == EFI_DEVICE_ERROR);
+    bad_staging = false;
+    target_status = EFI_DEVICE_ERROR;
+    assert(!load_kernel(&bs, &staged, length, 0x2000000, 0x10000, &entry));
+    assert(!overlap_pool && staging_allocations == 3 && kernel_file_pages);
+    free_kernel_file(&bs, staged);
+    assert(staging_frees == 2 && !kernel_file_pages);
+    target_status = EFI_SUCCESS;
+    overlap_pool = mmap((void *)0x01b00000, overlap_length, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    assert(overlap_pool == (void *)0x01b00000);
+    memcpy(overlap_pool, elf, (usize)length);
+    staged = overlap_pool;
+    assert(load_kernel(&bs, &staged, length, 0x2000000, 0x10000, &entry));
+    assert(!overlap_pool && staging_allocations == 4 && kernel_file_pages);
+    assert((u64)(uptr)staged + (u64)kernel_file_pages * 4096 <= kernel_first);
+    assert(!memcmp(staged, elf, (usize)length));
+    copy_kernel_segments(staged);
+    for (u16 i = 0; i < eh->phnum; ++i) if (ph[i].type == 1) {
+        assert(!memcmp((void *)(uptr)ph[i].paddr, elf + ph[i].offset, ph[i].filesz));
+        for (u64 j = ph[i].filesz; j < ph[i].memsz; ++j)
+            assert(!((u8 *)(uptr)ph[i].paddr)[j]);
+    }
+    free_kernel_file(&bs, staged);
+    assert(staging_frees == 3 && !kernel_file_pages);
+    assert(!munmap((void *)(uptr)kernel_first, mapped_length));
     free(elf);
-    puts("PASS UEFI: ACPI GUID/preference/high address, partial reads/rewind, memory-map replacement, malformed ELF, page ownership, segment copy/BSS");
+    puts("PASS UEFI: ACPI GUID/preference/high address, partial reads/rewind, memory-map replacement, malformed ELF, page ownership, overlapping ELF relocation/OOM, segment copy/BSS");
     return 0;
 }
