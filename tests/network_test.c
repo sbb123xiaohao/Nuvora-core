@@ -153,6 +153,158 @@ static void deliver_tcp(u32 seq, u32 ack, u8 flags, const u8 *body, u32 size) {
     memcpy(ip + 20, packet, 20 + size);
     receive(frame_in, 54 + size);
 }
+static struct nv_net_tcp open_tcp_fixture(void) {
+    struct nv_net_static config = {.index = active, .ip = 0xc0a80164,
+        .mask = 0xffffff00, .gateway = 0xc0a80101};
+    assert(!call_net(NV_NET_STATIC, &config, sizeof(config)));
+    u8 arp[28] = {0};
+    put16(arp, 1); put16(arp + 2, 0x0800); arp[4] = 6; arp[5] = 4;
+    put16(arp + 6, 2); arp[8] = 2; arp[13] = 1;
+    put32(arp + 14, config.gateway);
+    input_arp(arp, sizeof(arp));
+    struct nv_net_tcp io = {.index = active, .address = 0xcb007101u, .port = 80};
+    assert(!call_net(NV_NET_TCP_OPEN, &io, sizeof(io)));
+    assert(sent[47] == 2 && stream.state == TCP_SYN_SENT);
+    return io;
+}
+static struct nv_net_tcp establish_tcp_fixture(u32 peer_sequence) {
+    struct nv_net_tcp io = open_tcp_fixture();
+    deliver_tcp(peer_sequence, stream.next_tx, 0x12, NULL, 0);
+    assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == 1);
+    assert(stream.next_rx == peer_sequence + 1);
+    return io;
+}
+static void exercise_tcp_reset(void) {
+    struct nv_net_tcp io = open_tcp_fixture();
+    u32 ack = stream.next_tx;
+    deliver_tcp(5000, ack, 0x04, NULL, 0); /* no ACK: not a response to our SYN */
+    assert(!call_net(NV_NET_TCP_OPEN, &io, sizeof(io)));
+    deliver_tcp(5000, ack - 1, 0x14, NULL, 0);
+    assert(!call_net(NV_NET_TCP_OPEN, &io, sizeof(io)));
+    deliver_tcp(5000, ack + 1, 0x14, NULL, 0);
+    assert(!call_net(NV_NET_TCP_OPEN, &io, sizeof(io)));
+    deliver_tcp(5000, ack, 0x16, NULL, 0); /* RST takes precedence over SYN */
+    assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == -NV_EIO);
+    assert(stream.state == TCP_IDLE);
+    io = open_tcp_fixture();
+    deliver_tcp(5000, stream.next_tx, 0x14, NULL, 0);
+    assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == -NV_EIO);
+    io = establish_tcp_fixture(5000);
+    deliver_tcp(stream.next_rx + 1, stream.next_tx, 0x14, NULL, 0);
+    assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == 1);
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x14, NULL, 0);
+    assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == -NV_EIO);
+    puts("PASS TCP reset: only an ACK of our SYN aborts opening; RST cannot establish a stream");
+}
+static void exercise_tcp_window_ack(void) {
+    struct nv_net_tcp io = establish_tcp_fixture(5000);
+    const u8 request[] = "request";
+    io.length = sizeof(request) - 1; memcpy(io.data, request, io.length);
+    u32 sequence = stream.next_tx;
+    assert(call_net(NV_NET_TCP_SEND, &io, sizeof(io)) == (int)io.length);
+    deliver_tcp(stream.next_rx + NV_NET_DATA_MAX, stream.next_tx, 0x10, NULL, 0);
+    assert(stream.queued == io.length && stream.acked_tx == sequence);
+    ticks += 100; net_poll();
+    assert(be32(sent + 38) == sequence && be16(sent + 16) == 40 + io.length &&
+           !memcmp(sent + 54, request, io.length));
+    /* An ACK within the advertised window is valid even with out-of-order data. */
+    const u8 data[] = "x";
+    deliver_tcp(stream.next_rx + 1, sequence + 2, 0x18, data, 1);
+    assert(stream.acked_tx == sequence + 2 && stream.queued == io.length - 2 &&
+           !stream.used);
+    deliver_tcp(stream.next_rx - 1, stream.next_tx, 0x18, data, 1);
+    assert(stream.acked_tx == sequence + 2 && stream.queued == io.length - 2);
+    ticks += 100; net_poll();
+    assert(be32(sent + 38) == sequence + 2 && be16(sent + 16) == 40 + io.length - 2 &&
+           !memcmp(sent + 54, request + 2, io.length - 2));
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x10, NULL, 0);
+    assert(!stream.queued && stream.acked_tx == stream.next_tx);
+    puts("PASS TCP window: invalid sequence numbers cannot cancel outgoing retransmissions");
+}
+static void exercise_tcp_future_ack(void) {
+    struct nv_net_tcp io = establish_tcp_fixture(5000);
+    io.length = 3; memcpy(io.data, "GET", 3);
+    assert(call_net(NV_NET_TCP_SEND, &io, sizeof(io)) == 3);
+    u32 sequence = stream.next_rx, acknowledged = stream.acked_tx;
+    const u8 bad[] = "bad";
+    deliver_tcp(sequence, stream.next_tx + 1, 0x19, bad, 3);
+    assert(!stream.used && !stream.eof && stream.next_rx == sequence &&
+           stream.acked_tx == acknowledged && stream.queued == 3);
+    deliver_tcp(sequence, stream.next_tx, 0x12, NULL, 0); /* unexpected SYN */
+    assert(stream.acked_tx == acknowledged && stream.queued == 3 && !stream.used);
+    const u8 good[] = "ok";
+    deliver_tcp(sequence, acknowledged - 1, 0x18, good, 2); /* stale ACK, valid data */
+    assert(stream.acked_tx == acknowledged && stream.queued == 3);
+    io.length = sizeof(io.data);
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 2 && !memcmp(io.data, good, 2));
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x10, NULL, 0);
+    assert(!stream.queued);
+    puts("PASS TCP ACK bounds: future ACK/SYN cannot deliver data or FIN; stale ACK keeps valid data");
+}
+static void exercise_tcp_zero_window(void) {
+    struct nv_net_tcp io = establish_tcp_fixture(5000);
+    u8 data[NV_NET_DATA_MAX]; memset(data, 'a', sizeof(data));
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x19, data, sizeof(data));
+    assert(stream.used == sizeof(data) && !stream.eof && be16(sent + 48) == 0);
+    io.length = 1; io.data[0] = 'q';
+    u32 sequence = stream.next_tx;
+    assert(call_net(NV_NET_TCP_SEND, &io, sizeof(io)) == 1);
+    deliver_tcp(stream.next_rx + 1, stream.next_tx, 0x10, NULL, 0);
+    assert(stream.acked_tx == sequence && stream.queued == 1);
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x10, NULL, 0);
+    assert(!stream.queued); /* a zero-length ACK at RCV.NXT is valid at zero window */
+    u32 next = stream.next_rx;
+    deliver_tcp(next, stream.next_tx, 0x18, data, 1);
+    assert(stream.used == sizeof(data) && stream.next_rx == next);
+    deliver_tcp(next, stream.next_tx, 0x11, NULL, 0);
+    assert(!stream.eof && stream.next_rx == next);
+    io.length = sizeof(io.data) / 2;
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == (int)sizeof(data) / 2);
+    assert(be16(sent + 48) == sizeof(data) / 2);
+    deliver_tcp(next, stream.next_tx, 0x11, NULL, 0);
+    assert(stream.eof && stream.next_rx == next + 1 && be16(sent + 48) == 0);
+    io.length = sizeof(io.data);
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == (int)sizeof(data) / 2);
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 0);
+    puts("PASS TCP zero window: ACKs stay usable; FIN waits for receive space and closes it");
+}
+static void exercise_tcp_eof(void) {
+    struct nv_net_tcp io = establish_tcp_fixture(5000);
+    const u8 data[] = "a";
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x19, data, 1);
+    io.length = sizeof(io.data);
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 1 && io.data[0] == 'a');
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 0);
+    u32 sequence = stream.next_rx;
+    deliver_tcp(sequence, stream.next_tx, 0x18, data, 1);
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 0 && stream.next_rx == sequence);
+    deliver_tcp(sequence, stream.next_tx, 0x11, NULL, 0);
+    assert(stream.next_rx == sequence && stream.eof);
+    puts("PASS TCP EOF: late data/FIN cannot reopen or advance the closed receive stream");
+}
+static void exercise_tcp_wrap(void) {
+    struct nv_net_tcp io = establish_tcp_fixture(0xfffffff7u);
+    /* Seed the send boundary so a small real syscall write crosses sequence zero. */
+    stream.next_tx = stream.acked_tx = 0xfffffffcu;
+    io.length = 8; memcpy(io.data, "abcdefgh", io.length);
+    assert(call_net(NV_NET_TCP_SEND, &io, sizeof(io)) == 8 && stream.next_tx == 4);
+    deliver_tcp(stream.next_rx + NV_NET_DATA_MAX, 4, 0x10, NULL, 0);
+    assert(stream.acked_tx == 0xfffffffcu && stream.queued == 8);
+    const u8 data[] = "0123456789ab";
+    deliver_tcp(stream.next_rx, 5, 0x18, data, sizeof(data) - 1);
+    assert(!stream.used && stream.next_rx == 0xfffffff8u);
+    deliver_tcp(stream.next_rx, 0, 0x18, data, sizeof(data) - 1);
+    assert(stream.used == sizeof(data) - 1 && stream.next_rx == 4 &&
+           stream.acked_tx == 0 && stream.queued == 4);
+    const u8 overlap[] = "9abXYZ";
+    deliver_tcp(1, 4, 0x19, overlap, sizeof(overlap) - 1);
+    assert(!stream.queued && stream.next_rx == 8 && stream.eof);
+    io.length = sizeof(io.data);
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 15 &&
+           !memcmp(io.data, "0123456789abXYZ", 15));
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 0);
+    puts("PASS TCP sequence wrap: partial ACK, overlapping data and FIN preserve ordering");
+}
 static void exercise_tcp_icmp(void) {
     u32 dest = 0xcb007101u;
     assert(!echo_request(dest, 0x1234, 7));
@@ -220,6 +372,12 @@ int main(int argc, char **argv) {
     assert(argc == 1 || argc == 2);
     if (argc == 2) {
         if (!strcmp(argv[1], "select")) exercise_adapter_selection();
+        else if (!strcmp(argv[1], "tcp-reset")) exercise_tcp_reset();
+        else if (!strcmp(argv[1], "tcp-window-ack")) exercise_tcp_window_ack();
+        else if (!strcmp(argv[1], "tcp-future-ack")) exercise_tcp_future_ack();
+        else if (!strcmp(argv[1], "tcp-zero-window")) exercise_tcp_zero_window();
+        else if (!strcmp(argv[1], "tcp-eof")) exercise_tcp_eof();
+        else if (!strcmp(argv[1], "tcp-wrap")) exercise_tcp_wrap();
         else {
             assert(!strcmp(argv[1], "reconfigure"));
             exercise_configuration_reset();

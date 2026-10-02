@@ -248,7 +248,7 @@ static int tcp_packet(u32 sequence, u8 flags, const u8 *body, u32 length) {
     put32(packet + 8, stream.next_rx);
     packet[12] = 5 << 4;
     packet[13] = flags;
-    put16(packet + 14, (u16)(NV_NET_DATA_MAX - stream.used));
+    put16(packet + 14, stream.eof ? 0 : (u16)(NV_NET_DATA_MAX - stream.used));
     if (length) memcpy(packet + 20, body, length);
     u8 pseudo[12] = {0};
     put32(pseudo, stream.source_ip);
@@ -285,12 +285,15 @@ static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
     u8 flags = packet[13];
     u32 seq = be32(packet + 4), ack = be32(packet + 8);
     if (stream.state == TCP_SYN_SENT) {
-        if ((flags & 0x12) == 0x12 && ack == stream.next_tx) {
+        /* A reset must acknowledge our SYN. Check it before accepting SYN+ACK. */
+        if (!(flags & 0x10) || ack != stream.next_tx) return;
+        if (flags & 4) { stream.state = TCP_ERROR; return; }
+        if (flags & 2) {
             stream.next_rx = seq + 1;
             stream.acked_tx = ack;
             stream.state = TCP_ESTABLISHED;
             tcp_packet(stream.next_tx, 0x10, NULL, 0);
-        } else if (flags & 4) stream.state = TCP_ERROR;
+        }
         return;
     }
     if (flags & 4) {
@@ -298,6 +301,19 @@ static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
         return;
     }
     if (!(flags & 0x10)) return;
+    u32 length = size - header;
+    u32 span = length + ((flags & 1) != 0);
+    u32 window = stream.eof ? 0 : NV_NET_DATA_MAX - stream.used;
+    /* Validate sequence space before an ACK can release queued output. Unsigned
+     * offsets handle sequence wrap; FIN also occupies one receive position. */
+    bool acceptable = !span ? (window ? seq - stream.next_rx < window :
+                                       seq == stream.next_rx) :
+        window && (seq - stream.next_rx < window ||
+                   seq + span - 1 - stream.next_rx < window);
+    if (!acceptable || (flags & 2) || (i32)(ack - stream.next_tx) > 0) {
+        tcp_packet(stream.next_tx, 0x10, NULL, 0);
+        return;
+    }
     if ((i32)(ack - stream.acked_tx) >= 0 &&
         (i32)(stream.next_tx - ack) >= 0) {
         u32 progress = ack - stream.acked_tx;
@@ -309,20 +325,20 @@ static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
         }
         stream.acked_tx = ack;
     }
-    u32 length = size - header, skip = 0;
+    u32 skip = 0;
     if ((i32)(seq - stream.next_rx) < 0)
         skip = MIN(length, stream.next_rx - seq);
     if (seq + skip != stream.next_rx) {
         tcp_packet(stream.next_tx, 0x10, NULL, 0);
         return;
     }
-    u32 accepted = MIN(length - skip, NV_NET_DATA_MAX - stream.used);
+    u32 accepted = MIN(length - skip, window);
     if (accepted) {
         memcpy(stream.buffer + stream.used, packet + header + skip, accepted);
         stream.used += accepted;
         stream.next_rx += accepted;
     }
-    if ((flags & 1) && skip + accepted == length) {
+    if ((flags & 1) && skip + accepted == length && accepted < window) {
         ++stream.next_rx;
         stream.eof = true;
     }
