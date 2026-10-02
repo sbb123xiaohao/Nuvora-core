@@ -1,5 +1,12 @@
 # Nuvora Core 0.15.0
 
+## 未发布：Arch Linux 使用支持与 USB 网卡修复
+
+- 新增 [Arch Linux 构建和运行指南](ARCH-LINUX.md)，覆盖官方依赖、UEFI 图形启动、数据盘、ISO 和启动介质。
+- 修复 Arch 官方 `edk2-ovmf` 固件无法自动发现：支持 `/usr/share/edk2/x64` 下的 `OVMF_CODE.4m.fd`、`OVMF_VARS.4m.fd` 和 `OVMF.4m.fd`；保留旧布局与独立变量副本。
+- USB CDC-ECM 描述符拒绝全零 MAC；网络注册入口统一拒绝全零、组播和广播地址，失败时保留原接口与热插拔槽位，合法含 `ff` 的单播地址继续可用。
+- 在 Arch 官方容器中完成生产/诊断构建、38 组宿主回归、UEFI 启动镜像和 ISO 构建；QEMU 实际验证 144 项 Ring 3 断言，以及生产图形会话的 7 项权限断言。
+
 ## 未发布：TCP 状态与收包边界修复
 
 - 连接握手只接受确认本地 SYN 的 RST，且先处理 RST 再处理 SYN+ACK，避免无效复位终止连接或带 RST 的响应误建立连接。

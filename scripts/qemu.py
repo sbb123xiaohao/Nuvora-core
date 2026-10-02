@@ -8,12 +8,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARCH = os.environ.get('NV_ARCH', 'x86_64')
 BUILD = ROOT / 'build' / ARCH
 
-OVMF_CODE_FILES = ('OVMF_CODE_4M.fd', 'OVMF_CODE.fd', 'edk2-x86_64-code.fd')
-OVMF_COMBINED_FILES = ('OVMF.fd',)
+OVMF_CODE_FILES = ('OVMF_CODE_4M.fd', 'OVMF_CODE.4m.fd', 'OVMF_CODE.fd', 'edk2-x86_64-code.fd')
+OVMF_COMBINED_FILES = ('OVMF.fd', 'OVMF.4m.fd')
 OVMF_DIRS = (
     pathlib.Path('/usr/share/qemu'),
     pathlib.Path('/usr/share/OVMF'),
     pathlib.Path('/usr/share/ovmf'),
+    pathlib.Path('/usr/share/edk2/x64'),
     pathlib.Path('/usr/share/edk2-ovmf/x64'),
     pathlib.Path('/usr/share/edk2-ovmf'),
 )
@@ -44,7 +45,7 @@ def find_uefi_firmware():
         qdir = pathlib.Path(binary).resolve().parent
         directories += [qdir / 'share', qdir.parent / 'share' / 'qemu']
     directories += list(OVMF_DIRS)
-    # Ubuntu ships both a combined OVMF.fd and a code/variables pair. Prefer
+    # Distros ship combined OVMF images and code/variables pairs. Prefer
     # the pair so UEFI variables live in a writable, private image.
     candidates = [d / name for name in OVMF_CODE_FILES for d in directories]
     candidates += [d / name for name in OVMF_COMBINED_FILES for d in directories]

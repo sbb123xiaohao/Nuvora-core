@@ -32,7 +32,8 @@ if args.uefi:
     firmware = find_uefi_firmware()
     if not firmware:
         raise SystemExit('UEFI firmware not found. Install OVMF (or QEMU edk2 firmware) or set NV_OVMF '
-                         'to the firmware file, e.g. /usr/share/OVMF/OVMF_CODE.fd.')
+                         'to the firmware file, e.g. /usr/share/OVMF/OVMF_CODE.fd '
+                         'or /usr/share/edk2/x64/OVMF_CODE.4m.fd on Arch Linux.')
     if not esp.is_file():
         raise SystemExit(f'Missing {esp}. Build it with: make esp (needs mtools).')
 cmd = command(memory=args.memory, disk=BUILD / 'nuvora-store.img', cpu=args.cpu, machine=args.machine,

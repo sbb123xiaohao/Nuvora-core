@@ -114,6 +114,9 @@ void net_init(void) {
 }
 void net_usb_attach(u32 vendor, u32 product, const u8 *mac) {
     if (usb_index < count) return;
+    u8 nonzero = 0;
+    for (u32 i = 0; i < 6; ++i) nonzero |= mac[i];
+    if (!nonzero || (mac[0] & 1)) return;
     u32 index = NV_NET_MAX;
     for (u32 i = 0; i < count; ++i)
         if (adapters[i].type == NV_NET_USB_BRIDGE && adapters[i].state == NV_NET_DOWN) {

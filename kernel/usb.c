@@ -773,12 +773,14 @@ static int identify(struct device *d) {
         string_descriptor(d, ecm_mac_string, language, value, sizeof(value));
         if (strlen(value) == 12) {
             bool valid = true;
+            u8 nonzero = 0;
             for (u32 i = 0; i < 6; ++i) {
                 int a = nibble(value[i * 2]), b = nibble(value[i * 2 + 1]);
                 if (a < 0 || b < 0) { valid = false; break; }
                 d->ecm_mac[i] = (u8)((a << 4) | b);
+                nonzero |= d->ecm_mac[i];
             }
-            if (!valid || (d->ecm_mac[0] & 1)) d->ecm_in_ep = 0;
+            if (!valid || !nonzero || (d->ecm_mac[0] & 1)) d->ecm_in_ep = 0;
         } else d->ecm_in_ep = 0;
     } else d->ecm_in_ep = 0;
     if (control(d, 0, 9, config_value, 0, 0) < 0)

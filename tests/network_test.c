@@ -70,6 +70,35 @@ static void exercise_adapter_selection(void) {
     assert(!call_net(NV_NET_SELECT, &config, sizeof(config)) && active == previous);
     puts("PASS adapter selection: absent/unsupported indices rejected without changing active NIC");
 }
+static void exercise_usb_mac(void) {
+    const u8 invalid[][6] = {{0}, {1, 2, 3, 4, 5, 6}, {255, 255, 255, 255, 255, 255}};
+    u32 previous = active, before = count;
+    for (u32 i = 0; i < ARRAY_LEN(invalid); ++i) {
+        net_usb_attach(0x303a, 1, invalid[i]);
+        assert(count == before && usb_index == NV_NET_MAX && active == previous);
+    }
+    const u8 mac[6] = {2, 1, 255, 3, 4, 255};
+    net_usb_attach(0x303a, 1, mac);
+    assert(count == before + 1 && usb_index == before && active == previous);
+    struct nv_net_info info = {.index = usb_index};
+    assert(call_net(NV_NET_INFO, &info, sizeof(info)) == 1 && !memcmp(info.mac, mac, 6));
+    net_usb_detach();
+    u32 slot = info.index;
+    for (u32 i = 0; i < ARRAY_LEN(invalid); ++i) {
+        net_usb_attach(0x303a, 2, invalid[i]);
+        assert(count == before + 1 && usb_index == NV_NET_MAX && active == previous);
+        info.index = slot;
+        assert(call_net(NV_NET_INFO, &info, sizeof(info)) == 1 &&
+               info.product == 1 && !memcmp(info.mac, mac, 6));
+    }
+    const u8 replacement[6] = {2, 0, 0, 0, 0, 1};
+    net_usb_attach(0x303a, 2, replacement);
+    info.index = slot;
+    assert(count == before + 1 && usb_index == slot &&
+           call_net(NV_NET_INFO, &info, sizeof(info)) == 1 &&
+           info.product == 2 && !memcmp(info.mac, replacement, 6));
+    puts("PASS USB network MAC: invalid addresses rejected, ff unicast accepted, hotplug slot preserved");
+}
 static void fixture_message(u8 *message, u8 type, u32 address) {
     memset(message, 0, 300);
     message[0] = 2; message[1] = 1; message[2] = 6;
@@ -372,6 +401,7 @@ int main(int argc, char **argv) {
     assert(argc == 1 || argc == 2);
     if (argc == 2) {
         if (!strcmp(argv[1], "select")) exercise_adapter_selection();
+        else if (!strcmp(argv[1], "usb-mac")) exercise_usb_mac();
         else if (!strcmp(argv[1], "tcp-reset")) exercise_tcp_reset();
         else if (!strcmp(argv[1], "tcp-window-ack")) exercise_tcp_window_ack();
         else if (!strcmp(argv[1], "tcp-future-ack")) exercise_tcp_future_ack();

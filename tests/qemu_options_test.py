@@ -1,4 +1,4 @@
-"""Check Ubuntu OVMF discovery and QEMU disk arguments without a QEMU install."""
+"""Check distro OVMF discovery and QEMU disk arguments without a QEMU install."""
 import os
 import pathlib
 import sys
@@ -9,9 +9,40 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'scripts'))
 import qemu
 
 
+def arch_firmware_options(root):
+    """Use the paths and names shipped by Arch's official edk2-ovmf package."""
+    firmware = root / 'usr/share/edk2/x64'
+    firmware.mkdir(parents=True)
+    combined = firmware / 'OVMF.4m.fd'
+    code = firmware / 'OVMF_CODE.4m.fd'
+    template = firmware / 'OVMF_VARS.4m.fd'
+    combined.write_bytes(b'C' * 4 * 1024 * 1024)
+    code.write_bytes(b'F' * 3584 * 1024)
+    template.write_bytes(b'V' * 512 * 1024)
+    assert pathlib.Path('/usr/share/edk2/x64') in qemu.OVMF_DIRS
+    build = root / 'arch-build'
+    with mock.patch.dict(os.environ, {'NV_OVMF': '', 'NV_QEMU': ''}), \
+         mock.patch.object(qemu, 'OVMF_DIRS', (firmware,)), \
+         mock.patch.object(qemu, 'qemu_binary', return_value=None), \
+         mock.patch.object(qemu, 'BUILD', build):
+        assert qemu.find_uefi_firmware() == code
+        options = qemu.firmware_arguments(code)
+        assert options.count('-drive') == 2 and 'readonly=on' in options[1]
+        variables = build / 'ovmf-vars.fd'
+        assert variables.read_bytes() == template.read_bytes()
+        variables.write_bytes(b'X' * 512 * 1024)
+        assert qemu.firmware_arguments(code) == options
+        assert variables.read_bytes() == b'X' * 512 * 1024
+        assert template.read_bytes() == b'V' * 512 * 1024
+        template.unlink()
+        assert qemu.find_uefi_firmware() == combined
+        assert qemu.firmware_arguments(combined) == ['-bios', str(combined)]
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix='nuvora-qemu-options-') as directory:
         root = pathlib.Path(directory)
+        arch_firmware_options(root)
         firmware = root / 'firmware'
         firmware.mkdir()
         combined = firmware / 'OVMF.fd'
@@ -64,7 +95,7 @@ def main():
                     q35 = qemu.command(disk=disk, esp=esp, disk_bus=bus, machine='q35')
                     assert 'ide-hd,drive=nuvora_esp,bus=ide.1,unit=0,bootindex=1' in q35
                     assert ('isa-ide,id=legacyide' in q35) == (bus == 'ide')
-    print('PASS QEMU options: split OVMF variables, combined fallback, IDE/AHCI/NVMe')
+    print('PASS QEMU options: Arch/Ubuntu OVMF, private variables, combined fallback, IDE/AHCI/NVMe')
 
 
 if __name__ == '__main__':

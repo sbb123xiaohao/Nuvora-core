@@ -1,5 +1,42 @@
 # 测试与复现
 
+## 未发布 Arch Linux 支持与 USB 网卡修复的验证
+
+在包含此前全部修复的 `2d7efc8` 上，官方 Arch `edk2-ovmf` 已安装时，
+原 `find_uefi_firmware()` 仍返回 `None`；修复后自动选择
+`/usr/share/edk2/x64/OVMF_CODE.4m.fd`。新增夹具验证 Arch 点分文件名、
+CODE/VARS 配对、变量副本保留和模板缺失时的完整固件回退，Ubuntu
+旧布局回归继续通过。
+
+新增 USB 网卡注册夹具在原代码上因全零 MAC 被发布而失败；修复后
+全零、组播和广播地址都被拒绝，合法含 `ff` 的单播地址正常注册。
+接口卸载后再收到无效地址时，原槽位的厂商信息和 MAC 不变；有效
+重插复用同一槽位。CDC-ECM 描述符也在配置网络端点前拒绝全零地址。
+
+实际验证环境为 Arch 官方 OCI 容器，安装官方仓库依赖并完整升级：
+GCC **16.2.1**、binutils **2.47**、Python **3.14.7**、QEMU **11.1.1**、
+edk2-ovmf **202608-1**、mtools **4.0.49**、libisoburn **1.5.8.2**。
+源代码独立复制，使用普通 UID 1000 构建和运行；未复用宿主的编译对象。
+
+```sh
+make -j4 diagnostics
+make test-host
+make esp media iso-uefi
+python3 tests/uefi_media_boot_test.py
+python3 tests/session_boot_test.py --iso build/x86_64/nuvora-core-0.15.0-x86_64-uefi.iso --boot-only
+```
+
+生产/诊断 BIOS 与 UEFI 构建、全部 **38 组**宿主回归（C 夹具使用
+UBSan）、ESP/GPT 启动镜像和 UEFI ISO 构建通过。Arch OVMF / q35 / TCG
+从可移动 GPT/FAT32 介质启动，**144 项**原生/旧 ABI Ring 3 断言通过，
+QEMU 退出码 33；SSE #XM 递交继续由夹具明确标记 SKIP。
+生产 ISO 实际通过图形 OOBE、桌面、Terminal 和
+**7 项**原生客户端权限断言。
+
+本轮验证的是 Arch 容器中的 QEMU 客户机，未验证 Arch 宿主的 GTK
+窗口显示、实体 PC 或实体 USB 网卡；未重跑完整锁屏、重启/关机和
+历史 ARM64 矩阵。磁盘格式和应用 ABI 保持不变。
+
 ## 未发布 TCP 修复的验证
 
 基于包含此前网络、存储与 HTTP 修复的 `41766e8`，六个新增子场景

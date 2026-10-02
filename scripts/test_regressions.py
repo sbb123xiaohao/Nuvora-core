@@ -37,7 +37,7 @@ def main():
                 args += [str(ROOT / 'tests/fixtures/tone.flac'), str(ROOT / 'tests/fixtures/hd.mpg')]
             subprocess.run(args, check=True)
             if name == 'network':
-                for scenario in ('tcp-reset', 'tcp-window-ack', 'tcp-future-ack',
+                for scenario in ('usb-mac', 'tcp-reset', 'tcp-window-ack', 'tcp-future-ack',
                                  'tcp-zero-window', 'tcp-eof', 'tcp-wrap'):
                     subprocess.run([str(output), scenario], check=True)
             if name == 'igc':

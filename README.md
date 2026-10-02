@@ -22,7 +22,7 @@ x64 UEFI 启动菜单选择它，并关闭 Secure Boot。镜像使用 FAT32 ESP�
 
 ## 开发环境快速运行
 
-Ubuntu 宿主安装 GCC、binutils、Python 3、QEMU、OVMF 和 mtools 后：
+Ubuntu 或 Arch Linux 宿主安装 GCC、binutils、Python 3、QEMU、OVMF 和 mtools 后：
 
 ```sh
 make -j4
@@ -36,6 +36,8 @@ python3 start.py --uefi --window --audio
 python3 start.py --uefi --window --disk-bus ahci
 python3 start.py --uefi --window --disk-bus nvme
 ```
+
+Arch Linux 安装依赖使用 `sudo pacman -Syu --needed gcc binutils make python git qemu-desktop edk2-ovmf mtools xorriso`。启动脚本自动识别 Arch 的 OVMF 固件布局，步骤见 [Arch Linux 指南](docs/ARCH-LINUX.md)。
 
 Windows 10/11 在 PowerShell 中运行 `./start.ps1 doctor`、`./start.ps1 build`、`./start.ps1 run -Uefi -Window`，默认使用 WSL2 工具链。详细依赖、ISO 与独立 UEFI 启动介质见 [Ubuntu 指南](docs/UBUNTU.md)、[Windows 指南](docs/WINDOWS.md)和[启动介质](docs/BOOT-MEDIA.md)。
 
