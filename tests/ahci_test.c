@@ -1,6 +1,6 @@
 /* Run the AHCI command-list/FIS path against a tiny HBA register and DMA
- * model.  The model completes commands when PxCI is written, so this checks
- * the same polling and bounce-buffer code used by the guest. */
+ * model. Commands can complete when PxCI is written or after the first PxIS
+ * read, exercising the guest's polling and bounce-buffer code. */
 #include <assert.h>
 #include <stdio.h>
 #include <nv/abi.h>
@@ -12,7 +12,7 @@ struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 
 static u8 dma[8][PAGE], mmio[AHCI_MMIO];
 static u32 next_page, pci_command, port_command, port_clb, port_ci, writes, lba28_reads;
 static u8 last_flush;
-static bool fail_io, lba28, short_dma, taskfile_error, no_flush_ext;
+static bool fail_io, lba28, short_dma, taskfile_error, no_flush_ext, overflow, overflow_late;
 static uptr page_alloc_below(u64 limit) {
     assert(limit >= 0x100000000ull && next_page < 4);
     ++next_page; memset(dma[next_page], 0, PAGE); return next_page * PAGE;
@@ -47,7 +47,15 @@ static u32 sim_read(u32 offset) {
     if (offset == port + 0x18) return port_command;
     if (offset == port + 0x24) return 0x101u;
     if (offset == port + 0x28) return 0x103u; /* device present, active */
-    if (offset == port + 0x38) return port_ci;
+    if (offset == port + 0x38) {
+        /* Overflow may arrive after software reads PxIS but before it sees
+         * CI clear. The PRDBC count still only reports the PRDT's 512 bytes. */
+        if (overflow && overflow_late && port_ci) {
+            *(u32 *)(mmio + port + 0x10) = 1u << 24;
+            port_ci = 0;
+        }
+        return port_ci;
+    }
     return *(u32 *)(mmio + offset);
 }
 static void sim_write(u32 offset, u32 value) {
@@ -88,8 +96,12 @@ static void sim_write(u32 offset, u32 value) {
         if (opcode == 0xe7 || opcode == 0xea) last_flush = opcode;
         header->bytes = header->prdt_count ? (short_dma ? 256 : 512) : 0;
         if (fail_io) *(u32 *)(mmio + port + 0x10) = 1u << 30;
+        /* AHCI 1.3.1 sections 5.4.1, 6.1.5 and 6.2.2: overflow is reported
+         * separately, PRDBC need not include excess bytes, and the controller
+         * may continue operating until the command completes normally. */
+        if (overflow && !overflow_late) *(u32 *)(mmio + port + 0x10) = 1u << 24;
         if (taskfile_error) *(u32 *)(mmio + port + 0x20) = 1u;
-        port_ci = 0;
+        port_ci = overflow && overflow_late ? 1 : 0;
         return;
     }
     if (offset == port + 0x38) { port_ci = value; return; }
@@ -103,7 +115,22 @@ int main(void) {
     u64 capacity = 0; u32 address = 0, port = 32;
     assert(ahci_init(&capacity, 0, 0, &address, &port) &&
            capacity == (1ull << 45) && address == 0x2000 && port == 0);
-    u8 out[512]; assert(!ahci_read(0x123456789aull, out));
+    u8 out[512];
+    for (u32 late = 0; late < 2; ++late) {
+        overflow = true;
+        overflow_late = late != 0;
+        memset(out, 0x3c, sizeof(out));
+        int overflow_result = ahci_read(0x123456789aull, out);
+        fprintf(stderr, "read %s overflow: PxIS=%08x, CI=%u, PRDBC=%u, return=%d expected=%d\n",
+                late ? "late" : "immediate", *(u32 *)(mmio + 0x110), port_ci,
+                ((struct ahci_header *)phys_ptr(port_clb))->bytes, overflow_result, -NV_EIO);
+        assert(overflow_result == -NV_EIO && !ahci_ready());
+        for (u32 i = 0; i < sizeof(out); ++i) assert(out[i] == 0x3c);
+        assert(ahci_shutdown());
+        next_page = 0; overflow = overflow_late = false;
+        assert(ahci_init(&capacity, 0, 0, &address, &port));
+    }
+    assert(!ahci_read(0x123456789aull, out));
     for (u32 i = 0; i < sizeof(out); ++i) assert(out[i] == 0xa5);
     memset(out, 0x3c, sizeof(out)); assert(!ahci_write(8, out) && writes == 1);
     assert(!ahci_flush() && ahci_ready() && last_flush == 0xea);
@@ -132,5 +159,5 @@ int main(void) {
     assert(!ahci_flush() && last_flush == 0xe7);
     assert(ahci_read(1ull << 28, out) == -NV_ENODEV);
     assert(ahci_shutdown());
-    puts("PASS AHCI: LBA48/LBA28 FIS, DMA errors, flush capability fallback and shutdown");
+    puts("PASS AHCI: LBA48/LBA28 FIS, immediate/deferred overflow, DMA errors, flush and shutdown");
 }

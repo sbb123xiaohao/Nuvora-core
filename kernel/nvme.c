@@ -29,7 +29,7 @@ static struct {
     u64 sectors;
     uptr data_page, list_page;
     struct nvme_queue admin, io;
-    bool online;
+    bool online, failed;
 } nvme;
 
 #ifndef NVME_REG_READ
@@ -74,6 +74,7 @@ static bool nvme_release(bool stop) {
 
 static int nvme_submit(struct nvme_queue *queue, u32 qid,
                        const struct nvme_command *command, u32 *result) {
+    if (nvme.failed) return -NV_EIO;
     if (!queue->sq_page || !queue->cq_page) return -NV_ENODEV;
     u16 cid = ++queue->next_cid;
     struct nvme_command cmd = *command;
@@ -92,14 +93,20 @@ static int nvme_submit(struct nvme_queue *queue, u32 qid,
             queue->head = (queue->head + 1) % queue->depth;
             if (!queue->head) queue->phase ^= 1;
             nw32(0x1000 + (2u * qid + 1u) * nvme.stride, queue->head);
-            if (done.cid != cid || done.sq_id != qid || (done.status & ~1u))
-                return -NV_EIO;
+            if (done.cid != cid || done.sq_id != qid || (nr32(0x1c) & 2u)) {
+                nvme.failed = true; return -NV_EIO;
+            }
+            if (done.status & ~1u) return -NV_EIO;
             if (result) *result = done.result;
             return 0;
         }
-        if (nr32(0x1c) & 2u) return -NV_EIO;
+        if (nr32(0x1c) & 2u) { nvme.failed = true; return -NV_EIO; }
         __asm__ volatile("pause");
     }
+    /* No completion means the controller may still own the SQ entry and
+     * its PRP page. Namespace discovery must not clear or reuse either one
+     * until the controller has been disabled and RDY is observed clear. */
+    nvme.failed = true;
     return -NV_EIO;
 }
 
@@ -120,6 +127,7 @@ static bool nvme_namespace(const u8 *id, u64 *size) {
 }
 
 static bool nvme_select_namespace(u32 nsid, u64 *capacity, u32 *selected_nsid) {
+    if (nvme.failed) return false;
     memset(phys_ptr(nvme.data_page), 0, PAGE);
     struct nvme_command command = {.cdw0 = 0x06, .nsid = nsid,
                                    .prp1 = nvme.data_page};
@@ -153,6 +161,7 @@ static bool nvme_scan_list(u32 first_nsid, u64 *capacity, u32 *selected_nsid,
             if (nsid <= cursor || nsid > NVME_LAST_NSID) return false;
             cursor = nsid;
             if (nvme_select_namespace(nsid, capacity, selected_nsid)) return true;
+            if (nvme.failed) return false;
         }
         if (cursor == NVME_LAST_NSID) return false;
     }
@@ -234,11 +243,11 @@ static bool nvme_open(u64 *capacity, u32 first_nsid, u32 *selected_nsid) {
     bool list_supported = false;
     if (nvme_scan_list(first_nsid, capacity, selected_nsid, &list_supported))
         return true;
-    if (!list_supported && !(nr32(0x1c) & 2u)) {
+    if (!list_supported && !nvme.failed && !(nr32(0x1c) & 2u)) {
         /* Early NVMe controllers may not implement CNS=2. Probe their
          * reported sequential namespace range with a finite work budget. */
         u32 end = MIN(namespaces, 4096u);
-        for (u32 nsid = first_nsid; nsid <= end; ++nsid)
+        for (u32 nsid = first_nsid; nsid <= end && !nvme.failed; ++nsid)
             if (nvme_select_namespace(nsid, capacity, selected_nsid)) return true;
     }
     nvme_release(true);

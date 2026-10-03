@@ -1,5 +1,49 @@
 # 测试与复现
 
+## 未发布：设备故障完成与音频输出的验证
+
+本轮在最新完整 `74f173a` 上确认新的失败用例：
+
+- NVMe 管理 Identify 未完成但 RDY 仍为 1 时，原驱动继续发布命令并
+  清空仍归控制器所有的 PRP 页。宿主控制器模型保留未完成命令，验证
+  超时、迟到 CQE、错误 CID/SQID、CFS 和停机失败；只有确认 RDY 为 0
+  才回收页面。已完成的普通错误仍可跳过 namespace，保留旧 CNS=2 回退。
+- AHCI 溢出可同时呈现 CI=0、PRDBC=512、TFD 无错误；原代码误报成功。
+  回归覆盖同步 OFS 和首次读取 PxIS 后、读取 PxCI 前完成的时序，
+  错误返回不改调用者缓冲，原有正常、短 DMA 和 ATA 错误检查继续通过。
+- 有效 xHCI Host Controller Event（Event Ring Full Error）触发停机后，
+  原键盘修饰键不会再收到释放报告。回归通过生产事件分发验证双故障键盘、
+  同键健康键盘、重复故障和 DMA 隔离；故障设备只释放自己的按下状态。
+- HDA 原实现把 StepSize 当作 0dB Offset，且未按 widget 的 override 位
+  使用 AFG 默认能力。直接 `audio_init` 回归覆盖输入/输出双声道、
+  widget/AFG、Offset 0/127、非法增益和输入索引，以及无放大器路径。
+  QEMU 旧版 `wave --test` 左右峰值约 118，预期 0dB 三角波约 3000；
+  新增实际捕获 PCM 的峰值检查，避免只检查 DMA 成功而漏掉音量错误。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/pc_storage_boot_test.py
+python3 scripts/test.py --phase usb
+python3 tests/pc_audio_boot_test.py
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64 --boot-only
+```
+
+本轮 Arch GCC 16.2.1、QEMU 11.1.1 / TCG、OVMF 202608-1 的生产与
+诊断 BIOS/UEFI 构建及全部 **38 组**宿主回归通过。七种 AHCI/NVMe
+存储拓扑完成保存、重启恢复和每次 144 项子进程诊断，外来盘整盘
+哈希不变。USB 阶段 **8 组**全部通过，含 534 个 HID 报告、66 次
+热插拔、两级 Hub 与备用鼠标接管。两种 HDA 配置左右峰值均为
+**3000**，分别捕获 30468 / 29839 个非零 PCM 帧；该专项检查增益，
+不宣称采样连续性或实体音质。64 MiB UEFI USB 通过 144 项断言，
+正式图形会话通过 OOBE、终端与 7 项客户端权限断言。
+
+故障事件、超时控制器和非法 codec 能力由明确的宿主模型输入，C 回归
+使用 UBSan。音频专项实际启动 PC/intel-hda/hda-output 与
+Q35/UEFI/ich9-intel-hda/hda-duplex，捕获 48 kHz、16-bit 双声道 PCM。
+QEMU 模拟结果不等同于实体主板或 codec 认证。
+
 ## 未发布：分配、网络背压与装载失败路径的验证
 
 基于包含此前全部修改的 `93c6153`，新增回归在修复前确认以下问题：

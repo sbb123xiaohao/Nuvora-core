@@ -19,15 +19,26 @@ static u8 dma[32][PAGE];
 static u32 next_page, pci_command[2], completed, flushes, writes;
 static bool multi_namespace, multi_controller, sparse_namespace, legacy_list;
 static bool fail_io;
+enum admin_fault { NO_FAULT, LIST_TIMEOUT, NAMESPACE_TIMEOUT, BAD_COMPLETION, FATAL_STATUS, FATAL_COMPLETION };
+static enum admin_fault admin_fault;
+static bool fault_fired, admin_pending, stop_blocked, invalid_namespace, late_posted;
+static bool page_live[32];
+static u32 freed, unsafe_submits, unsafe_dma_reuse, late_consumed;
+static uptr pending_prp;
+static u16 pending_cid;
 static u64 cap = 15u | 1ull << 37;
 static u32 ready;
 static uptr page_alloc_below(u64 limit) {
     assert(limit >= 0x100000000ull && next_page + 1 < 32);
-    ++next_page;
+    ++next_page; assert(!page_live[next_page]); page_live[next_page] = true;
     memset(dma[next_page], 0, PAGE);
     return next_page * PAGE;
 }
-static void page_free(uptr page) { assert(page / PAGE <= next_page); }
+static void page_free(uptr page) {
+    assert(page / PAGE <= next_page && page_live[page / PAGE]);
+    assert(!admin_pending); /* The device must relinquish every DMA page. */
+    page_live[page / PAGE] = false; ++freed;
+}
 static void *phys_ptr(uptr physical) {
     assert(physical && physical % PAGE == 0 && physical / PAGE <= next_page);
     return dma[physical / PAGE];
@@ -77,15 +88,46 @@ static void sim_write(u32 offset, u32 value);
 #include "../kernel/disk.c"
 
 static void sim_write(u32 offset, u32 value) {
-    if (offset == 0x14) { ready = !!(value & 1); return; }
+    if (offset == 0x14) {
+        if (!value && admin_pending) {
+            const u8 *bytes = phys_ptr(pending_prp);
+            for (u32 i = 0; i < PAGE; ++i)
+                if (bytes[i] != 0xa5) { ++unsafe_dma_reuse; break; }
+            if (stop_blocked) return;
+            admin_pending = false;
+        }
+        ready = !!(value & 1); return;
+    }
+    if (offset == 0x1004 && late_posted) ++late_consumed;
     if (offset != 0x1000 && offset != 0x1008) return;
     u32 qid = offset == 0x1008;
     struct nvme_queue *q = qid ? &nvme.io : &nvme.admin;
     struct nvme_command *sq = phys_ptr(q->sq_page);
     struct nvme_command *cmd = &sq[(value + q->depth - 1) % q->depth];
     struct nvme_completion *cq = phys_ptr(q->cq_page);
+    if (admin_pending) {
+        /* If a driver wrongly submits again, the old CQE can arrive late.
+         * It belongs to the pending command, never to this new submission. */
+        ++unsafe_submits;
+        late_posted = true;
+        cq[q->head] = (struct nvme_completion){.cid=pending_cid, .sq_id=0, .status=q->phase};
+        return;
+    }
     struct nvme_completion done = {.cid = (u16)(cmd->cdw0 >> 16),
                                    .sq_id = (u16)qid, .status = q->phase};
+    if (!qid && (cmd->cdw0 & 255u) == 6 && !fault_fired &&
+        ((admin_fault == LIST_TIMEOUT && cmd->cdw10 == 2) ||
+         (admin_fault != NO_FAULT && admin_fault != LIST_TIMEOUT && !cmd->cdw10))) {
+        fault_fired = admin_pending = true;
+        pending_prp = (uptr)cmd->prp1; pending_cid = done.cid;
+        memset(phys_ptr(pending_prp), 0xa5, PAGE);
+        if (admin_fault == BAD_COMPLETION) { done.cid ^= 1; cq[q->head] = done; }
+        if (admin_fault == FATAL_STATUS) ready |= 2;
+        if (admin_fault == FATAL_COMPLETION) {
+            ready |= 2; done.status |= 2u; cq[q->head] = done;
+        }
+        return;
+    }
     if (!qid && (cmd->cdw0 & 255u) == 6) {
         u8 *id = phys_ptr((uptr)cmd->prp1);
         if (cmd->cdw10 == 1) {
@@ -107,6 +149,7 @@ static void sim_write(u32 offset, u32 value) {
             memcpy(id, &disk_sectors, 8);
             memcpy(id + 8, &disk_sectors, 8);
             id[130] = 9;
+            if (invalid_namespace && cmd->nsid == 1) done.status |= 2u;
         }
     } else if (qid) {
         u8 opcode = cmd->cdw0 & 255u;
@@ -137,6 +180,45 @@ static void sim_write(u32 offset, u32 value) {
     ++completed;
 }
 
+
+static void reset_admin_model(enum admin_fault fault) {
+    for (u32 i = 1; i <= next_page; ++i) assert(!page_live[i]);
+    next_page = freed = unsafe_submits = unsafe_dma_reuse = late_consumed = 0;
+    multi_namespace = true; multi_controller = sparse_namespace = legacy_list = fail_io = false;
+    ready = 0; admin_fault = fault;
+    fault_fired = admin_pending = stop_blocked = invalid_namespace = late_posted = false;
+}
+static void admin_ownership_tests(void) {
+    const enum admin_fault faults[] = {FATAL_COMPLETION, LIST_TIMEOUT, NAMESPACE_TIMEOUT, BAD_COMPLETION, FATAL_STATUS};
+    u64 capacity; u32 pci, nsid;
+    for (u32 i = 0; i < sizeof(faults) / sizeof(*faults); ++i) {
+        reset_admin_model(faults[i]);
+        assert(!nvme_init(&capacity, 0, 1, &pci, &nsid));
+        assert(fault_fired && !unsafe_submits && !unsafe_dma_reuse && !late_consumed);
+        assert(!admin_pending && !ready && freed == 6 && !(pci_command[0] & 4u));
+        assert(nvme_shutdown() && freed == 6); /* no second free */
+    }
+    /* A valid error CQE releases the old command's pages. An unsupported
+     * namespace may be skipped, just as an unsupported CNS=2 uses fallback. */
+    reset_admin_model(NO_FAULT); invalid_namespace = true;
+    assert(nvme_init(&capacity, 0, 1, &pci, &nsid) && nsid == 2);
+    assert(!unsafe_submits && !unsafe_dma_reuse && !late_consumed);
+    assert(nvme_shutdown() && freed == 6);
+    /* Legacy discovery must also stop after its first timed-out Identify. */
+    reset_admin_model(NAMESPACE_TIMEOUT); legacy_list = true;
+    assert(!nvme_init(&capacity, 0, 1, &pci, &nsid));
+    assert(fault_fired && !unsafe_submits && !unsafe_dma_reuse && !late_consumed && freed == 6);
+    /* If RDY never clears, memory remains allocated even after repeated
+     * shutdown calls; disabling bus mastering does not authorize reuse. */
+    reset_admin_model(NAMESPACE_TIMEOUT); stop_blocked = true;
+    assert(!nvme_init(&capacity, 0, 1, &pci, &nsid));
+    assert(fault_fired && admin_pending && !unsafe_submits && !unsafe_dma_reuse && !late_consumed);
+    assert(!freed && !(pci_command[0] & 4u));
+    for (u32 i = 1; i <= next_page; ++i) assert(page_live[i]);
+    assert(nvme_shutdown() && nvme_shutdown() && !freed);
+    puts("PASS NVMe admin DMA ownership: list/namespace timeouts, late/malformed CQE, fatal status, valid errors and failed-stop quarantine");
+}
+
 int main(int argc, char **argv) {
     assert(argc == 3 || argc == 4);
     bool modern = argc == 4;
@@ -156,6 +238,9 @@ int main(int argc, char **argv) {
     id[130] = 12; assert(!nvme_namespace(id, &blocks));
     id[130] = 9; id[128] = 8; assert(!nvme_namespace(id, &blocks));
     id[128] = 0; id[29] = 1; assert(!nvme_namespace(id, &blocks));
+    if (modern && !strcmp(argv[3], "admin-ownership")) {
+        admin_ownership_tests(); fclose(disk_file); return 0;
+    }
     assert(disk_init() && nvme_disk && (pci_command[nvme.pci == 0x2000] & 6u) == 6u);
     assert(nvme.nsid == (sparse_namespace ? 0x100000u : multi_namespace ? 2u : 1u));
     assert(nvme.pci == (multi_controller ? 0x2000u : 0x1000u));

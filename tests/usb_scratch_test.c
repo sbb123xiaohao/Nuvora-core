@@ -51,18 +51,30 @@ void page_free(uptr p) {
 }
 #include "../kernel/usb.c"
 
-static u32 modifier_calls,key_calls;
+static u32 modifier_calls,key_calls,modifier_refs[8];
+static bool host_failure_fixture;
+static u32 pci_command, pci_writes, failure_logs;
 static u8 previous_modifiers,current_modifiers,last_usage,last_key_modifiers;
 void console_usb_modifiers(u8 before,u8 after) {
     ++modifier_calls; previous_modifiers=before; current_modifiers=after;
+    for (u32 i=0;i<8;++i) if ((before^after)&(1u<<i)) {
+        if (after&(1u<<i)) ++modifier_refs[i];
+        else { assert(modifier_refs[i]); --modifier_refs[i]; }
+    }
 }
 void console_usb_key(u8 usage,u8 modifiers) {
     ++key_calls; last_usage=usage; last_key_modifiers=modifiers;
 }
 /* A command-completion event must not touch unrelated device paths. */
-u32 pci_read(u32 a,u32 o) { (void)a;(void)o;assert(false);return 0; }
-void pci_write16(u32 a,u32 o,u16 v) { (void)a;(void)o;(void)v;assert(false); }
-void kprintf(const char *s,...) { (void)s;assert(false); }
+u32 pci_read(u32 a,u32 o) {
+    assert(host_failure_fixture && a==hosts[0].pci && o==4);
+    return pci_command;
+}
+void pci_write16(u32 a,u32 o,u16 v) {
+    assert(host_failure_fixture && a==hosts[0].pci && o==4);
+    pci_command=v; ++pci_writes;
+}
+void kprintf(const char *s,...) { (void)s; assert(host_failure_fixture); ++failure_logs; }
 void console_pointer_report(i32 x,i32 y,u32 b) { (void)x;(void)y;(void)b;assert(false); }
 bool pointer_tablet_report(const u8 *p,u32 n,struct nv_pointer_event *e) {
     (void)p;(void)n;(void)e;assert(false);return false;
@@ -91,6 +103,57 @@ static void check_keyboard_reports(void) {
     report[2]=report[3]=5; keyboard_report(&d,0);
     assert(key_calls==4 && last_usage==5 && d.repeat_key==5);
     page_free(d.report_page); assert(!live);
+}
+
+static void check_host_failure(void) {
+    static u32 regs[MMIO_SIZE/sizeof(u32)];
+    allocated=0; fail_after=DMA_PAGES;
+    struct host *failed=&hosts[0], *healthy=&hosts[1];
+    *failed=(struct host){.mmio=(volatile u8 *)regs, .op=0x20, .pci=0x2000,
+        .info.state=NV_USB_RUNNING, .event_cycle=1};
+    healthy->info.state=NV_USB_RUNNING;
+    failed->event_page=page_alloc_below(allocation_limit);
+    failed->dcbaa=page_alloc_below(allocation_limit);
+    assert(failed->event_page && failed->dcbaa);
+    regs[failed->op/4]=1; regs[(failed->op+4)/4]=1; /* Halt completion. */
+    for (u32 i=0;i<4;++i) {
+        struct device *d=&devices[i];
+        *d=(struct device){.host=i==2?healthy:failed, .slot=i+1,
+            .keyboard_ep=3, .report_page=page_alloc_below(allocation_limit)};
+        assert(d->report_page);
+        u8 *report=phys_ptr(d->report_page);
+        report[0]=i==3?0:0x08; report[2]=4;
+        keyboard_report(d,0);
+        assert(d->repeat_key==4);
+    }
+    assert(modifier_refs[3]==3); /* Shared Super: two failed keyboards and one healthy. */
+    u32 calls=modifier_calls, pages=live;
+    pci_command=7; pci_writes=failure_logs=0; host_failure_fixture=true;
+    struct trb *event=phys_ptr(failed->event_page);
+    event[0]=(struct trb){0,0,21u<<24,TYPE(37)|1u}; /* Host Controller Event: Event Ring Full Error. */
+    events(failed);
+    assert(failed->info.state==NV_USB_FAILED && pci_command==3 && pci_writes==1);
+    assert(!(regs[failed->op/4]&1) && live==pages); /* DMA stays quarantined. */
+    assert(modifier_calls==calls+2 && modifier_refs[3]==1);
+    for (u32 i=0;i<4;++i) {
+        struct device *d=&devices[i];
+        if (i==2) {
+            assert(!d->dead && d->repeat_key==4 && d->previous[0]==0x08);
+        } else {
+            const u8 released[8]={0};
+            assert(d->dead && !d->repeat_key && !memcmp(d->previous,released,8));
+        }
+    }
+    host_failed(failed); events(failed); /* Repeated faults cannot release the healthy owner. */
+    assert(modifier_calls==calls+2 && modifier_refs[3]==1 && pci_writes==1 && failure_logs==1);
+    ((u8 *)phys_ptr(devices[2].report_page))[0]=0;
+    keyboard_report(&devices[2],0);
+    assert(!modifier_refs[3]);
+    host_failure_fixture=false;
+    for (u32 i=0;i<4;++i) { page_free(devices[i].report_page); memset(&devices[i],0,sizeof(devices[i])); }
+    page_free(failed->event_page); page_free(failed->dcbaa);
+    memset(failed,0,sizeof(*failed)); memset(healthy,0,sizeof(*healthy));
+    assert(!live);
 }
 
 static void check_ports(void) {
@@ -169,6 +232,7 @@ int main(void) {
     check(513, 3);
     check(1023, 70);
     check_keyboard_reports();
+    check_host_failure();
     assert(munmap(mapping, DMA_PAGES * PAGE) == 0);
     dma_base=0x100800000ull; allocation_limit=~0ull;
     mapping=mmap((void *)(PHYS_WINDOW+dma_base),DMA_PAGES*PAGE,
@@ -177,5 +241,5 @@ int main(void) {
     check(513,DMA_PAGES); check(1023,DMA_PAGES); check(513,3);
     check_high_ring();
     assert(munmap(mapping,DMA_PAGES*PAGE)==0);
-    puts("PASS USB xHCI: scratchpads, 64-bit DMA/ring completions, rollback, ports and HID");
+    puts("PASS USB xHCI: scratchpads, 64-bit DMA/ring completions, rollback, ports, HID and fault modifier release");
 }

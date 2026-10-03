@@ -100,15 +100,19 @@ static bool find_dac(u8 c, u8 n, u8 first, u16 end, u32 depth,
     }
     return false;
 }
-static void unmute(u8 c, u8 node, u32 caps, bool input, u8 index) {
+static bool unmute(u8 c, u8 node, u8 group, u32 caps, bool input, u8 index) {
     u32 gain_caps;
-    if (!(caps & (input ? 2u : 4u)) ||
-        !get_param(c, node, input ? 0x0d : 0x12, &gain_caps)) return;
+    if (!(caps & (input ? 2u : 4u))) return true;
+    if (input && index > 15) return false;
+    u8 source = (caps & (1u << 3)) ? node : group;
+    if (!get_param(c, source, input ? 0x0d : 0x12, &gain_caps)) return false;
+    u32 gain = gain_caps & 0x7fu;
+    if (gain > ((gain_caps >> 8) & 0x7fu)) return false;
     /* Offset is the gain corresponding to 0 dB. Unmute both channels. */
     u32 value = (input ? 0x4000u | (u32)index << 8 : 0x8000u) |
-                0x3000u | ((gain_caps >> 16) & 0x7fu);
+                0x3000u | gain;
     u32 ignored;
-    (void)verb(c, node, 0x30000u | value, &ignored);
+    return verb(c, node, 0x30000u | value, &ignored);
 }
 static bool route_codec(u8 c) {
     u32 root, group, nodes;
@@ -140,9 +144,9 @@ static bool route_codec(u8 c) {
                 if (i + 1 < length) {
                     if (!verb(c, path[i].node, 0x70100u | path[i].choice, &ignored))
                         return false;
-                    unmute(c, path[i].node, wc, true, path[i].choice);
+                    if (!unmute(c, path[i].node, (u8)g, wc, true, path[i].choice)) return false;
                 }
-                unmute(c, path[i].node, wc, false, 0);
+                if (!unmute(c, path[i].node, (u8)g, wc, false, 0)) return false;
             }
             if (!verb(c, (u8)n, 0x70700u | (device == 2 ? 0xc0u : 0x40u),
                       &ignored)) return false;

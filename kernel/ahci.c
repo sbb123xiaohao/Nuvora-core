@@ -10,6 +10,7 @@
 #define AHCI_PORT_BASE 0x100u
 #define AHCI_PORT_STRIDE 0x80u
 #define AHCI_TIMEOUT 20000000u
+#define AHCI_TRANSFER_ERRORS ((1u << 30) | (1u << 24)) /* TFES / OFS */
 #define AHCI_CMD_ST (1u << 0)
 #define AHCI_CMD_FRE (1u << 4)
 #define AHCI_CMD_FR (1u << 14)
@@ -139,13 +140,19 @@ static bool issue(u8 opcode, u64 lba, bool write, bool data) {
     pw(0x38, 1u);
     for (u32 i = 0; i < AHCI_TIMEOUT; ++i) {
         u32 status = pr(0x10);
-        if (status & (1u << 30)) {
+        if (status & AHCI_TRANSFER_ERRORS) {
             pw(0x10, status);
             return false;
         }
         if (!(pr(0x38) & 1u)) {
-            /* Command issue can clear after an ATA error or a short DMA.
-             * Neither completion is safe to report as a successful sector. */
+            /* Error status may arrive between the first PxIS read and CI
+             * clearing. PRDBC need not reflect excess bytes on an overflow,
+             * so check OFS after completion as well as ATA errors/short DMA. */
+            status = pr(0x10);
+            if (status & AHCI_TRANSFER_ERRORS) {
+                pw(0x10, status);
+                return false;
+            }
             if ((pr(0x20) & (0x01u | 0x20u)) ||
                 (data && header->bytes != 512u)) return false;
             return true;

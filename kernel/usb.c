@@ -113,6 +113,11 @@ static void host_failed(struct host *h) {
         if (devices[i].host == h) {
             devices[i].dead = true;
             devices[i].repeat_key = 0;
+            /* A quarantined device will never deliver its release report or
+             * reach normal removal. Release only its own held modifiers. */
+            if (devices[i].previous[0])
+                console_usb_modifiers(devices[i].previous[0], 0);
+            memset(devices[i].previous, 0, sizeof(devices[i].previous));
         }
     if (mouse_device && mouse_device->host == h) {
         console_pointer_report(0, 0, 0);

@@ -13,6 +13,15 @@ static struct task task_object;
 static struct task *current = &task_object;
 static u8 regs[PAGE], dma[3][PAGE];
 static u32 next_page, pci_command, submitted, played, pin_control, amp_control;
+static u32 input_amp_control, pin_amp_control;
+static u32 output_caps = (1u << 31) | (1u << 16) | (63u << 8) | 53u;
+static u32 input_caps = (1u << 31) | (1u << 16) | (31u << 8) | 17u;
+static u32 pin_output_caps = (1u << 31) | (2u << 16) | (31u << 8) | 29u;
+static u32 group_output_caps = (1u << 31) | (1u << 16) | (63u << 8) | 42u;
+static u32 group_input_caps = (1u << 31) | (2u << 16) | (31u << 8) | 11u;
+static bool amp_override = true, amps_present = true;
+static bool wide_connections;
+static u32 widget_amp_queries, group_amp_queries;
 static bool codec_present = true, bad_format, stalled;
 static u8 *user_page;
 static u32 read_reg(u32 offset, u32 bytes) {
@@ -26,17 +35,28 @@ static u32 answer(u32 word) {
     if (node == 0 && verb == 0xf0004) return 0x00010001;
     if (node == 1 && verb == 0xf0005) return 1;
     if (node == 1 && verb == 0xf0004) return 0x00020002;
-    if (node == 2 && verb == 0xf0009) return 1u | 4u | 1u << 10;
+    if (node == 1 && verb == 0xf000d) { ++group_amp_queries; return group_input_caps; }
+    if (node == 1 && verb == 0xf0012) { ++group_amp_queries; return group_output_caps; }
+    if (node == 2 && verb == 0xf0009) return 1u | (amps_present ? 4u : 0u) |
+        (amp_override ? 1u << 3 : 0u) | 1u << 4 | 1u << 10;
     if (node == 2 && verb == 0xf000a) return bad_format ? 0 : 1u << 6 | 1u << 17;
     if (node == 2 && verb == 0xf000b) return 1;
-    if (node == 2 && verb == 0xf0012) return 0x00320000;
-    if (node == 3 && verb == 0xf0009) return 4u << 20 | 1u << 8 | 1u << 10;
+    if (node == 2 && verb == 0xf0012) { ++widget_amp_queries; return amp_override ? output_caps : 0; }
+    if (node == 3 && verb == 0xf0009) return 4u << 20 | (amps_present ? 2u | 4u : 0u) |
+        (amp_override ? 1u << 3 : 0u) | 1u << 8 | 1u << 10;
+    if (node == 3 && verb == 0xf000d) { ++widget_amp_queries; return amp_override ? input_caps : 0; }
+    if (node == 3 && verb == 0xf0012) { ++widget_amp_queries; return amp_override ? pin_output_caps : 0; }
     if (node == 3 && verb == 0xf000c) return 1u << 4 | 1u << 16;
     if (node == 3 && verb == 0xf1c00) return 0x01014010;
-    if (node == 3 && verb == 0xf000e) return 1;
-    if (node == 3 && verb == 0xf0200) return 2;
+    if (node == 3 && verb == 0xf000e) return wide_connections ? 17 : 1;
+    if (node == 3 && (verb & 0xfff00) == 0xf0200)
+        return wide_connections ? ((verb & 255) == 16 ? 2 : 0) : 2;
     if (node == 3 && (verb & 0xfff00) == 0x70700) pin_control = verb & 255;
     if (node == 2 && (verb & 0xf0000) == 0x30000) amp_control = verb;
+    if (node == 3 && (verb & 0xf0000) == 0x30000) {
+        if (verb & 0x8000) pin_amp_control = verb;
+        if (verb & 0x4000) input_amp_control = verb;
+    }
     ++submitted;
     return 0;
 }
@@ -102,6 +122,8 @@ static void reset_device(void) {
     regs[1] = 0x22; /* GCAP: two input and two output streams */
     regs[0x0e] = codec_present ? 1 : 0;
     next_page = submitted = played = pin_control = amp_control = pci_command = 0;
+    input_amp_control = pin_amp_control = 0;
+    widget_amp_queries = group_amp_queries = 0;
 }
 int main(void) {
     user_page = mmap(NULL, PAGE, PROT_READ | PROT_WRITE,
@@ -112,6 +134,10 @@ int main(void) {
     assert(hda.ready && hda.codec == 0 && hda.pin == 3 && hda.dac == 2);
     assert((pci_command & 6) == 6 && submitted && pin_control == 0x40 &&
            (amp_control & 0x8000) && hda.stream == 0xc0);
+    assert((amp_control & 0xffffu) == (0xb000u | 53u));
+    assert((input_amp_control & 0xffffu) == (0x7000u | 17u));
+    assert((pin_amp_control & 0xffffu) == (0xb000u | 29u));
+    assert(widget_amp_queries == 3 && !group_amp_queries);
     struct nv_audio_info *info = (void *)user_page;
     assert(audio_ioctl(NV_AUDIO_INFO, (uptr)info) == 0 &&
            info->outputs == 1 && info->sample_rate == 48000 &&
@@ -159,6 +185,60 @@ int main(void) {
     assert(audio_ioctl(NV_AUDIO_WRITE64, (uptr)request) == -NV_EIO && hda.ready);
     stalled = false;
     assert(audio_ioctl(NV_AUDIO_WRITE64, (uptr)request) == 4);
+    /* AFG amp parameters are inherited when the widget override bit is clear.
+     * Widget parameter queries return zero in this model and must not occur. */
+    amp_override = false;
+    reset_device(); audio_init();
+    assert(hda.ready && !widget_amp_queries && group_amp_queries == 3);
+    assert((amp_control & 0xffffu) == (0xb000u | 42u));
+    assert((pin_amp_control & 0xffffu) == (0xb000u | 42u));
+    assert((input_amp_control & 0xffffu) == (0x7000u | 11u));
+    /* StepSize zero is legal, including one fixed gain and the maximum
+     * seven-bit offset. Direction/channels stay set; mute stays clear. */
+    for (u32 override = 0; override < 2; ++override)
+        for (u32 maximum = 0; maximum <= 127; maximum += 127) {
+            amp_override = override;
+            u32 caps = (1u << 31) | maximum << 8 | maximum;
+            output_caps = input_caps = pin_output_caps = caps;
+            group_output_caps = group_input_caps = caps;
+            reset_device(); audio_init();
+            assert(hda.ready);
+            assert((amp_control & 0xffffu) == (0xb000u | maximum));
+            assert((pin_amp_control & 0xffffu) == (0xb000u | maximum));
+            assert((input_amp_control & 0xffffu) == (0x7000u | maximum));
+        }
+    amp_override = true;
+    output_caps = (1u << 31) | (1u << 16) | (63u << 8) | 53u;
+    input_caps = (1u << 31) | (1u << 16) | (31u << 8) | 17u;
+    pin_output_caps = (1u << 31) | (2u << 16) | (31u << 8) | 29u;
+    /* An offset outside NumSteps cannot describe 0 dB. Do not emit an
+     * out-of-range gain or publish an unavailable route as ready. */
+    output_caps += 11;
+    reset_device(); audio_init();
+    assert(!hda.ready && !next_page && !amp_control);
+    output_caps -= 11;
+    input_caps += 15;
+    reset_device(); audio_init();
+    assert(!hda.ready && !next_page && !input_amp_control && !pin_amp_control && !amp_control);
+    input_caps -= 15;
+    pin_output_caps += 3;
+    reset_device(); audio_init();
+    assert(!hda.ready && !next_page && !pin_amp_control && !amp_control);
+    pin_output_caps -= 3;
+    amp_override = false;
+    group_output_caps = (63u << 8) | 64u;
+    reset_device(); audio_init();
+    assert(!hda.ready && !next_page && !widget_amp_queries && !pin_amp_control);
+    /* The input amplifier index is four bits even for a longer connection
+     * list. Unsupported index 16 must not accidentally program index zero. */
+    amp_override = true; wide_connections = true;
+    reset_device(); audio_init();
+    assert(!hda.ready && !next_page && !input_amp_control && !pin_amp_control && !amp_control);
+    wide_connections = false; amps_present = false;
+    reset_device(); audio_init();
+    assert(hda.ready && !widget_amp_queries && !group_amp_queries &&
+           !amp_control && !input_amp_control && !pin_amp_control);
+    amps_present = true;
     codec_present = false;
     reset_device(); audio_init();
     assert(!hda.ready && !next_page && audio_ioctl(NV_AUDIO_INFO, (uptr)info) == 0 &&
@@ -167,6 +247,6 @@ int main(void) {
     reset_device(); audio_init();
     assert(!hda.ready && !next_page);
     assert(munmap(user_page, PAGE) == 0);
-    puts("PASS audio: HDA codec route, immediate verbs, two DMA descriptors, bounds and absent device");
+    puts("PASS audio: HDA codec route, 0 dB amp offsets/AFG inheritance/bounds, immediate verbs, two DMA descriptors and absent device");
     return 0;
 }

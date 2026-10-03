@@ -46,7 +46,7 @@ def main():
             if name in ('gpt_disk', 'nvme'):
                 subprocess.run([str(output), str(extent_image), '128', 'extent'], check=True)
             if name == 'nvme':
-                for scenario in ('multi', 'controller', 'sparse', 'legacy-list'):
+                for scenario in ('multi', 'controller', 'sparse', 'legacy-list', 'admin-ownership'):
                     subprocess.run([str(output), str(extent_image), '128', scenario], check=True)
             if name == 'gpt_disk':
                 subprocess.run([str(output), str(raw_image), '64', 'raw'], check=True)
