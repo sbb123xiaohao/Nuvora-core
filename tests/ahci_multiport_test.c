@@ -18,9 +18,12 @@ static bool first_supports_lba48 = true;
 static bool first_is_4kn, second_controller, invalid_first_bar;
 static bool second_fis_pending;
 static u32 second_fis_delay;
+static bool first_bios_owned;
+static u32 first_bohc, first_handoff_requests, unsafe_first_config;
 static u32 controller(void);
 static uptr page_alloc_below(u64 limit) {
     assert(limit == 0x100000000ull && next_page + 1 < 32);
+    if (first_bios_owned && !controller()) ++unsafe_first_config;
     ++next_page; memset(dma[next_page], 0, PAGE); return next_page * PAGE;
 }
 static void page_free(uptr page) { assert(page / PAGE <= next_page); }
@@ -76,6 +79,9 @@ static u32 controller(void) { return ahci.pci == 0x3000u ? 1u : 0u; }
 static u32 sim_read(u32 offset) {
     u32 n = controller();
     if (offset == 0x0c) return second_controller ? 1u : 3u;
+    if (offset == 0x10) return 0x00010301u;
+    if (offset == 0x24) return !n && first_bios_owned ? 1u : 0;
+    if (offset == 0x28) return !n ? first_bohc : 0;
     if (offset >= 0x100 && offset < 0x200) {
         u32 port = (offset - 0x100) / 0x80, reg = (offset - 0x100) % 0x80;
         if (reg == 0x18) return port_command[n][port];
@@ -95,6 +101,14 @@ static u32 sim_read(u32 offset) {
 }
 static void sim_write(u32 offset, u32 value) {
     u32 n = controller();
+    if (!n && offset == 0x28 && first_bios_owned) {
+        assert((value & 0x15u) == (first_bohc & 0x15u) && !(value & 8u));
+        assert(value & 2u); ++first_handoff_requests;
+        first_bohc |= 2u; /* Firmware never completes this handoff. */
+        return;
+    }
+    if (!n && first_bios_owned && (offset == 4 || offset >= 0x100))
+        ++unsafe_first_config;
     if (offset >= 0x100 && offset < 0x200) {
         u32 port = (offset - 0x100) / 0x80, reg = (offset - 0x100) % 0x80;
         if (reg == 0x18) { port_command[n][port] = value; return; }
@@ -176,5 +190,15 @@ int main(void) {
     assert(!disk_volume_write(0, 8, buffer));
     assert(writes[0][0] == 0 && writes[1][0] == 2);
     assert(ahci_shutdown());
+    next_page = 0; first_bios_owned = true; first_bohc = 0x1du;
+    first_handoff_requests = unsafe_first_config = 0; pci_command[0] = 0x405u;
+    u64 before = ticks;
+    assert(disk_init() && ahci_disk && ahci.pci == 0x3000 && ahci.port == 0);
+    assert(first_handoff_requests == 1 && ticks - before >= 200 && ticks - before <= 500);
+    assert(!unsafe_first_config && pci_command[0] == 0x405u && next_page == 4);
+    assert(!disk_volume_write(0, 8, buffer));
+    assert(!writes[0][0] && writes[1][0] == 3);
+    assert(ahci_shutdown());
     puts("PASS AHCI: foreign disks, later controllers, deferred initial FIS and malformed BAR5 skipped");
+    puts("PASS AHCI: failed BIOS ownership skips untouched controller and mounts later data disk");
 }

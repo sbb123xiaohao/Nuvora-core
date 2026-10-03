@@ -4,7 +4,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#define idle_once privileged_idle_once_unused
 #include "../kernel/kernel.h"
+#undef idle_once
+static void idle_once(void);
 
 enum { DMA_PAGES = 1100 };
 static uptr dma_base = 0x08000000u;
@@ -87,6 +90,109 @@ void net_usb_detach(void) {
     assert(host_failure_fixture && ecm_device && ecm_device->dead &&
            ecm_device->host == &hosts[0] && hosts[0].info.state == NV_USB_FAILED);
     ++network_detaches;
+}
+/* A compliant control endpoint writes only the reply's actual bytes. It
+ * reports a Data Stage short packet only when ISP is set; the separate
+ * Status Stage always reports Success with zero residue (xHCI 6.4.1.2). */
+static struct device *control_device;
+static struct trb *control_setup, *control_data, *control_status;
+static u32 control_actual, control_phase;
+static const u8 *control_reply;
+static void control_event(uptr pointer, u32 code, u32 remaining) {
+    struct host *h=control_device->host;
+    struct trb *e=phys_ptr(h->event_page+h->event_index*sizeof(*e));
+    *e=(struct trb){(u32)pointer,(u32)(pointer>>32),(code<<24)|remaining,
+        TYPE(32)|(control_device->slot<<24)|(1u<<16)|h->event_cycle};
+}
+static void idle_once(void) {
+    ++ticks;
+    assert(control_device && control_phase<2);
+    struct host *h=control_device->host;
+    assert(h->transfer_wait==ptr_phys(control_status) && !h->transfer_code);
+    if (!control_phase++) {
+        if (control_data && (control_data->control&(1u<<16))) {
+            assert(control_actual<=control_data->status);
+            u8 *buffer=phys_ptr((uptr)control_data->low|((uptr)control_data->high<<32));
+            if (control_reply) memcpy(buffer,control_reply,control_actual);
+            else memset(buffer,0xa5,control_actual);
+            if (control_actual<control_data->status && (control_data->control&(1u<<2)))
+                control_event(ptr_phys(control_data),13,control_data->status-control_actual);
+        }
+    } else {
+        /* A short Data Stage event alone must never publish completion. */
+        control_event(ptr_phys(control_status),1,0);
+    }
+}
+static struct trb *control_next(struct ring *r, u32 *index) {
+    if (*index==RING_TRBS-1) *index=0;
+    return (struct trb *)phys_ptr(r->page)+(*index)++;
+}
+static int control_request(struct device *d, u8 type, u16 length, u32 actual,
+                           const u8 *reply, bool string) {
+    control_device=d; control_actual=actual; control_phase=0; control_reply=reply;
+    u32 index=d->control.index;
+    control_setup=control_next(&d->control,&index);
+    control_data=length?control_next(&d->control,&index):NULL;
+    control_status=control_next(&d->control,&index);
+    int got;
+    if (string) {
+        char out[16]; string_descriptor(d,1,0x409,out,sizeof(out));
+        got=(int)strlen(out);
+        assert(got==(actual==8?3:0));
+    } else {
+        got=control(d,type,6,0x100,0,length);
+        if (got!=(int)actual)
+            fprintf(stderr,"control reply: requested=%u actual=%u returned=%d\n",length,actual,got);
+        assert(got==(int)actual);
+    }
+    assert(control_phase==2 && !d->host->transfer_wait && !d->dead);
+    assert((control_setup->control&0x39e)==0 && control_setup->status==8 &&
+           (control_setup->control&(1u<<6))); /* Setup reserved bits are zero. */
+    assert(((control_setup->control>>16)&3)==(length?(type&128?3u:2u):0u));
+    if (control_data) {
+        assert(!(control_data->control&((1u<<4)|(1u<<5)))); /* One-TRB Data TD. */
+        assert(!!(control_data->control&(1u<<16))==!!(type&128));
+        assert(!!(control_data->control&(1u<<2))==!!(type&128));
+        if ((type&128) && !reply) {
+            const u8 *buffer=phys_ptr(d->buffer);
+            for (u32 i=0;i<actual;++i) assert(buffer[i]==0xa5);
+            for (u32 i=actual;i<length;++i) assert(!buffer[i]);
+        }
+    }
+    assert((control_status->control&(1u<<5)) && !(control_status->control&(1u<<4)));
+    assert(!!(control_status->control&(1u<<16))==(!length || !(type&128)));
+    control_device=NULL;
+    return got;
+}
+static void check_control_replies(void) {
+    static u32 regs[MMIO_SIZE/sizeof(u32)];
+    struct host h={.mmio=(volatile u8 *)regs,.runtime=0x1000,.doorbell=0x2000,
+        .info.state=NV_USB_RUNNING,.event_cycle=1};
+    allocated=0; fail_after=DMA_PAGES;
+    h.event_page=page_alloc_below(allocation_limit);
+    struct device d={.host=&h,.slot=7,.buffer=page_alloc_below(allocation_limit)};
+    assert(h.event_page && d.buffer && ring_init(&d.control,allocation_limit));
+    assert(control_request(&d,0x80,255,18,NULL,false)==18);
+    const u8 bad_string[4]={8,3,'A',0};
+    control_request(&d,0x80,255,sizeof(bad_string),bad_string,true);
+    const u8 good_string[8]={8,3,'A',0,'B',0,'C',0};
+    control_request(&d,0x80,255,sizeof(good_string),good_string,true);
+    control_request(&d,0x80,1024,16,NULL,false); /* RNDIS-sized read, short reply. */
+    control_request(&d,0x80,8,8,NULL,false);
+    control_request(&d,0x80,8,0,NULL,false);
+    control_request(&d,0x80,PAGE,PAGE,NULL,false);
+    control_request(&d,0x80,PAGE,7,NULL,false);
+    memset(phys_ptr(d.buffer),0x5a,8);
+    control_request(&d,0x21,8,8,NULL,false);
+    for (u32 i=0;i<8;++i) assert(((const u8 *)phys_ptr(d.buffer))[i]==0x5a);
+    control_request(&d,0,0,0,NULL,false);
+    control_request(&d,0x80,0,0,NULL,false);
+    /* Cross both transfer/event cycle bits and all three possible positions
+     * where the control stages encounter the transfer-ring Link TRB. */
+    for (u32 i=0;i<180;++i) control_request(&d,0x80,64,i%64,NULL,false);
+    assert(d.control.cycle==1 && h.event_cycle==0);
+    page_free(d.control.page); page_free(d.buffer); page_free(h.event_page);
+    assert(!live);
 }
 static void check_keyboard_reports(void) {
     allocated=0; fail_after=DMA_PAGES;
@@ -256,6 +362,7 @@ int main(void) {
     check_keyboard_reports();
     check_host_failure(true);
     check_host_failure(false);
+    check_control_replies();
     assert(munmap(mapping, DMA_PAGES * PAGE) == 0);
     dma_base=0x100800000ull; allocation_limit=~0ull;
     mapping=mmap((void *)(PHYS_WINDOW+dma_base),DMA_PAGES*PAGE,
@@ -263,6 +370,7 @@ int main(void) {
     assert(mapping==(void *)(PHYS_WINDOW+dma_base));
     check(513,DMA_PAGES); check(1023,DMA_PAGES); check(513,3);
     check_high_ring();
+    check_control_replies();
     assert(munmap(mapping,DMA_PAGES*PAGE)==0);
-    puts("PASS USB xHCI: scratchpads, 64-bit DMA/ring completions, rollback, ports, HID and fault modifier/network cleanup");
+    puts("PASS USB xHCI: scratchpads, 64-bit DMA/ring completions, rollback, ports, HID, fault cleanup and control short replies/stages/ring wrap");
 }

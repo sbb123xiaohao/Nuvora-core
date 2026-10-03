@@ -28,8 +28,17 @@ static u8 failed_param;
 static bool wide_connections;
 static u32 widget_amp_queries, group_amp_queries;
 static bool codec_present = true, bad_format, stalled;
+static volatile u64 ticks;
+static u64 hardware_us, reset_entered_us, reset_released_us;
+static u32 idle_calls, reset_ack_failure, keyboard_wakes;
+static bool require_reset_hold = true, require_codec_delay = true;
+static bool reset_short, reset_released, interrupts_enabled;
+static bool pending_pit;
 static u8 *user_page;
 static u32 read_reg(u32 offset, u32 bytes) {
+    if (offset == 0x0e && bytes == 2 &&
+        ((!reset_released || (require_reset_hold && reset_short)) ||
+         (require_codec_delay && hardware_us - reset_released_us < 540))) return 0;
     u32 value = 0;
     memcpy(&value, regs + offset, bytes);
     return value;
@@ -83,6 +92,18 @@ static u32 answer(u32 word) {
     return 0;
 }
 static void write_reg(u32 offset, u32 value, u32 bytes) {
+    if (offset == 0x08 && bytes == 4) {
+        if ((!(value & 1) && reset_ack_failure == 1) ||
+            ((value & 1) && reset_ack_failure == 2)) return;
+        if (!(value & 1)) {
+            reset_entered_us = hardware_us;
+            reset_released = false;
+        } else {
+            reset_short = hardware_us - reset_entered_us < 100;
+            reset_released_us = hardware_us;
+            reset_released = true;
+        }
+    }
     memcpy(regs + offset, &value, bytes);
     if (offset == 0x68 && bytes == 2) {
         if (value == 1) {
@@ -140,26 +161,61 @@ static bool user_range(void *pd, uptr address, usize size, bool write) {
     return address >= base && size <= PAGE && address - base <= PAGE - size;
 }
 static void kprintf(const char *format, ...) { (void)format; }
-static void irq_enable(void) {}
-static void irq_disable(void) {}
+static void irq_enable(void) { interrupts_enabled = true; }
+static void irq_disable(void) { interrupts_enabled = false; }
+static uptr irq_save(void) {
+    uptr flags = interrupts_enabled ? 0x200u : 0;
+    interrupts_enabled = false;
+    return flags;
+}
+static void irq_restore(uptr flags) { interrupts_enabled = !!(flags & 0x200u); }
+static void idle_once(void) {
+    assert(!interrupts_enabled);
+    if (keyboard_wakes) {
+        --keyboard_wakes;
+        ++hardware_us;
+        return; /* A keyboard IRQ wakes HLT but is not a PIT tick. */
+    }
+    if (pending_pit) {
+        pending_pit = false;
+        ++ticks; /* IF=0 may have left an older IRQ waiting in the PIC. */
+        return;
+    }
+    /* The next PIT IRQ may be only a microsecond away. One tick therefore
+     * cannot provide even the minimum 100 us codec reset hold time. */
+    hardware_us += ++idle_calls == 1 ? 1 : 10000;
+    ++ticks;
+}
 #include "../kernel/audio.c"
 
 static void reset_device(void) {
     memset(regs, 0, sizeof(regs));
+    regs[0x08] = 1; /* firmware left the controller out of reset */
     regs[1] = 0x22; /* GCAP: two input and two output streams */
     regs[0x0e] = codec_present ? (multiple_codecs ? 3 : 1) : 0;
     next_page = submitted = played = pin_control = amp_control = pci_command = 0;
     input_amp_control = pin_amp_control = 0;
     widget_amp_queries = group_amp_queries = 0;
     widget_format_queries = group_format_queries = 0;
+    ticks = hardware_us = reset_entered_us = reset_released_us = 0;
+    idle_calls = 0;
+    reset_short = reset_released = false;
+    keyboard_wakes = 0;
+    pending_pit = true;
 }
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc == 2) {
+        assert(!strcmp(argv[1], "reset-hold") || !strcmp(argv[1], "reset-detect"));
+        require_reset_hold = !strcmp(argv[1], "reset-hold");
+        require_codec_delay = !strcmp(argv[1], "reset-detect");
+    } else assert(argc == 1);
     user_page = mmap(NULL, PAGE, PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     assert(user_page != MAP_FAILED && (uptr)user_page > 0xffffffffu);
     reset_device();
     audio_init();
     assert(hda.ready && hda.codec == 0 && hda.pin == 3 && hda.dac == 2);
+    assert(!interrupts_enabled);
     assert((pci_command & 6) == 6 && submitted && pin_control == 0x40 &&
            (amp_control & 0x8000) && hda.stream == 0xc0);
     assert((amp_control & 0xffffu) == (0xb000u | 53u));
@@ -167,6 +223,23 @@ int main(void) {
     assert((pin_amp_control & 0xffffu) == (0xb000u | 29u));
     assert(widget_amp_queries == 3 && !group_amp_queries);
     assert(widget_format_queries == 2 && !group_format_queries);
+    assert(!reset_short && hardware_us - reset_released_us >= 540);
+    /* Even at PIT counter rollover and with unrelated IRQ wakeups, both
+     * codec timing limits hold and an initially enabled IF stays enabled. */
+    reset_device(); ticks = ~0ull - 1; keyboard_wakes = 3;
+    interrupts_enabled = true;
+    audio_init();
+    assert(hda.ready && interrupts_enabled && ticks == 4 && !keyboard_wakes &&
+           !reset_short && hardware_us - reset_released_us >= 540);
+    /* A stuck reset acknowledgement must not issue codec commands or
+     * allocate DMA pages; retain IF on both entry and exit failures. */
+    for (reset_ack_failure = 1; reset_ack_failure <= 2; ++reset_ack_failure) {
+        reset_device(); audio_init();
+        assert(!hda.ready && !next_page && !submitted && interrupts_enabled);
+    }
+    reset_ack_failure = 0;
+    interrupts_enabled = false;
+    reset_device(); audio_init(); assert(hda.ready && !interrupts_enabled);
     struct nv_audio_info *info = (void *)user_page;
     assert(audio_ioctl(NV_AUDIO_INFO, (uptr)info) == 0 &&
            info->outputs == 1 && info->sample_rate == 48000 &&
@@ -320,6 +393,6 @@ int main(void) {
     reset_device(); audio_init();
     assert(!hda.ready && !next_page);
     assert(munmap(user_page, PAGE) == 0);
-    puts("PASS audio: HDA route/channel count, DAC/AFG format inheritance, 0 dB amp offsets/bounds, immediate verbs, two DMA descriptors and absent device");
+    puts("PASS audio: codec reset timing/IF, HDA route/channel count, DAC/AFG format inheritance, 0 dB amp offsets/bounds, immediate verbs, two DMA descriptors and absent device");
     return 0;
 }

@@ -190,6 +190,17 @@ static bool stream_reset(void) {
     for (u32 i = 0; i < HDA_WAIT; ++i) if (!(h8(o) & 1)) return true;
     return false;
 }
+static void link_delay(void) {
+    /* Codec PLL reset needs >=100 us; after CRST is released, codec state
+     * discovery needs >=540 us. PIT is already running at 100 Hz. Allow an
+     * older IRQ pending in the PIC and an imminent next timer edge: three
+     * ticks still guarantee one full PIT period (about 10 ms) has elapsed.
+     * Ring-0 IRQs do not schedule tasks; retain the caller's interrupt state. */
+    uptr flags = irq_save();
+    u64 start = ticks;
+    while (ticks - start < 3) idle_once();
+    irq_restore(flags);
+}
 void audio_init(void) {
     memset(&hda, 0, sizeof(hda));
     volume_percent = 100;
@@ -202,8 +213,10 @@ void audio_init(void) {
     pci_write16(hda.pci, 4, (u16)(pci_read(hda.pci, 4) | 6u));
     w32(0x08, h32(0x08) & ~1u);
     if (!wait_mask(0x08, 1, 0)) goto unavailable;
+    link_delay();
     w32(0x08, h32(0x08) | 1u);
     if (!wait_mask(0x08, 1, 1)) goto unavailable;
+    link_delay();
     w8(0x4c, 0); w8(0x5c, 0); /* stop firmware CORB/RIRB for immediate verbs */
     u16 present = h16(0x0e);
     bool found = false;

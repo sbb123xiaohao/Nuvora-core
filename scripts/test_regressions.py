@@ -54,7 +54,8 @@ def main():
         subprocess.run(['python3', 'scripts/test_extent_import.py', str(pathlib.Path(directory) / 'extent')], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
-    print('ALL 38 HOST REGRESSION GROUPS PASSED (including desktop shell, keyboard modifiers, native windows, storage, network and media; C fixtures use UBSan)')
+        subprocess.run(['python3', 'tests/package_test.py'], cwd=ROOT, check=True)
+    print('ALL 39 HOST REGRESSION GROUPS PASSED (including desktop shell, keyboard modifiers, native windows, storage, network, media and source packaging; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

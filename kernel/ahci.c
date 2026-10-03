@@ -174,6 +174,27 @@ static bool identify(void) {
     return ahci.sectors >= 8192 && ahci.sectors <= (ahci.lba48 ? (1ull << 48) : (1ull << 28));
 }
 
+static bool take_ownership(void) {
+    /* CAP2/BOHC were introduced in AHCI 1.2. Firmware SMI handlers can still
+     * issue background I/O until OOS requests handoff and BOS/BB clear. Do
+     * not change its port registers or DMA pointers during that cleanup. */
+    if (hr(0x10) < 0x00010200u || !(hr(0x24) & 1u)) return true;
+    hw(0x28, (hr(0x28) | 2u) & ~8u); /* OOS; preserve BIOS bits and W1C OOC. */
+    uptr flags = irq_save();
+    u64 start = ticks;
+    bool acquired = false;
+    for (u32 fast = 0;; ++fast) {
+        u32 status = hr(0x28);
+        if ((status & 2u) && !(status & 0x11u)) { acquired = true; break; }
+        /* AHCI 10.6 requires at least two seconds for a busy BIOS. A CPU
+         * poll count is not elapsed time; give it five seconds at 100 Hz. */
+        if (ticks - start >= 500) break;
+        if (fast >= 1000) idle_once();
+    }
+    irq_restore(flags);
+    return acquired;
+}
+
 bool ahci_init(u64 *capacity, u32 first_pci, u32 first_port,
                u32 *selected_pci, u32 *selected_port) {
     if (first_pci > 0x00ffff00u || first_port >= 32 || !capacity ||
@@ -185,6 +206,16 @@ bool ahci_init(u64 *capacity, u32 first_pci, u32 first_port,
         if (!ahci.regs) return false;
         u32 address = ahci.pci;
         u32 command = pci_read(address, 4);
+        pci_write16(address, 4, (u16)(command | 2u)); /* MMIO decode for handoff. */
+        if (!take_ownership()) {
+            /* Firmware still owns any existing DMA. Restore its PCI state
+             * and leave every port untouched while looking at later HBAs. */
+            pci_write16(address, 4, (u16)command);
+            memset(&ahci, 0, sizeof(ahci));
+            first_pci = address + 0x100u;
+            first_port = 0;
+            continue;
+        }
         pci_write16(address, 4, (u16)(command | 6u));
         /* AE is required before the HBA port registers are interpreted. */
         hw(0x04, hr(0x04) | (1u << 31));

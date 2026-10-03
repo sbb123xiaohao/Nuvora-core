@@ -13,11 +13,21 @@ static u8 dma[8][PAGE], mmio[AHCI_MMIO];
 static u32 next_page, pci_command, port_command, port_clb, port_ci, writes, lba28_reads;
 static u8 last_flush;
 static bool fail_io, lba28, short_dma, taskfile_error, no_flush_ext, overflow, overflow_late;
+static volatile u64 ticks;
+static bool irq_enabled, handoff_supported, bios_stuck;
+static u32 hba_version = 0x00010301u, bohc, handoff_delay, handoff_requests;
+static u32 unsafe_config, cap2_reads, bohc_reads, bohc_writes, freed;
+static u32 device_address = 0x2000;
+static u64 handoff_at;
+static uptr irq_save(void) { uptr flags = irq_enabled ? 0x200u : 0; irq_enabled = false; return flags; }
+static void irq_restore(uptr flags) { irq_enabled = !!(flags & 0x200u); }
+static void idle_once(void) { assert(!irq_enabled); ++ticks; }
 static uptr page_alloc_below(u64 limit) {
     assert(limit >= 0x100000000ull && next_page < 4);
+    if (handoff_supported && (bohc & 0x11u)) ++unsafe_config;
     ++next_page; memset(dma[next_page], 0, PAGE); return next_page * PAGE;
 }
-static void page_free(uptr page) { assert(page / PAGE <= next_page); }
+static void page_free(uptr page) { assert(page / PAGE <= next_page); ++freed; }
 static void *phys_ptr(uptr physical) {
     assert(physical && physical % PAGE == 0 && physical / PAGE <= next_page);
     return dma[physical / PAGE];
@@ -26,14 +36,14 @@ static void *vm_mmio_map(u64 physical, u32 size) {
     assert(physical == 0x40000000u && size == AHCI_MMIO); return mmio;
 }
 static u32 pci_read(u32 address, u32 offset) {
-    assert(address == 0x2000);
+    assert(address == device_address);
     return offset == 0x24 ? 0x40000000u : offset == 4 ? pci_command : 0;
 }
 static void pci_write16(u32 address, u32 offset, u16 value) {
-    assert(address == 0x2000 && offset == 4); pci_command = value;
+    assert(address == device_address && offset == 4); pci_command = value;
 }
 static void pci_visit(void (*visit)(u32, u32, u32)) {
-    visit(0x2000, 0x12348086, 0x01060100);
+    visit(device_address, 0x12348086, 0x01060100);
 }
 static u32 sim_read(u32 offset);
 static void sim_write(u32 offset, u32 value);
@@ -44,6 +54,14 @@ static void sim_write(u32 offset, u32 value);
 static u32 sim_read(u32 offset) {
     u32 port = 0x100;
     if (offset == 0x0c) return 1u; /* one implemented port */
+    if (offset == 0x10) return hba_version;
+    if (offset == 0x24) { ++cap2_reads; return handoff_supported ? 1u : 0; }
+    if (offset == 0x28) {
+        ++bohc_reads;
+        if ((bohc & 2u) && !bios_stuck && ticks - handoff_at >= handoff_delay)
+            bohc &= ~0x1du; /* BIOS finishes I/O, then clears BB/BOS/SOOE/OOC. */
+        return bohc;
+    }
     if (offset == port + 0x18) return port_command;
     if (offset == port + 0x24) return 0x101u;
     if (offset == port + 0x28) return 0x103u; /* device present, active */
@@ -60,6 +78,18 @@ static u32 sim_read(u32 offset) {
 }
 static void sim_write(u32 offset, u32 value) {
     u32 port = 0x100;
+    if (offset == 0x28) {
+        ++bohc_writes;
+        /* Software requests OOS without changing BIOS-owned bits or writing
+         * one to the W1C OOC event before firmware observes its SMI. */
+        assert((value & 0x15u) == (bohc & 0x15u) && !(value & 8u));
+        if ((value & 2u) && !(bohc & 2u)) { ++handoff_requests; handoff_at = ticks; }
+        bohc = (bohc & ~2u) | (value & 2u);
+        bohc |= 8u; /* OOS transition generates OOC/firmware SMI. */
+        return;
+    }
+    if (handoff_supported && (bohc & 0x11u) && (offset == 4 || offset >= port))
+        ++unsafe_config;
     if (offset == port + 0x18) { port_command = value; return; }
     if (offset == port + 0x00) { port_clb = value; return; }
     if (offset == port + 0x38 && (value & 1u)) {
@@ -111,7 +141,56 @@ static void sim_write(u32 offset, u32 value) {
     *(u32 *)(mmio + offset) = value;
 }
 
+static void handoff_reset(u32 status, u32 delay, bool stuck) {
+    memset(mmio, 0, sizeof(mmio));
+    next_page = freed = port_command = port_clb = port_ci = 0;
+    cap2_reads = bohc_reads = bohc_writes = handoff_requests = unsafe_config = 0;
+    handoff_supported = true; bios_stuck = stuck;
+    bohc = status; handoff_delay = delay;
+    pci_command = 0x405u; /* Firmware bus mastering remains enabled during cleanup. */
+    hba_version = 0x00010301u;
+    device_address = 0x2000;
+}
+static void handoff_tests(void) {
+    u64 capacity; u32 address, port;
+    for (u32 enabled = 0; enabled < 2; ++enabled) {
+        for (u32 delay = 0; delay < 2; ++delay) {
+            handoff_reset(0x1du, delay ? 175 : 0, false);
+            irq_enabled = enabled; ticks = enabled ? ~(u64)0 - 100 : 13;
+            u64 before = ticks;
+            assert(ahci_init(&capacity, 0, 0, &address, &port));
+            assert(handoff_requests == 1 && bohc_writes == 1 && (bohc & 2u));
+            assert(!unsafe_config && !(bohc & 0x11u) && ticks - before == handoff_delay);
+            assert(irq_enabled == (bool)enabled && next_page == 4 && !freed);
+            assert(ahci_shutdown() && freed == 4);
+        }
+    }
+    const u32 blocked[] = {1u, 16u, 17u};
+    for (u32 i = 0; i < sizeof(blocked) / sizeof(*blocked); ++i) {
+        handoff_reset(blocked[i] | 4u | 8u, 0, true);
+        if (i == 2) device_address = 0x00ffff00u;
+        irq_enabled = i & 1u; ticks = ~(u64)0 - 99;
+        u64 before = ticks; capacity = 0xfeed; address = 0; port = 32;
+        assert(!ahci_init(&capacity, 0, 0, &address, &port));
+        assert(handoff_requests == 1 && ticks - before >= 200 && ticks - before <= 500);
+        assert(!next_page && !freed && !unsafe_config && !port_clb && !port_command);
+        assert(pci_command == 0x405u && capacity == 0xfeed && !address && port == 32);
+        assert(irq_enabled == (bool)(i & 1u) && ahci_shutdown());
+        assert(!unsafe_config && pci_command == 0x405u);
+    }
+    handoff_reset(0x1du, 0, true); handoff_supported = false;
+    assert(ahci_init(&capacity, 0, 0, &address, &port) && cap2_reads && !bohc_reads && !bohc_writes);
+    assert(ahci_shutdown());
+    handoff_reset(0x1du, 0, true); hba_version = 0x00010100u;
+    handoff_supported = false;
+    assert(ahci_init(&capacity, 0, 0, &address, &port) && !cap2_reads && !bohc_reads && !bohc_writes);
+    assert(ahci_shutdown());
+    handoff_reset(0, 0, false); handoff_supported = false;
+    puts("PASS AHCI firmware handoff: delayed ownership, BOS/BB timeout, IF/tick wrap, untouched DMA and old/non-BOH HBAs");
+}
+
 int main(void) {
+    handoff_tests();
     u64 capacity = 0; u32 address = 0, port = 32;
     assert(ahci_init(&capacity, 0, 0, &address, &port) &&
            capacity == (1ull << 45) && address == 0x2000 && port == 0);

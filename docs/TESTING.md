@@ -1,5 +1,59 @@
 # 测试与复现
 
+## 未发布：硬件交接、初始化与源码交付的验证
+
+本轮以最新完整 `1822e09` 为基线，先复现以下原代码失败，再修复：
+
+- AHCI 1.2+ 且 CAP2.BOH 置位的 HBA 仍由 BIOS 占有时，原驱动直接
+  配置端口和 DMA。寄存器模型只在 OOS 请求后由 BIOS 延迟释放，验证
+  所有权、Busy、超时、W1C 事件、中断状态和 tick 回绕；超时不分配
+  DMA、不写端口、恢复原 PCI command，并继续后续 HBA。最后一个
+  PCI 地址失败后的 shutdown 也不会触碰仍归固件的端口。
+- IGC 首个控制器 MAC 无效、OOM、复位或队列启用失败后留下 regs，
+  导致健康第二控制器无法启动。双控制器模型覆盖 34 个分配失败位置、
+  RX/TX 启用超时和旧设备迟到 DMA，确认已发布页不释放、不复用，
+  健康网卡正常 TX/RX 和环回绕，成功启动后拒绝再次初始化。
+- xHCI 控制请求 255 字节、设备只 DMA 18 字节，原代码报告 255。
+  生产 control/events 夹具按 ISP 生成短包事件，核验实长、零长、完整
+  响应、截断字符串、OUT、无数据、180 次控制环回绕及 >4 GiB DMA。
+  Data Short Packet 只记录 residue，必须等独立 Status TD 成功才发布。
+- HDA 原代码不满足 CRST 保持和解除后的 codec 初始化等待。真实
+  初始化模型检查延迟出现的 STATESTS、复位 ACK 失败、tick 回绕和
+  IF 保留。PIC 积压旧 PIT 中断、下一边沿仅 1 µs 的用例证明两 tick
+  仍不足；三 tick 保证至少一个完整 100 Hz PIT 周期，再检测 codec。
+- 打包目标指定 README、Git 配置或源码的符号链接时，原程序覆盖它；
+  blob 读取中途失败也会破坏原压缩包。独立临时 Git 仓库验证 ZIP 和
+  清单拒绝这些目标及 linked worktree 的 `.git` 指针，并确认失败保护、
+  临时文件清理和成功产物包含完整 HEAD 的每个文件。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/package_test.py
+python3 tests/pc_storage_boot_test.py
+python3 tests/pc_network_boot_test.py
+python3 scripts/test.py --phase usb
+python3 tests/pc_audio_boot_test.py
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64 --boot-only
+```
+
+本轮 Arch GCC 16.2.1、Python 3.14.7、QEMU 11.1.1 / TCG、OVMF
+202608-1 上，生产/诊断 BIOS/UEFI 构建和 **39 组**宿主回归通过。
+七种 AHCI/NVMe 拓扑均完成保存、重启恢复和每次 144 项子进程断言，
+外来盘哈希不变；三种网卡完成广播抓包、DHCP、ping、重连和 256 KiB
+下载落盘核验。USB **8 组**通过，含 534 个 HID 报告、66 次热插拔和
+两级 Hub；两种 HDA 配置双声道峰值均为 **3000**。64 MiB UEFI USB
+通过 144 项断言，正式图形会话通过 OOBE、终端和 7 项客户端权限断言。
+打包保护最后补齐 Git 对象目录符号链接后，已单独重跑全部打包回归；
+硬件源码和二进制保持本轮统一验证版本。可选外部转码因没有
+FFmpeg/ffprobe 明确 SKIP。
+
+宿主 C 夹具使用 UBSan，BIOS 交接、故障设备与 codec 延迟是明确的
+模型输入。IGC 没有实体 I225/I226 测试；QEMU NIC 专项使用
+e1000/e1000e/USB RNDIS。音频波形检查只验证增益，不证明播放连续性
+或实体音质。源码包从本轮完整提交生成，另逐一核对路径、数量与字节。
+
 ## 未发布：广播、故障网卡与快照回绕的验证
 
 以包含此前全部修复的完整 `31f5ed1` 为基线，新增测试先确认原代码失败：

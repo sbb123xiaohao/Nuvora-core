@@ -376,10 +376,13 @@ static int control(struct device *d, u8 request_type, u8 request, u16 value, u16
         memset(phys_ptr(d->buffer), 0, length);
     u32 setup_low = request_type | ((u32)request << 8) | ((u32)value << 16);
     u32 setup_high = index | ((u32)length << 16);
+    /* Each control stage is a separate TD. The sole Data TRB must end its
+     * TD; ISP reports its IN residue before the Status TD reports Success. */
     ring_put(&d->control, setup_low, setup_high, 8,
-             TYPE(2) | (1u << 6) | (length ? 1u << 4 : 0) | (length ? (in ? 3u : 2u) << 16 : 0));
+             TYPE(2) | (1u << 6) | (length ? (in ? 3u : 2u) << 16 : 0));
     if (length)
-        ring_put(&d->control, d->buffer, 0, length, TYPE(3) | (1u << 4) | (in ? 1u << 16 : 0));
+        ring_put(&d->control, d->buffer, 0, length,
+                 TYPE(3) | (in ? (1u << 16) | (1u << 2) : 0));
     h->transfer_code = h->short_left = 0;
     h->transfer_slot = d->slot;
     h->transfer_wait =

@@ -36,8 +36,12 @@ static u8 pending[IGC_RING];
 static u32 rx_head, tx_head;
 static bool running;
 
-static u32 rd(u32 offset) { return *(volatile u32 *)(regs + offset); }
-static void wr(u32 offset, u32 value) { *(volatile u32 *)(regs + offset) = value; }
+#ifndef IGC_REG_READ
+#define IGC_REG_READ(offset) (*(volatile u32 *)(regs + (offset)))
+#define IGC_REG_WRITE(offset, value) (*(volatile u32 *)(regs + (offset)) = (value))
+#endif
+static u32 rd(u32 offset) { return IGC_REG_READ(offset); }
+static void wr(u32 offset, u32 value) { IGC_REG_WRITE(offset, value); }
 static void fence(void) { __asm__ volatile("mfence" ::: "memory"); }
 static bool enabled(u32 offset) {
     u64 start = ticks;
@@ -47,6 +51,14 @@ static bool enabled(u32 offset) {
     }
     return false;
 }
+static void clear_device(void) {
+    regs = NULL; rx = tx = NULL;
+    rx_page = tx_page = 0;
+    memset(rx_buf, 0, sizeof(rx_buf));
+    memset(tx_buf, 0, sizeof(tx_buf));
+    memset(pending, 0, sizeof(pending));
+    rx_head = tx_head = 0; running = false;
+}
 static void free_unpublished(void) {
     for (u32 i = 0; i < IGC_RING; ++i) {
         if (rx_buf[i]) { page_free(rx_buf[i]); rx_buf[i] = 0; }
@@ -54,6 +66,7 @@ static void free_unpublished(void) {
     }
     if (rx_page) { page_free(rx_page); rx_page = 0; }
     if (tx_page) { page_free(tx_page); tx_page = 0; }
+    clear_device();
 }
 bool net_igc_start(u32 address, u8 mac[6]) {
     if (running || regs) return false;
@@ -72,7 +85,7 @@ bool net_igc_start(u32 address, u8 mac[6]) {
     /* Interior 0xff octets are valid in a unicast station address. The
      * multicast bit also rejects the all-ones broadcast address. */
     bool valid = (high & (1u << 31)) && !(mac[0] & 1);
-    if (!(low | (high & 0xffff)) || !valid) return false;
+    if (!(low | (high & 0xffff)) || !valid) { clear_device(); return false; }
     rx_page = page_alloc_below(DMA_LIMIT);
     tx_page = page_alloc_below(DMA_LIMIT);
     if (!rx_page || !tx_page) { free_unpublished(); return false; }
@@ -113,8 +126,11 @@ bool net_igc_start(u32 address, u8 mac[6]) {
     wr(RXDCTL, 1u << 25); wr(TXDCTL, 1u << 25);
     if (!enabled(RXDCTL) || !enabled(TXDCTL)) {
         /* Quarantine all DMA pages: queue disable alone cannot prove that a
-         * faulty controller has stopped reading them. */
+         * faulty controller has stopped reading them. Keep the pages reserved
+         * in the allocator, but detach this device so another controller can
+         * start with fresh rings and packet buffers. */
         pci_write16(address, 4, (u16)((command | 2) & ~4u));
+        clear_device();
         return false;
     }
     wr(TCTL, (1u << 1) | (1u << 3) | (15u << 4) | (1u << 24));
