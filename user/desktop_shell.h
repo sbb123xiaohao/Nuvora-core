@@ -23,7 +23,7 @@ struct desktop_window {
 struct desktop_rect { u32 x, y, w, h; };
 struct desktop_app { const char *name, *description, *keywords; };
 static const struct desktop_app desktop_apps[] = {
-    {"Files", "Folders and drives", "file folder disk drive home"},
+    {"Files", "Spaces and collections", "file folder space disk drive home search"},
     {"Text Editor", "Plain text", "text edit note txt markdown"},
     {"Terminal", "Commands and downloads", "terminal shell command console wget ping"},
     {"Media", "Music and video", "media music audio video mp3 mp2 flac wav mpeg player"},

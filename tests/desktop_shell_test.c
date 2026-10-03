@@ -110,8 +110,57 @@ static void editor_navigation(void) {
     assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==45);
     assert(editor_cursor_at(19+7*DESKTOP_EDITOR_CELL,73+DESKTOP_EDITOR_LINE)==45);
 }
+static void spaces_model(void) {
+    struct nv_dirent64 items[6]={
+        {.name="zeta.txt",.kind=NV_FILE,.size=20},
+        {.name="Work",.kind=NV_DIR},
+        {.name="alpha.MP3",.kind=NV_FILE,.size=~(u64)0},
+        {.name="notes.md",.kind=NV_FILE,.size=1ull<<40},
+        {.name="Archive",.kind=NV_DIR},
+        {.name="Beta.mpg",.kind=NV_FILE,.size=10}};
+    assert(files_matches("Report-Final.MD","FINAL.md"));
+    assert(files_matches("file","") && !files_matches("file","files"));
+    assert(!files_matches("", "x") && files_matches("aAa","AA"));
+    files_sort(items,6,FILE_SORT_NAME);
+    assert(!strcmp(items[0].name,"Archive") && !strcmp(items[1].name,"Work"));
+    assert(!strcmp(items[2].name,"alpha.MP3") && !strcmp(items[5].name,"zeta.txt"));
+    files_sort(items,6,FILE_SORT_KIND);
+    assert(!strcmp(items[2].name,"notes.md") && !strcmp(items[3].name,"zeta.txt"));
+    assert(!strcmp(items[4].name,"alpha.MP3") && !strcmp(items[5].name,"Beta.mpg"));
+    files_sort(items,6,FILE_SORT_SIZE);
+    assert(items[2].size==~(u64)0 && items[3].size==(1ull<<40));
+    assert(suffix("DOCUMENT.TXT",".txt") && !suffix("not.txtx",".txt"));
+    assert(!strcmp(desktop_kind(&items[2]),"MP3 audio"));
+
+    struct desktop_preferences p={0x3155494e,2,15,0};
+    assert(files_preferences_valid(&p));p.options=1;assert(!files_preferences_valid(&p));
+    p.magic=0x3255494e;p.options=73|(1u<<7)|(2u<<8)|1024u;
+    assert(files_preferences_valid(&p));
+    p.options|=1u<<11;assert(!files_preferences_valid(&p));
+    p.options=101;assert(!files_preferences_valid(&p));
+    p.options=3u<<8;assert(!files_preferences_valid(&p));
+    p.options=100;p.idle_minutes=0;assert(!files_preferences_valid(&p));
+    p.idle_minutes=5;p.theme=3;assert(!files_preferences_valid(&p));
+    p.theme=1;p.magic=0;assert(!files_preferences_valid(&p));
+
+    windows[DESKTOP_FILES]=(struct desktop_window){.w=640,.h=420};
+    count=10;selected=scroll=0;file_view=0;
+    files_move(NV_KEY_RIGHT);assert(selected==1 && !scroll);
+    files_move(NV_KEY_DOWN);assert(selected==4 && !scroll);
+    files_move(NV_KEY_DOWN);assert(selected==7 && scroll==3);
+    files_move(NV_KEY_LEFT);assert(selected==6 && scroll==3);
+    files_move(NV_KEY_PGDN);assert(selected==9 && scroll==6);
+    windows[DESKTOP_FILES].w=340;scroll_to_selection();assert(selected==9 && scroll==8);
+    file_view=1;scroll_to_selection();assert(selected==9 && scroll==5);
+    count=0;files_move(NV_KEY_UP);assert(!selected && !scroll);
+    settings_tab=SETTINGS_SYSTEM;account.info.role=0;
+    assert(settings_activate(SETTINGS_ACTION+1)==-NV_EACCESS);
+    settings_tab=SETTINGS_NETWORK;assert(settings_activate(SETTINGS_ACTION+1)==-NV_EACCESS);
+    settings_tab=SETTINGS_SOUND;audio_ready=false;
+    assert(settings_activate(SETTINGS_ACTION)==-NV_ENODEV);
+}
 int main(void) {
-    search(); switching(); placement(); editor_navigation();
-    puts("PASS desktop shell: search, stable MRU, minimized/closed windows, tiling, preview bounds and wrapped editor navigation");
+    search(); switching(); placement(); editor_navigation(); spaces_model();
+    puts("PASS desktop shell: launcher/MRU/tiling/editor, Spaces filter/sort/grid, legacy/new preferences and settings roles");
     return 0;
 }

@@ -17,6 +17,29 @@ from extent_store import layout, roots, BLOCK
 from mkmedia import create as create_media
 
 
+def settings_page(monitor, index):
+    monitor.start(6)
+    for _ in range(4):
+        monitor.key('left')
+    for _ in range(index):
+        monitor.key('right')
+
+
+def drag_volume(monitor, width, height, percent, output):
+    scale=ui_scale(width,height);sw=width//scale;ww=min(720,sw-40)
+    origin=(sw-ww)//2+155;span=ww-180;y=(20+28+223)*scale
+    start=(origin+span*20//100+1)*scale
+    target=(origin+span*percent//100+1)*scale
+    monitor.pointer(width,height,start,y,True)
+    monitor.pointer(width,height,target,y,True)
+    # A dragged slider must redraw while the button is still held.
+    _,_,pixels=monitor.shot(output,'volume-dragging')
+    knob_x=(origin+(span-12)*percent//100+5)*scale
+    offset=(y*width+knob_x)*3
+    assert int.from_bytes(pixels[offset:offset+3],'big')==0x2e6861
+    monitor.pointer(width,height,target,y,False)
+
+
 def saved_file(disk, name):
     """Read a committed COW root while the guest is paused or powered off."""
     with disk.open('rb') as stream:
@@ -78,7 +101,8 @@ def main():
             qemu.BUILD = original
         command += ['-display', 'none', '-qmp', 'stdio', '-serial', f'file:{serial}',
                     '-device', 'qemu-xhci,id=xhci', '-device', 'usb-kbd,bus=xhci.0',
-                    '-device', 'usb-tablet,bus=xhci.0']
+                    '-device', 'usb-tablet,bus=xhci.0', '-audiodev', 'none,id=audio0',
+                    '-device', 'intel-hda', '-device', 'hda-duplex,audiodev=audio0']
         if args.iso:
             command+=['-cdrom',str(args.iso),'-boot','d']
         else:
@@ -112,15 +136,14 @@ def main():
                     assert 'Loom / Nuvora command environment' not in text
                     print(f'PASS production {"UEFI ISO" if args.iso else "USB media"}: graphical OOBE/workspace, terminal and 7 native client permission assertions',flush=True)
                     return
-                m.start(6)
-                wx, wy = (sw-min(560, sw-40))//2, 20
-                ww = min(560, sw-40);bw=(ww-192)//3
-                def click(cx, cy):
-                    px, py = (wx+1+cx)*scale, (wy+28+cy)*scale
-                    m.pointer(width,height,px,py,True);m.pointer(width,height,px,py,False)
-                    time.sleep(.25)
-                m.shot(output, '03-appearance');click(162+bw+16,158)
-                m.shot(output, '03a-ocean');click(35,126);click(179,158)
+                settings_page(m,0);m.shot(output,'03-appearance');m.key('2')
+                for _ in range(4): m.key('tab')
+                m.key('ret');m.key('tab');m.key('ret')  # List and dot files.
+                m.shot(output,'03a-ocean')
+                settings_page(m,1);drag_volume(m,width,height,80,output)
+                m.shot(output,'03b-volume-80')
+                m.start(0);m.key('f8');m.key('alt','f9')  # Type sorting.
+                settings_page(m,3);m.key('1')
                 m.shot(output, '04-security-one-minute');m.key('esc')
                 source='UEFI ISO' if args.iso else 'USB boot with nv.test=1 ignored'
                 print(f'PASS production {source}: graphical authentication and native client authority checks', flush=True)
@@ -136,22 +159,28 @@ def main():
                 m.key('ctrl','a');m.type(password);m.key('ret');account_wait(m,output,'06-unlocked',locked=True)
                 assert desktop_visible(m.shot(output,'06a-resumed')[2],scale)
                 print('PASS real idle lock, app/launcher barrier, wrong-password rejection and resume', flush=True)
-                m.start(6);m.key('right');m.key('right');m.key('tab');m.key('ret')
+                settings_page(m,4);m.key('tab');m.key('ret')
                 m.shot(output,'07-restart-confirmation');m.key('ret')
                 assert serial.read_text(errors='replace').count('Ring 3: /apps/session')==1
                 m.key('tab');m.key('ret');m.key('tab');m.key('ret');boot(2)
                 m.shot(output,'08-reboot-sign-in');m.type(password);m.key('ret')
                 account_wait(m,output,'09-persisted-workspace',locked=True)
                 assert desktop_visible(m.shot(output,'09a-restored-preferences')[2],scale)
-                m.start(6);m.key('right');m.key('right');m.key('tab');m.key('tab');m.key('ret')
+                settings_page(m,1)
+                _,_,sound=m.shot(output,'09b-restored-volume')
+                ww=min(720,sw-40);wx=(sw-ww)//2;aw=ww-180
+                knob_x=(wx+1+154+(aw-12)*80//100+5)*scale
+                knob_y=(20+28+223)*scale
+                assert int.from_bytes(sound[(knob_y*width+knob_x)*3:(knob_y*width+knob_x)*3+3],'big')==0x2e6861
+                settings_page(m,4);m.key('tab');m.key('tab');m.key('ret')
                 m.shot(output,'10-shutdown-confirmation');m.key('tab');m.key('ret')
                 assert process.wait(timeout=20)==0
-                assert struct.unpack('<IIII',saved_file(disk,'/home/users/tester/.desktop'))==(0x3155494e,1,1,0)
+                assert struct.unpack('<IIII',saved_file(disk,'/home/users/tester/.desktop'))==(0x3255494e,1,1,80|128|256|1024)
                 text=serial.read_text(errors='replace')
                 assert 'SMEP enabled' in text and 'Nuvora Core halted.' in text
                 assert 'PANIC' not in text and '[trap]' not in text and 'PROBE RESULT:' not in text
                 assert 'Loom / Nuvora command environment' not in text and 'firmware shutdown unavailable' not in text
-                print('PASS graphical restart/shutdown: safe confirmation, account/preferences persistence, ACPI power and quiet kernel',flush=True)
+                print('PASS graphical restart/shutdown: wallpaper, Files list/sort/hidden and live HDA volume persist; safe power confirmation and quiet kernel',flush=True)
             finally:
                 if process.poll() is None:
                     process.terminate()

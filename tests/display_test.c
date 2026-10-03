@@ -50,7 +50,7 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     const char *sample="An editable text window\nSecond line with 0123456789\n";
     struct desktop_launcher launcher={0}; desktop_search(&launcher);
     struct desktop_view v={.path="/home",.message="",.drive="4 drives",
-        .entries=files,.count=24,.selected=4,.scroll=2,.volumes=4,
+        .entries=files,.count=24,.selected=4,.scroll=4,.volumes=4,
         .pointer=true,.pointer_x=width/2,.pointer_y=height/2,
         .audio_ready=true,.volume_percent=72,
         .launcher=&launcher,
@@ -145,11 +145,12 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
                     (windows[0].y+43)*s);
     assert(hit.kind==DESKTOP_HIT_FILE_NEW_TEXT);
     if (!all_open) {
-        hit=desktop_hit(width,height,&v,(windows[0].x+130)*s,
-                        (windows[0].y+90+(4-2)*18)*s);
+        struct files_layout g=desktop_files_layout(&windows[0],v.file_view);
+        hit=desktop_hit(width,height,&v,(windows[0].x+g.left+8)*s,
+                        (windows[0].y+g.top+14)*s);
         assert(hit.kind==DESKTOP_HIT_FILE && hit.index==4);
         hit=desktop_hit(width,height,&v,(windows[0].x+20)*s,
-                        (windows[0].y+88+22)*s);
+                        (windows[0].y+103+36)*s);
         assert(hit.kind==DESKTOP_HIT_PLACE && hit.index==1);
     }
     const char *path=all_open?getenv("NV_WINDOWS_PREVIEW"):getenv("NV_FILES_PREVIEW");
@@ -294,8 +295,58 @@ static void native_render(u32 width,u32 height,u32 format) {
     assert(source[0]==0x9173ace4 && source[count+1]==0x27607845);
     free(source);free(full);free(tiled);
 }
+static void settings_render(u32 width,u32 height,u32 format) {
+    u32 s=desktop_scale(width,height),sw=width/s,sh=height/s,n=width*height;
+    struct desktop_window windows[DESKTOP_WINDOW_COUNT]={0};
+    windows[DESKTOP_SETTINGS]=(struct desktop_window){.x=20,.y=20,.w=MIN(720u,sw-40),
+        .h=MIN(480u,sh-76),.open=true};
+    u8 order[DESKTOP_WINDOW_COUNT];for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
+    struct account_ui account={0};account.info.role=NV_ACCOUNT_ADMIN;
+    struct nv_net_info network={.index=2,.state=NV_NET_ONLINE,.type=NV_NET_USB_BRIDGE,
+        .ip=0x0a00020f,.mask=0xffffff00,.gateway=0x0a000202,.dns=0x0a000203};
+    struct desktop_view v={.windows=windows,.order=order,.active=DESKTOP_SETTINGS,
+        .path="/home",.drive="1 volume",.message="",.account=&account,
+        .system_memory="256MiB memory",.system_free="190MiB free / 3 tasks",
+        .audio_ready=true,.volume_percent=63,.idle_minutes=5,.network=&network,.network_present=true};
+    u32 *full=guarded(n),*tiled=guarded(n);
+    struct nv_canvas all={full+1,width,0,height,format};
+    const struct desktop_window *w=&windows[DESKTOP_SETTINGS];
+    for (u32 tab=0;tab<SETTINGS_TABS;++tab) {
+        v.settings_tab=tab;
+        for (u32 state=0;state<2;++state) {
+            v.audio_ready=v.network_present=!state;account.info.role=state?0:NV_ACCOUNT_ADMIN;
+            desktop_render(&all,height,&v);
+            for (u32 y=0;y<height;y+=31) {
+                struct nv_canvas part={tiled+1+(uptr)y*width,width,y,MIN(31u,height-y),format};
+                desktop_render(&part,height,&v);
+            }
+            assert(!memcmp(full+1,tiled+1,(usize)n*4));
+            assert(full[0]==0x9173ace4 && full[n+1]==0x27607845);
+            assert(tiled[0]==0x9173ace4 && tiled[n+1]==0x27607845);
+            for (u32 i=0;i<desktop_settings_choices(tab);++i) {
+                struct desktop_rect r=desktop_settings_rect(w->w-2,w->h-29,tab,SETTINGS_ACTION+i);
+                struct desktop_hit hit=desktop_hit(width,height,&v,(w->x+1+r.x+r.w/2)*s,
+                    (w->y+28+r.y+r.h/2)*s);
+                assert(hit.kind==DESKTOP_HIT_SETTINGS && hit.index==SETTINGS_ACTION+i);
+            }
+            if (tab==SETTINGS_SOUND && !state) for (u32 percent=0;percent<=100;percent+=50) {
+                struct desktop_hit hit=desktop_hit(width,height,&v,
+                    (w->x+155+(w->w-180)*percent/100)*s,(w->y+28+223)*s);
+                assert(hit.kind==DESKTOP_HIT_SETTINGS_VOLUME && hit.index==percent);
+            }
+        }
+    }
+    if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8) {
+        v.settings_tab=SETTINGS_APPEARANCE;
+        desktop_render(&all,height,&v);preview(getenv("NV_SETTINGS_PREVIEW"),full+1,width,height);
+    }
+    free(full);free(tiled);
+}
 
 int main(void) {
+    settings_render(640,480,NV_DISPLAY_BGRX8);
+    settings_render(1280,800,NV_DISPLAY_BGRX8);
+    settings_render(1920,1080,NV_DISPLAY_RGBX8);
     native_render(640,480,NV_DISPLAY_BGRX8);
     native_render(1024,768,NV_DISPLAY_BGRX8);
     native_render(1280,800,NV_DISPLAY_RGBX8);

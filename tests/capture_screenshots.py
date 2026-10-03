@@ -17,7 +17,8 @@ import zlib
 
 from desktop_boot_test import Monitor, first_account, desktop_visible, ui_scale, qemu, create
 from mkmedia import create as create_media
-from session_boot_test import saved_file
+from session_boot_test import saved_file, settings_page, drag_volume
+from import_media import import_files
 
 
 def digest(path):
@@ -54,6 +55,7 @@ def main():
         private = pathlib.Path(directory)
         disk, esp, media = private / 'data.img', private / 'esp.img', private / 'boot.img'
         create(disk, size_mib=128, partitions=1)
+        import_files(disk,[qemu.ROOT / 'tests/fixtures/clip.mpg',qemu.ROOT / 'tests/fixtures/tone.mp3'])
         shutil.copyfile(source_esp, esp)
         create_media(esp, media)
         original = qemu.BUILD
@@ -66,6 +68,9 @@ def main():
         command += ['-display', 'none', '-qmp', 'stdio', '-serial', f'file:{serial}',
                     '-device', 'qemu-xhci,id=xhci', '-device', 'usb-kbd,bus=xhci.0',
                     '-device', 'usb-tablet,bus=xhci.0',
+                    '-netdev', 'user,id=net0', '-device', 'e1000e,netdev=net0',
+                    '-audiodev', 'none,id=audio0', '-device', 'intel-hda',
+                    '-device', 'hda-duplex,audiodev=audio0',
                     '-drive', f'file={media},format=raw,if=none,id=boot_media',
                     '-device', 'usb-storage,bus=xhci.0,drive=boot_media,bootindex=1']
         with (output / 'qemu.log').open('w') as log:
@@ -87,8 +92,9 @@ def main():
                     pictures.append({'file': target.name, 'width': width, 'height': height,
                                      'sha256': digest(target)})
                     print(f'CAPTURE {target.name}: {width}x{height}', flush=True)
+                    return width,height
 
-                capture('desktop')
+                width,height=capture('desktop')
                 monitor.start(1)
                 monitor.key('meta_l', 'right')
                 paragraph = ('Native desktop with files and terminal and a saved document on the private AHCI data volume. '
@@ -110,6 +116,22 @@ def main():
                     monitor.call('cont')
                 monitor.key('alt', 'f9')
                 monitor.start(2)
+                monitor.type('nest Projects\nweave readme.md Nuvora\nweave ideas.txt Ideas\n'
+                             'weave .hidden-note private\nmirror /home/tone.mp3 sound.mp3\n'
+                             'mirror /home/clip.mpg clip.mpg\nanchor\n')
+                monitor.key('alt', 'f9')
+                monitor.start(0)
+                monitor.key('ctrl','f');monitor.type('ReAdMe');monitor.key('ret');monitor.key('ret')
+                monitor.key('end');monitor.type(' Core');monitor.key('ctrl','s')
+                monitor.call('stop')
+                try:
+                    assert saved_file(disk,'/home/users/tester/readme.md') == b'Nuvora Core\n'
+                finally:
+                    monitor.call('cont')
+                monitor.key('alt','f9');monitor.start(0)
+                monitor.key('ctrl','f');monitor.key('esc')
+                capture('files')
+                monitor.start(2)
                 monitor.type('origin\nhorizon\nvolumes\n')
                 monitor.key('meta_l', 'right')
                 monitor.start(0)
@@ -121,8 +143,20 @@ def main():
                 for app in (0, 1, 2):
                     monitor.start(app)
                     monitor.key('alt', 'f9')
-                monitor.start(6)
+                settings_page(monitor,0)
                 capture('settings')
+                settings_page(monitor,1)
+                drag_volume(monitor,width,height,80,output)
+                capture('settings-sound')
+                settings_page(monitor,2)
+                monitor.key('tab');monitor.key('ret')
+                deadline=time.monotonic()+20
+                while '[net] DHCP address 10.0.2.15' not in serial.read_text(errors='replace'):
+                    if time.monotonic()>deadline:
+                        raise RuntimeError('Settings DHCP action did not configure IPv4')
+                    time.sleep(.2)
+                time.sleep(1.2)
+                capture('settings-network')
                 text = serial.read_text(errors='replace')
                 assert 'PANIC' not in text and '[trap]' not in text
                 assert 'PROBE RESULT:' not in text and 'Loom / Nuvora command environment' not in text
@@ -135,12 +169,12 @@ def main():
                         process.kill()
                         process.wait()
     manifest = {'capture': 'QMP screendump; lossless P6 to RGB PNG',
-                'boot': 'production UEFI USB; q35; 256 MiB; AHCI; USB keyboard/tablet',
+                'boot': 'production UEFI USB; q35; 256 MiB; AHCI; USB keyboard/tablet; e1000e; HDA',
                 'qemu': subprocess.check_output([qemu.qemu_binary(), '--version'], text=True).splitlines()[0],
                 'kernel_sha256': digest(production), 'esp_sha256': digest(source_esp),
                 'firmware_sha256': digest(firmware), 'screenshots': pictures}
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-    print('PASS actual production captures: wrapped editor Up/Down, saved document and desktop applications', flush=True)
+    print('PASS production captures: wrapped editor, Spaces search/open/save, live HDA volume and Settings DHCP', flush=True)
 
 
 if __name__ == '__main__':

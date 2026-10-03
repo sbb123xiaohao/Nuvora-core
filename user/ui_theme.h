@@ -38,9 +38,11 @@ static inline void desktop_icon(struct nv_canvas *c,struct desktop_clip clip,
     u32 unit=MAX(1u,size/40),fg=0xf6faff;
     desktop_round(c,clip,x,y,size,size,size/4,colors[MIN(id,6u)]);
     if (id==0) {
-        desktop_round(c,clip,x+7*unit,y+12*unit,26*unit,20*unit,3*unit,0xe2eeff);
-        desktop_round(c,clip,x+7*unit,y+9*unit,12*unit,8*unit,2*unit,0xe2eeff);
-        desktop_round(c,clip,x+7*unit,y+16*unit,26*unit,16*unit,3*unit,0xffffff);
+        desktop_round(c,clip,x+12*unit,y+18*unit,17*unit,3*unit,unit,0xe2eeff);
+        desktop_round(c,clip,x+18*unit,y+12*unit,3*unit,16*unit,unit,0xe2eeff);
+        desktop_round(c,clip,x+7*unit,y+7*unit,12*unit,12*unit,4*unit,0xffffff);
+        desktop_round(c,clip,x+23*unit,y+12*unit,10*unit,10*unit,4*unit,0xe2eeff);
+        desktop_round(c,clip,x+13*unit,y+25*unit,10*unit,10*unit,4*unit,0xe2eeff);
     } else if (id==1 || id==4) {
         desktop_round(c,clip,x+10*unit,y+7*unit,20*unit,27*unit,3*unit,fg);
         for (u32 row=0;row<3;++row)

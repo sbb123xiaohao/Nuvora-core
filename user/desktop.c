@@ -13,6 +13,10 @@ static u32 active = DESKTOP_WINDOW_COUNT;
 static u32 shortcut_selected = 0xffffffffu;
 static char directory[NV_PATH_MAX], message[160], drive[32];
 static u32 count, selected, scroll, volumes;
+static u32 files_total,file_view,file_sort;
+static char file_query[64];
+static bool file_query_focus;
+static bool volume_dirty;
 static bool show_hidden;
 static u32 file_mode;
 static char file_input[32], file_target[NV_PATH_MAX], file_base[NV_PATH_MAX];
@@ -21,7 +25,10 @@ static bool pointer_visible, audio_ready, menu, volume_open, quit_requested, lea
 static bool signout_requested;
 static struct account_ui account;
 static u32 theme,settings_tab,settings_confirm,settings_focus,pending_power,idle_minutes=5,uptime_minutes;
-static char system_memory[64];
+static char system_memory[64],system_free[64];
+static struct nv_net_info settings_network;
+static bool settings_network_present;
+static u32 settings_network_index,volume_restore=70;
 static struct desktop_launcher launcher;
 static struct desktop_switcher switcher;
 static bool overview, meta_down, super_armed;
@@ -210,17 +217,25 @@ static void note_error(const char *action, int error) {
     strlcpy(message+n,error_name(error),sizeof(message)-n);
 }
 static int refresh(void) {
+    char previous[NV_PATH_MAX],chosen[32]={0};
+    strlcpy(previous,directory,sizeof(previous));
+    if (selected<count) strlcpy(chosen,entries[selected].name,sizeof(chosen));
     int r=getcwd_path(directory,sizeof(directory));
     if (r<0) return r;
-    count=0;
-    for (u32 i=0;count<DESKTOP_ITEMS;++i) {
+    if (strcmp(previous,directory)) { file_query[0]=chosen[0]=0;file_query_focus=false; }
+    count=files_total=0;
+    for (u32 i=0;i<DESKTOP_ITEMS;++i) {
         struct nv_dirent64 entry;
         r=list_dir64(".",i,&entry);
         if (r<0) return r;
         if (!r) break;
         if (!show_hidden && entry.name[0]=='.') continue;
+        ++files_total;
+        if (!files_matches(entry.name,file_query)) continue;
         entries[count++]=entry;
     }
+    files_sort(entries,count,file_sort);
+    if (*chosen) for (u32 i=0;i<count;++i) if (!strcmp(entries[i].name,chosen)) { selected=i;break; }
     if (selected>=count) selected=count?count-1:0;
     if (scroll>selected) scroll=selected;
     volumes=0;
@@ -233,9 +248,34 @@ static int refresh(void) {
     return 0;
 }
 static void scroll_to_selection(void) {
-    u32 visible=desktop_visible(&windows[DESKTOP_FILES]);
-    if (selected<scroll) scroll=selected;
-    if (selected>=scroll+visible) scroll=selected-visible+1;
+    struct files_layout g=desktop_files_layout(&windows[DESKTOP_FILES],file_view);
+    u32 visible=g.rows*g.columns;
+    u32 last_row=count?(count-1)/g.columns:0;
+    u32 maximum=last_row>=g.rows?(last_row-g.rows+1)*g.columns:0;
+    scroll=MIN(scroll/g.columns*g.columns,maximum);
+    if (selected<scroll) scroll=selected/g.columns*g.columns;
+    if (selected>=scroll+visible) scroll=(selected/g.columns-g.rows+1)*g.columns;
+}
+static void settings_refresh(void) {
+    struct nv_info64 hardware;
+    if (!info64(&hardware)) {
+        desktop_size(system_memory,hardware.ram_pages*NV_PAGE);
+        strlcpy(system_memory+strlen(system_memory)," memory",sizeof(system_memory)-strlen(system_memory));
+        desktop_size(system_free,hardware.free_pages*NV_PAGE);
+        u32 at=strlen(system_free);strlcpy(system_free+at," free / ",sizeof(system_free)-at);
+        at=strlen(system_free);at+=number(system_free+at,hardware.tasks,10);
+        strlcpy(system_free+at," tasks",sizeof(system_free)-at);
+    }
+    bool found=false;struct nv_net_info candidate={0};
+    for (u32 i=0;i<NV_NET_MAX;++i) {
+        struct nv_net_info n={.index=i};
+        if (devctl(NV_SUB_NET,NV_NET_INFO,&n)!=1) continue;
+        if (!found || n.reserved[0]) candidate=n;
+        found=true;
+        if (i==settings_network_index) { candidate=n;break; }
+    }
+    settings_network_present=found;settings_network=candidate;
+    if (found) settings_network_index=candidate.index;
 }
 static struct desktop_view view(void) {
     struct desktop_view v={0};
@@ -243,9 +283,12 @@ static struct desktop_view view(void) {
     v.wallpaper=wallpaper;
     v.theme=theme;v.settings_tab=settings_tab;v.settings_confirm=settings_confirm;
     v.settings_focus=settings_focus;
-    v.idle_minutes=idle_minutes;v.uptime_minutes=uptime_minutes;v.system_memory=system_memory;
+    v.idle_minutes=idle_minutes;v.uptime_minutes=uptime_minutes;v.system_memory=system_memory;v.system_free=system_free;
+    v.network=&settings_network;v.network_present=settings_network_present;
     v.path=directory; v.message=message; v.drive=drive; v.entries=entries;
     v.count=count; v.selected=selected; v.scroll=scroll; v.volumes=volumes;
+    v.files_total=files_total;v.file_view=file_view;v.file_sort=file_sort;
+    v.file_query=file_query;v.file_query_focus=file_query_focus;v.show_hidden=show_hidden;
     v.file_mode=file_mode; v.file_input=file_input; v.file_target=file_input;
     v.pointer=pointer_visible; v.pointer_x=pointer_x; v.pointer_y=pointer_y;
     v.shortcut_selected=shortcut_selected;
@@ -393,7 +436,7 @@ static int client_poll(bool *dirty) {
 }
 static bool suffix(const char *name, const char *ext) {
     u32 n=strlen(name), m=strlen(ext);
-    return n>=m && !strcmp(name+n-m,ext);
+    return n>=m && !files_name_compare(name+n-m,ext);
 }
 static int join_file(char *out, const char *folder, const char *name) {
     if (!*name || !strcmp(name,".") || !strcmp(name,"..")) return -NV_EINVAL;
@@ -535,6 +578,7 @@ static int editor_save_target(const char *target) {
         if (r<0) { note("Saved in RAM; disk sync failed."); return r; }
     }
     editor_mode=DESKTOP_EDIT_NORMAL;
+    refresh();scroll_to_selection();
     return editor_load_next();
 }
 static int editor_save(void) {
@@ -582,12 +626,13 @@ static void close_window(u32 id) {
         account_call(NV_ACCOUNT_CANCEL,NULL);account.busy=false;account_page(&account,ACCOUNT_LIST);
     }
     if (id==DESKTOP_SETTINGS) settings_confirm=0;
+    if (id==DESKTOP_FILES) file_query_focus=false;
     focus_top();
 }
 static int go_place(u32 index) {
     static const char *const places[]={"/home","/drives/D","/drives/E","/drives/F",
                                        "/","/apps","/tmp"};
-    if (index>=ARRAY_LEN(places) || (index<NV_VOLUME_MAX && index>=volumes)) return 0;
+    if (index>=ARRAY_LEN(places) || (index>0 && index<NV_VOLUME_MAX && index>=volumes)) return 0;
     int r=chdir_path(index==0 && *account.info.home?account.info.home:places[index]);
     if (r>=0) { selected=scroll=0; r=refresh(); }
     return r;
@@ -623,7 +668,7 @@ static int open_selected(void) {
 }
 static int start_app(u32 index) {
     set_menu(false);
-    if (index==0) { focus_window(DESKTOP_FILES); return 0; }
+    if (index==0) { focus_window(DESKTOP_FILES);int r=refresh();scroll_to_selection();return r; }
     if (index==1) { focus_window(DESKTOP_EDITOR); return 0; }
     if (index==2) {
         if (windows[DESKTOP_TERMINAL].client) { focus_window(DESKTOP_TERMINAL); return 0; }
@@ -639,7 +684,7 @@ static int start_app(u32 index) {
         focus_window(DESKTOP_ACCOUNTS);return 0;
     }
     if (index==6) {
-        settings_confirm=settings_focus=0;focus_window(DESKTOP_SETTINGS);
+        settings_confirm=settings_focus=0;settings_refresh();focus_window(DESKTOP_SETTINGS);
     }
     return 0;
 }
@@ -647,7 +692,6 @@ static void preference_path(char *out,const char *name) {
     strlcpy(out,account.info.home,NV_PATH_MAX);
     u32 end=strlen(out);strlcpy(out+end,name,NV_PATH_MAX-end);
 }
-struct desktop_preferences { u32 magic,theme,idle_minutes,reserved; };
 static void wallpaper_update(void) {
     if (!wallpaper) return;
     struct nv_canvas c={wallpaper,mode.width,0,mode.height,mode.format};
@@ -655,7 +699,8 @@ static void wallpaper_update(void) {
     desktop_wallpaper(&c,clip,mode.height,theme,false);
 }
 static int preferences_save(void) {
-    struct desktop_preferences p={0x3155494e,theme,idle_minutes,0};
+    struct desktop_preferences p={0x3255494e,theme,idle_minutes,
+        MIN(volume_percent,100u)|(file_view<<7)|(file_sort<<8)|((u32)show_hidden<<10)};
     char path[NV_PATH_MAX],temp[NV_PATH_MAX];
     preference_path(path,"/.desktop");preference_path(temp,"/.desktop-new");
     int fd=open_file(temp,NV_WRITE|NV_CREATE|NV_TRUNC);
@@ -665,20 +710,25 @@ static int preferences_save(void) {
     return replace_file(temp,path);
 }
 static void preferences_load(void) {
-    theme=0;idle_minutes=5;
+    theme=0;idle_minutes=5;file_view=file_sort=0;show_hidden=false;volume_percent=100;
     char path[NV_PATH_MAX];preference_path(path,"/.desktop");
     int fd=open_file(path,NV_READ);
     if (fd>=0) {
         struct desktop_preferences p;struct nv_stat64 st;
         if (!stat_file64(fd,&st) && st.size==sizeof(p) && take(fd,&p,sizeof(p))==(int)sizeof(p) &&
-            p.magic==0x3155494e && p.theme<=2 && !p.reserved &&
-            (p.idle_minutes==1 || p.idle_minutes==5 || p.idle_minutes==15)) {
+            files_preferences_valid(&p)) {
             theme=p.theme;idle_minutes=p.idle_minutes;
+            if (p.magic==0x3255494e) {
+                volume_percent=p.options&127u;file_view=(p.options>>7)&1u;
+                file_sort=(p.options>>8)&3u;show_hidden=!!(p.options&1024u);
+            }
         }
         close_file(fd);
     }
     struct nv_account_policy policy={idle_minutes*60*100,0};
     account_call(NV_ACCOUNT_POLICY_SET,&policy);
+    nv_audio_set_volume(volume_percent);
+    if (volume_percent) volume_restore=volume_percent;
     wallpaper_update();
 }
 static int session_enter(void) {
@@ -701,6 +751,7 @@ static int session_lock(void) {
     quit_requested=leaving=signout_requested=false;pending_power=settings_confirm=0;
     account.gate=true;account_refresh(&account);account_page(&account,ACCOUNT_LOGIN);
     hover_kind=DESKTOP_HIT_NONE;meta_down=super_armed=false;
+    drag_kind=snap_preview=0;volume_dirty=false;
     sync_clients();return 0;
 }
 static int session_request_signout(void) {
@@ -735,41 +786,108 @@ static int session_signout(void) {
     account_wipe(directory,sizeof(directory));account_wipe(message,sizeof(message));
     account_wipe(entries,sizeof(entries));
     account_wipe(file_input,sizeof(file_input));account_wipe(file_target,sizeof(file_target));account_wipe(file_base,sizeof(file_base));
-    count=selected=scroll=file_mode=0;show_hidden=false;active=DESKTOP_WINDOW_COUNT;
+    count=selected=scroll=file_mode=files_total=file_view=file_sort=0;show_hidden=false;
+    account_wipe(file_query,sizeof(file_query));file_query_focus=false;
+    volume_percent=100;volume_restore=70;nv_audio_set_volume(volume_percent);active=DESKTOP_WINDOW_COUNT;
+    drag_kind=snap_preview=0;volume_dirty=false;
     shortcut_selected=0xffffffffu;account_wipe(&account,sizeof(account));account.gate=true;
     account_refresh(&account);account_page(&account,ACCOUNT_LOGIN);sync_clients();
     return 0;
 }
+static int settings_volume(u32 value) {
+    if (!audio_ready) return -NV_ENODEV;
+    int r=nv_audio_set_volume(MIN(value,100u));
+    if (r<0) return r;
+    volume_percent=MIN(value,100u);
+    if (volume_percent) volume_restore=volume_percent;
+    return preferences_save();
+}
 static int settings_activate(u32 hit) {
-    if (hit<3) { settings_tab=hit;settings_focus=0;return 0; }
-    if (hit>=3 && hit<=5 && settings_tab<2) {
-        if (!settings_tab) { theme=hit-3;wallpaper_update(); }
-        else {
-            u32 minutes=hit==3?1u:hit==4?5u:15u;
+    if (hit<SETTINGS_TABS) { settings_tab=hit;settings_focus=0;settings_refresh();return 0; }
+    if (hit==SETTINGS_CANCEL) { settings_confirm=0;return 0; }
+    if (hit==SETTINGS_CONTINUE && settings_confirm) {
+        pending_power=settings_confirm;settings_confirm=0;signout_requested=false;
+        if (editor_dirty) return editor_request(4,NULL);
+        quit_requested=true;return 0;
+    }
+    if (hit<SETTINGS_ACTION || hit>=SETTINGS_ACTION+desktop_settings_choices(settings_tab)) return 0;
+    u32 choice=hit-SETTINGS_ACTION;
+    if (settings_tab==SETTINGS_APPEARANCE) {
+        if (choice<3) { theme=choice;wallpaper_update(); }
+        else if (choice<5) { file_view=choice-3;scroll_to_selection(); }
+        else { show_hidden=!show_hidden;int r=refresh();if (r<0) return r;scroll_to_selection(); }
+        return preferences_save();
+    }
+    if (settings_tab==SETTINGS_SOUND) {
+        if (!choice) return settings_volume(volume_percent>10?volume_percent-10:0);
+        if (choice==1) return settings_volume(volume_percent?0:volume_restore);
+        return settings_volume(MIN(100u,volume_percent+10));
+    }
+    if (settings_tab==SETTINGS_NETWORK) {
+        if (!choice) {
+            for (u32 i=1;i<=NV_NET_MAX;++i) {
+                u32 index=(settings_network_index+i)%NV_NET_MAX;
+                struct nv_net_info candidate={.index=index};
+                if (devctl(NV_SUB_NET,NV_NET_INFO,&candidate)==1) { settings_network_index=index;break; }
+            }
+        } else if (choice==1) {
+            if (account.info.role!=NV_ACCOUNT_ADMIN) return -NV_EACCESS;
+            if (!settings_network_present || settings_network.state<NV_NET_LINK) return -NV_ENODEV;
+            struct nv_net_static config={.index=settings_network_index};
+            int r=devctl(NV_SUB_NET,NV_NET_SELECT,&config);
+            if (r<0) return r;
+            r=devctl(NV_SUB_NET,NV_NET_DHCP,&config);
+            if (r<0) return r;
+            note("Requesting a network address.");
+        }
+        settings_refresh();return 0;
+    }
+    if (settings_tab==SETTINGS_SECURITY) {
+        if (choice<3) {
+            u32 minutes=choice==0?1u:choice==1?5u:15u;
             struct nv_account_policy policy={minutes*60*100,0};
             int r=account_call(NV_ACCOUNT_POLICY_SET,&policy);
             if (r<0) return r;
-            idle_minutes=minutes;
+            idle_minutes=minutes;return preferences_save();
         }
-        return preferences_save();
+        if (choice==3) return session_lock();
+        return start_app(5);
     }
-    if (settings_tab==1) {
-        if (hit==6) return session_lock();
-        if (hit==7) return start_app(5);
-    } else if (settings_tab==2) {
-        if (hit==6) { int r=control(NV_CTL_SYNC,0);if (!r) note("Mounted drives saved.");return r; }
-        if (hit==7 || hit==8) {
-            if (account.info.role!=NV_ACCOUNT_ADMIN) return -NV_EACCESS;
-            settings_confirm=hit==7?NV_CTL_REBOOT:NV_CTL_POWEROFF;settings_focus=0;return 0;
-        }
+    if (!choice) {
+        int r=control(NV_CTL_SYNC,0);if (!r) note("Mounted volumes saved.");return r;
     }
-    if (hit==12) { settings_confirm=0;return 0; }
-    if (hit==13 && settings_confirm) {
-        pending_power=settings_confirm;settings_confirm=0;signout_requested=false;
-        if (editor_dirty) return editor_request(4,NULL);
-        quit_requested=true;
-    }
+    if (account.info.role!=NV_ACCOUNT_ADMIN) return -NV_EACCESS;
+    settings_confirm=choice==1?NV_CTL_REBOOT:NV_CTL_POWEROFF;settings_focus=0;
     return 0;
+}
+static int files_query_key(u32 key,u32 flags) {
+    if (key==27) { file_query[0]=0;file_query_focus=false; }
+    else if (key=='\n' || key=='\t') { file_query_focus=false;return 0; }
+    else if ((flags&NV_KEY_CTRL) && (key=='a' || key=='A')) file_query[0]=0;
+    else if (key=='\b') { u32 n=strlen(file_query);if (n) file_query[n-1]=0; }
+    else if (!(flags&(NV_KEY_CTRL|NV_KEY_ALT)) && key>=32 && key<127) {
+        u32 n=strlen(file_query);if (n+1<sizeof(file_query)) { file_query[n]=(char)key;file_query[n+1]=0; }
+    } else return 0;
+    selected=scroll=0;
+    return refresh();
+}
+static int files_option(u32 kind) {
+    if (kind==DESKTOP_HIT_FILE_VIEW) file_view=!file_view;
+    else if (kind==DESKTOP_HIT_FILE_SORT) file_sort=(file_sort+1)%FILE_SORT_COUNT;
+    else if (kind==DESKTOP_HIT_FILE_HIDDEN) show_hidden=!show_hidden;
+    file_query_focus=false;
+    int r=refresh();if (r<0) return r;
+    scroll_to_selection();
+    return preferences_save();
+}
+static void files_move(u32 key) {
+    struct files_layout g=desktop_files_layout(&windows[DESKTOP_FILES],file_view);
+    u32 step=key==NV_KEY_LEFT || key==NV_KEY_RIGHT?1:
+        key==NV_KEY_PGUP || key==NV_KEY_PGDN?g.columns*g.rows:g.columns;
+    bool backwards=key==NV_KEY_UP || key==NV_KEY_LEFT || key==NV_KEY_PGUP;
+    if (count) selected=backwards?(selected>step?selected-step:0):MIN(count-1,selected+step);
+    else selected=scroll=0;
+    scroll_to_selection();
 }
 static u32 editor_columns(void) {
     const struct desktop_window *w=&windows[DESKTOP_EDITOR];
@@ -985,8 +1103,8 @@ int user_main(const char *args) {
     if ((iptr)wallpaper<0) wallpaper=NULL; /* Low-memory fallback stays usable. */
     wallpaper_update();
     u32 s=desktop_scale(mode.width,mode.height), sw=mode.width/s, sh=mode.height/s;
-    windows[DESKTOP_FILES]=(struct desktop_window){.x=125,.y=42,
-        .w=MIN(720u,sw-145),.h=MIN(500u,sh-83)};
+    windows[DESKTOP_FILES]=(struct desktop_window){.x=36,.y=42,
+        .w=MIN(960u,sw-72),.h=MIN(540u,sh-110)};
     windows[DESKTOP_EDITOR]=(struct desktop_window){.x=140,.y=62,
         .w=MIN(680u,sw-155),.h=MIN(470u,sh-104)};
     windows[DESKTOP_TERMINAL]=(struct desktop_window){.x=150,.y=86,
@@ -994,12 +1112,10 @@ int user_main(const char *args) {
     windows[DESKTOP_ACCOUNTS]=(struct desktop_window){.x=(i32)(sw-MIN(560u,sw-40))/2,.y=20,
         .w=MIN(560u,sw-40),.h=MIN(455u,sh-DESKTOP_BAR_HEIGHT-20)};
     windows[DESKTOP_SETTINGS]=windows[DESKTOP_ACCOUNTS];
-    struct nv_info64 hardware;
-    if (!info64(&hardware)) {
-        desktop_size(system_memory,hardware.ram_pages*NV_PAGE);
-        strlcpy(system_memory+strlen(system_memory)," RAM / native x86_64",
-            sizeof(system_memory)-strlen(system_memory));
-    }
+    windows[DESKTOP_SETTINGS].w=MIN(720u,sw-40);
+    windows[DESKTOP_SETTINGS].h=MIN(480u,sh-DESKTOP_BAR_HEIGHT-20);
+    windows[DESKTOP_SETTINGS].x=(i32)(sw-windows[DESKTOP_SETTINGS].w)/2;
+    settings_refresh();
     for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
     desktop_search(&launcher);
     terminal_new_line();
@@ -1023,9 +1139,12 @@ int user_main(const char *args) {
     bool dirty=true;
     u32 last_file=0xffffffffu; u64 last_file_tick=0;
     u32 last_shortcut=0xffffffffu; u64 last_shortcut_tick=0;
-    u32 last_title=0xffffffffu; u64 last_title_tick=0,last_reap=0,last_security=0;
+    u32 last_title=0xffffffffu; u64 last_title_tick=0,last_reap=0,last_security=0,last_status=0;
     for (;;) {
         u64 now=clock_ticks();
+        if (now-last_status>=100 && windows[DESKTOP_SETTINGS].open && !windows[DESKTOP_SETTINGS].minimized && !account.gate) {
+            settings_refresh();damage_window(&windows[DESKTOP_SETTINGS]);last_status=now;
+        }
         if (now-last_security>=25) {
             struct nv_account_info status;
             if (!account_call(NV_ACCOUNT_INFO,&status) && (status.flags&NV_AUTH_LOCKED) && !account.gate) {
@@ -1122,7 +1241,8 @@ int user_main(const char *args) {
             if (event.wheel && hover.window<DESKTOP_WINDOW_COUNT &&
                 !windows[hover.window].client) {
                 if (hover.window==DESKTOP_FILES) {
-                    i32 next=(i32)selected-event.wheel*3;
+                    struct files_layout g=desktop_files_layout(&windows[DESKTOP_FILES],file_view);
+                    i32 next=(i32)selected-event.wheel*(i32)(file_view?3:g.columns);
                     selected=count?(u32)MAX(0,MIN(next,(i32)count-1)):0;
                     scroll_to_selection(); dirty=true;
                 } else if (hover.window==DESKTOP_EDITOR) {
@@ -1134,12 +1254,17 @@ int user_main(const char *args) {
                 overview_move(event.wheel>0?-page:page); dirty=true;
             }
             if ((event.buttons&NV_POINTER_LEFT) && (pointer_buttons&NV_POINTER_LEFT) && drag_kind) {
-                if (drag_kind==DESKTOP_HIT_VOLUME_SLIDER) {
-                    u32 level=x<=sw-174?0:x>=sw-19?100:(x-(sw-174))*100/155;
+                if (drag_kind==DESKTOP_HIT_VOLUME_SLIDER || drag_kind==DESKTOP_HIT_SETTINGS_VOLUME) {
+                    u32 level;
+                    if (drag_kind==DESKTOP_HIT_SETTINGS_VOLUME) {
+                        const struct desktop_window *w=&windows[DESKTOP_SETTINGS];
+                        i32 relative=(i32)x-w->x-155;u32 span=w->w-180;
+                        level=relative<=0?0:(u32)relative>=span?100:(u32)relative*100/span;
+                    } else level=x<=sw-174?0:x>=sw-19?100:(x-(sw-174))*100/155;
                     if (level!=volume_percent) {
                         r=nv_audio_set_volume(level);
-                        if (r<0) note_error("Volume",r);
-                        else volume_percent=level;
+                        if (r<0) { note_error("Volume",r);r=0; }
+                        else { volume_percent=level;volume_dirty=true;if (level) volume_restore=level; }
                     }
                 } else {
                     struct desktop_window *w=&windows[drag_window];
@@ -1160,8 +1285,9 @@ int user_main(const char *args) {
                         w->tiled=DESKTOP_FLOATING;
                         i32 dx=(i32)x-(i32)oldx,dy=(i32)y-(i32)oldy;
                         i32 minw=300,minh=160;
+                        if (drag_window==DESKTOP_FILES) { minw=MIN(340u,sw);minh=MIN(310u,sh-DESKTOP_BAR_HEIGHT); }
                         if (drag_window==DESKTOP_ACCOUNTS) { minw=MIN(500u,sw);minh=MIN(429u,sh-DESKTOP_BAR_HEIGHT); }
-                        if (drag_window==DESKTOP_SETTINGS) { minw=MIN(500u,sw);minh=MIN(404u,sh-DESKTOP_BAR_HEIGHT); }
+                        if (drag_window==DESKTOP_SETTINGS) { minw=MIN(560u,sw);minh=MIN(429u,sh-DESKTOP_BAR_HEIGHT); }
                         if (w->text || !strcmp(w->title,"Folio")) {
                             minw=MAX(minw,(i32)((480+s-1)/s)+2);
                             minh=MAX(minh,(i32)((325+s-1)/s)+29);
@@ -1202,9 +1328,12 @@ int user_main(const char *args) {
                 }
                 else if (hit.kind==DESKTOP_HIT_VOLUME_SLIDER && audio_ready) {
                     r=nv_audio_set_volume(hit.index);
-                    if (r<0) note_error("Volume",r);
-                    else volume_percent=hit.index;
-                    drag_kind=DESKTOP_HIT_VOLUME_SLIDER;
+                    if (r<0) { note_error("Volume",r);r=0; }
+                    else {
+                        volume_percent=hit.index;volume_dirty=true;
+                        if (volume_percent) volume_restore=volume_percent;
+                        drag_kind=DESKTOP_HIT_VOLUME_SLIDER;
+                    }
                 }
                 else if (hit.kind==DESKTOP_HIT_START) {
                     set_menu(!menu);
@@ -1283,12 +1412,22 @@ int user_main(const char *args) {
                     else if (hit.index==2) file_mode=DESKTOP_FILE_NORMAL;
                 } else if (hit.kind==DESKTOP_HIT_FILE) {
                     focus_window(DESKTOP_FILES);
+                    file_query_focus=false;
                     u64 tick = clock_ticks();
                     bool open=last_file==hit.index && tick-last_file_tick<=40;
                     selected=hit.index; last_file=hit.index; last_file_tick=tick;
                     scroll_to_selection();
                     if (open) { r=open_selected(); last_file=0xffffffffu;
                         if (r<0) note_error("Open file",r); }
+                } else if (hit.kind==DESKTOP_HIT_FILE_SEARCH) {
+                    focus_window(DESKTOP_FILES);file_query_focus=true;last_file=0xffffffffu;
+                } else if (hit.kind==DESKTOP_HIT_FILE_VIEW || hit.kind==DESKTOP_HIT_FILE_SORT || hit.kind==DESKTOP_HIT_FILE_HIDDEN) {
+                    focus_window(DESKTOP_FILES);last_file=0xffffffffu;
+                    r=files_option(hit.kind);if (r<0) note_error("Files",r);
+                } else if (hit.kind==DESKTOP_HIT_FILE_PARENT) {
+                    focus_window(DESKTOP_FILES);file_query_focus=false;
+                    r=chdir_path("..");if (r>=0) { selected=scroll=0;r=refresh(); }
+                    if (r<0) note_error("Parent space",r);
                 } else if (hit.kind==DESKTOP_HIT_EDITOR_SAVE) {
                     focus_window(DESKTOP_EDITOR); r=editor_save();
                     if (r<0) note_error("Save document",r);
@@ -1317,10 +1456,18 @@ int user_main(const char *args) {
                 } else if (hit.kind==DESKTOP_HIT_SETTINGS) {
                     focus_window(DESKTOP_SETTINGS);r=settings_activate(hit.index);
                     if (r<0) { note_error("Settings",r);r=0; }
+                } else if (hit.kind==DESKTOP_HIT_SETTINGS_VOLUME) {
+                    focus_window(DESKTOP_SETTINGS);r=settings_volume(hit.index);
+                    if (r<0) { note_error("Sound",r);r=0; }
+                    else { drag_kind=hit.kind;drag_window=DESKTOP_SETTINGS; }
                 } else if (hit.kind==DESKTOP_HIT_TERMINAL) focus_window(DESKTOP_TERMINAL);
                 else if (hit.kind==DESKTOP_HIT_NONE) shortcut_selected=0xffffffffu;
             }
             if (!(event.buttons&NV_POINTER_LEFT)) {
+                if (volume_dirty) {
+                    r=preferences_save();volume_dirty=false;
+                    if (r<0) { note_error("Volume preference",r);r=0; }
+                }
                 if (drag_kind==DESKTOP_HIT_TITLE && snap_preview &&
                     windows[drag_window].open) {
                     struct desktop_window *w=&windows[drag_window];
@@ -1335,7 +1482,8 @@ int user_main(const char *args) {
             sync_clients();
             bool changed_buttons=(pointer_buttons^event.buttons)&NV_POINTER_LEFT;
             pointer_buttons=event.buttons&(NV_POINTER_LEFT|NV_POINTER_RIGHT|NV_POINTER_MIDDLE);
-            if (changed_buttons || dirty || drag_kind==DESKTOP_HIT_VOLUME_SLIDER) dirty=true;
+            if (changed_buttons || dirty || drag_kind==DESKTOP_HIT_VOLUME_SLIDER ||
+                drag_kind==DESKTOP_HIT_SETTINGS_VOLUME) dirty=true;
             else if (!had_pointer || previous_x!=pointer_x || previous_y!=pointer_y) {
                 if (had_pointer) {
                     r=draw_region(tile,rows,previous_x,previous_y,8*s,10*s);
@@ -1476,6 +1624,11 @@ keyboard_input:;
             if (r<0) { note_error("File operation",r); r=0; }
             dirty=true; continue;
         }
+        if (active==DESKTOP_FILES && file_query_focus && !(flags&NV_KEY_ALT)) {
+            r=files_query_key(key,flags);last_file=0xffffffffu;
+            if (r<0) { note_error("Find",r);r=0; }
+            dirty=true;continue;
+        }
         if ((flags&NV_KEY_ALT) && key==NV_KEY_F4 && active<DESKTOP_WINDOW_COUNT)
             close_window(active);
         else if ((flags&NV_KEY_ALT) && key==NV_KEY_F9 && active<DESKTOP_WINDOW_COUNT) {
@@ -1493,16 +1646,15 @@ keyboard_input:;
             if (key==27) {
                 if (settings_confirm) settings_confirm=0;else close_window(DESKTOP_SETTINGS);
             } else if (key=='\t') {
-                u32 choices=settings_confirm?2:settings_tab==0?3:settings_tab==1?5:3;
+                u32 choices=settings_confirm?2:desktop_settings_choices(settings_tab);
                 settings_focus=(settings_focus+((flags&NV_KEY_SHIFT)?choices-1:1))%choices;
             } else if (key=='\n') {
-                u32 hit=settings_confirm?12+settings_focus:settings_tab==0?3+settings_focus:
-                    settings_tab==1?(settings_focus<3?3+settings_focus:6+settings_focus-3):6+settings_focus;
+                u32 hit=settings_confirm?SETTINGS_CANCEL+settings_focus:SETTINGS_ACTION+settings_focus;
                 r=settings_activate(hit);if (r<0) note_error("Settings",r);
             } else if (key==NV_KEY_LEFT && settings_tab) { --settings_tab;settings_focus=0; }
-            else if (key==NV_KEY_RIGHT && settings_tab<2) { ++settings_tab;settings_focus=0; }
-            else if (key>='1' && key<='3' && settings_tab<2) {
-                r=settings_activate(3+key-'1');if (r<0) note_error("Settings",r);
+            else if (key==NV_KEY_RIGHT && settings_tab+1<SETTINGS_TABS) { ++settings_tab;settings_focus=0;settings_refresh(); }
+            else if (key>='1' && key<='3' && (settings_tab==SETTINGS_APPEARANCE || settings_tab==SETTINGS_SECURITY)) {
+                r=settings_activate(SETTINGS_ACTION+key-'1');if (r<0) note_error("Settings",r);
             }
         } else if (active==DESKTOP_EDITOR) {
             if (key==27) close_window(DESKTOP_EDITOR);
@@ -1512,10 +1664,16 @@ keyboard_input:;
             else { r=terminal_key(key,flags); if (r<0) note_error("Terminal",r); }
         } else if (active==DESKTOP_FILES) {
             if (key==27) close_window(DESKTOP_FILES);
-            else if (key==NV_KEY_UP && selected) --selected;
-            else if (key==NV_KEY_DOWN && selected+1<count) ++selected;
-            else if (key==NV_KEY_PGUP) selected=selected>8?selected-8:0;
-            else if (key==NV_KEY_PGDN && count) selected=MIN(count-1,selected+8);
+            else if (key==NV_KEY_UP || key==NV_KEY_DOWN || key==NV_KEY_LEFT || key==NV_KEY_RIGHT || key==NV_KEY_PGUP || key==NV_KEY_PGDN) {
+                files_move(key);
+            }
+            else if ((flags&NV_KEY_CTRL) && (key=='f' || key=='F' || key=='l' || key=='L')) file_query_focus=true;
+            else if ((flags&NV_KEY_CTRL) && (key=='1' || key=='2')) {
+                if (file_view!=key-'1') { r=files_option(DESKTOP_HIT_FILE_VIEW);if (r<0) note_error("File view",r); }
+            }
+            else if (key==NV_KEY_F8) {
+                r=files_option(DESKTOP_HIT_FILE_SORT);if (r<0) note_error("File sort",r);
+            }
             else if (key=='\b') {
                 r=chdir_path("..");
                 if (r>=0) { selected=scroll=0; r=refresh(); }
@@ -1526,7 +1684,7 @@ keyboard_input:;
             else if ((flags&NV_KEY_CTRL) && (key=='n' || key=='N'))
                 file_open_dialog(DESKTOP_FILE_FOLDER);
             else if ((flags&NV_KEY_CTRL) && (key=='h' || key=='H')) {
-                show_hidden=!show_hidden;selected=scroll=0;r=refresh();
+                selected=scroll=0;r=files_option(DESKTOP_HIT_FILE_HIDDEN);
                 if (r<0) note_error("Hidden files",r);else note(show_hidden?"Hidden files shown.":"Hidden files hidden.");
             }
             else if ((flags&NV_KEY_CTRL) && (key=='t' || key=='T')) {
