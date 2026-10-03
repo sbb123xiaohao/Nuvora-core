@@ -1,5 +1,54 @@
 # 测试与复现
 
+## 未发布：广播、故障网卡与快照回绕的验证
+
+以包含此前全部修复的完整 `31f5ed1` 为基线，新增测试先确认原代码失败：
+
+- UDP 有限广播在无网关时返回 ENODEV，本子网广播尝试 ARP 后失败，
+  接收路径也丢弃本地子网广播。宿主真实帧回归覆盖 /16、/24、无网关、
+  已缓存网关、远端子网、/31、/32、校验和、背压与邻居缓存保留。
+  非连续 DHCP 掩码不会扩大广播范围；只扩展 UDP 本地子网广播接收。
+- xHCI Host Controller Event 停机后不再扫描旧设备，原 USB 网卡注册
+  因而一直残留。生产事件分发回归验证故障控制器网卡卸载、重复故障只
+  清理一次、健康控制器网卡保持连接，以及原键盘状态与 DMA 隔离。
+- HDA Format Override 清零的正常 DAC 被错误查询 widget 参数，无法
+  继承 AFG 的 PCM 和 Stream Formats。另有仅单声道 DAC 被错误公布为
+  双声道输出。真实初始化回归覆盖参数继承/覆盖、查询失败、codec/AFG
+  隔离，以及 1、2、3、16 声道能力，按规范组合 Channel Count Extension。
+- 旧 NVSTORE 离线导入选择代次 `0xffffffff` 而忽略更新的 `0`，提交时
+  `generation + 1` 超出 u32，迁移也会复制旧根。回归覆盖双槽顺序互换、
+  普通递增、回绕后导入/替换、迁移最新文件，以及迁移源槽内容不变。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/pc_network_boot_test.py
+python3 scripts/test.py --phase usb
+python3 tests/pc_audio_boot_test.py
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64 --boot-only
+```
+
+网卡专项使用 QEMU `filter-dump` 捕获实际 Ethernet 帧，先配置无网关
+`10.0.2.15/24`，核验发往 `255.255.255.255` 和 `10.0.2.255` 的 UDP
+目的 MAC、IP、端口与完整载荷，再恢复 DHCP 并继续下载保存和重连检查。
+旧版 e1000 客户机没有发出两种预期广播帧，该检查明确失败。
+捕获文件、数据盘、ESP 与 VARS 均使用临时副本。
+
+统一完整版本在 Arch GCC 16.2.1、Python 3.14.7、QEMU 11.1.1 / TCG、
+OVMF 202608-1 上通过生产及诊断 BIOS/UEFI 构建和全部 **38 组**宿主
+回归。e1000、e1000e、USB RNDIS 三种网卡各捕获两种正确广播，完成
+DHCP、ping、断连重连和 256 KiB HTTP 下载保存逐字节核验。
+USB **8 组**全部通过，含 534 个 HID 报告、66 次热插拔与外来盘哈希
+不变；两种 HDA 配置左右声道峰值均为 **3000**，该检查只验证增益。
+64 MiB UEFI USB 启动通过 144 项断言，正式图形会话通过 OOBE、终端
+和 7 项客户端权限断言。旧 NVSTORE 导入及迁移回绕检查也在默认回归
+中执行，保存已有文件和两槽提交顺序均正确。
+环境未安装 FFmpeg/ffprobe，可选外部媒体转码用例明确输出 SKIP。
+
+故障控制器、codec 能力及回绕槽由明确的模型输入，宿主 C 夹具使用
+UBSan；QEMU 网络与音频测试实际运行客户机代码，不代表实体硬件认证。
+
 ## 未发布：设备故障完成与音频输出的验证
 
 本轮在最新完整 `74f173a` 上确认新的失败用例：

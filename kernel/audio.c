@@ -72,7 +72,7 @@ static bool connection(u8 c, u8 n, u8 index, u8 *id) {
     *id = entry;
     return true;
 }
-static bool find_dac(u8 c, u8 n, u8 first, u16 end, u32 depth,
+static bool find_dac(u8 c, u8 n, u8 group, u8 first, u16 end, u32 depth,
                      struct hda_route *path, u8 *length) {
     if (n < first || n >= end || depth >= 5) return false;
     for (u32 i = 0; i < depth; ++i) if (path[i].node == n) return false;
@@ -81,7 +81,12 @@ static bool find_dac(u8 c, u8 n, u8 first, u16 end, u32 depth,
     u32 type = (caps >> 20) & 15u;
     if (type == 0) {
         u32 pcm, formats;
-        if (!get_param(c, n, 0x0a, &pcm) || !get_param(c, n, 0x0b, &formats) ||
+        /* Stereo and Channel Count Extension encode channels minus one. */
+        if (!((caps & 1u) | ((caps >> 13) & 7u) << 1)) return false;
+        /* Format Override selects per-widget capabilities; otherwise both
+         * format parameters belong to this DAC's audio function group. */
+        u8 source = (caps & (1u << 4)) ? n : group;
+        if (!get_param(c, source, 0x0a, &pcm) || !get_param(c, source, 0x0b, &formats) ||
             !(pcm & (1u << 6)) || !(pcm & (1u << 17)) || !(formats & 1u)) return false;
         path[depth] = (struct hda_route){n, 0};
         *length = (u8)(depth + 1);
@@ -96,7 +101,7 @@ static bool find_dac(u8 c, u8 n, u8 first, u16 end, u32 depth,
         u8 child;
         if (!connection(c, n, (u8)i, &child)) continue;
         path[depth] = (struct hda_route){n, (u8)i};
-        if (find_dac(c, child, first, end, depth + 1, path, length)) return true;
+        if (find_dac(c, child, group, first, end, depth + 1, path, length)) return true;
     }
     return false;
 }
@@ -132,7 +137,7 @@ static bool route_codec(u8 c) {
             if ((config >> 30) == 1u || device > 2) continue;
             struct hda_route path[5] = {{0}};
             u8 length = 0;
-            if (!find_dac(c, (u8)n, (u8)first, (u16)end, 0, path, &length))
+            if (!find_dac(c, (u8)n, (u8)g, (u8)first, (u16)end, 0, path, &length))
                 continue;
             u32 ignored;
             if (!verb(c, (u8)g, 0x70500, &ignored)) return false;

@@ -85,7 +85,14 @@ def snapshots(stream, first, slots, capacity):
         if crc(payload) == data_crc:
             available.append((generation, index, payload))
     if available:
-        return max(available, key=lambda item: item[0])
+        # The kernel checkpoints a u32 serial number, including ffffffff ->
+        # zero. Compare its modular difference rather than numeric magnitude.
+        newest = available[0]
+        for item in available[1:]:
+            difference = (item[0] - newest[0]) & 0xffffffff
+            if 0 < difference < 0x80000000:
+                newest = item
+        return newest
     for slot in slots:
         if read_at(stream, (first + slot) * SECTOR, SECTOR) != bytes(SECTOR):
             raise ValueError('Both snapshot slots are invalid; refusing to discard existing data.')
@@ -179,7 +186,7 @@ def import_files(image, paths, replace=False):
         os.fsync(stream.fileno())
         header = bytearray(SECTOR)
         struct.pack_into('<8sIIII', header, 0, b'NVSS0001',
-                         generation + 1, len(payload), crc(payload), 0)
+                         (generation + 1) & 0xffffffff, len(payload), crc(payload), 0)
         struct.pack_into('<I', header, 20, crc(header))
         stream.seek(offset)
         stream.write(header)

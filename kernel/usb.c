@@ -119,6 +119,13 @@ static void host_failed(struct host *h) {
                 console_usb_modifiers(devices[i].previous[0], 0);
             memset(devices[i].previous, 0, sizeof(devices[i].previous));
         }
+    /* Failed hosts are no longer scanned, so normal slot removal will never
+       retire their network interface. Release the active bridge registration
+       while keeping all of the failed controller's DMA pages quarantined. */
+    if (ecm_device && ecm_device->host == h) {
+        net_usb_detach();
+        ecm_device = NULL;
+    }
     if (mouse_device && mouse_device->host == h) {
         console_pointer_report(0, 0, 0);
         mouse_device = NULL;

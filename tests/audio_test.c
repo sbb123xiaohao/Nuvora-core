@@ -20,6 +20,11 @@ static u32 pin_output_caps = (1u << 31) | (2u << 16) | (31u << 8) | 29u;
 static u32 group_output_caps = (1u << 31) | (1u << 16) | (63u << 8) | 42u;
 static u32 group_input_caps = (1u << 31) | (2u << 16) | (31u << 8) | 11u;
 static bool amp_override = true, amps_present = true;
+static bool format_override = true, multiple_groups, multiple_codecs;
+static u32 group_pcm = (1u << 6) | (1u << 17), group_formats = 1;
+static u32 widget_format_queries, group_format_queries;
+static u32 dac_channel_count = 1; /* WCAP encoding: channel count minus one. */
+static u8 failed_param;
 static bool wide_connections;
 static u32 widget_amp_queries, group_amp_queries;
 static bool codec_present = true, bad_format, stalled;
@@ -30,17 +35,34 @@ static u32 read_reg(u32 offset, u32 bytes) {
     return value;
 }
 static u32 answer(u32 word) {
+    u8 codec = (u8)(word >> 28);
     u8 node = (u8)((word >> 20) & 0x7f);
     u32 verb = word & 0xfffff;
+    if (multiple_groups && node == 0 && verb == 0xf0004) return 0x00010004;
+    u8 group = node >= 4 ? 4 : 1;
+    bool unsupported_route = (multiple_codecs && codec != 1) ||
+                             (multiple_groups && group != 4);
+    if ((node == 1 || (multiple_groups && node == 4)) &&
+        (verb == 0xf000a || verb == 0xf000b)) {
+        ++group_format_queries;
+        return unsupported_route ? 0 : verb == 0xf000a ? group_pcm : group_formats;
+    }
+    /* The second function group uses nodes 5/6 for the same DAC/pin model. */
+    bool second_group = multiple_groups && node >= 4;
+    if (second_group) node = (u8)(node - 3);
     if (node == 0 && verb == 0xf0004) return 0x00010001;
     if (node == 1 && verb == 0xf0005) return 1;
-    if (node == 1 && verb == 0xf0004) return 0x00020002;
+    if (node == 1 && verb == 0xf0004) return second_group ? 0x00050002 : 0x00020002;
     if (node == 1 && verb == 0xf000d) { ++group_amp_queries; return group_input_caps; }
     if (node == 1 && verb == 0xf0012) { ++group_amp_queries; return group_output_caps; }
-    if (node == 2 && verb == 0xf0009) return 1u | (amps_present ? 4u : 0u) |
-        (amp_override ? 1u << 3 : 0u) | 1u << 4 | 1u << 10;
-    if (node == 2 && verb == 0xf000a) return bad_format ? 0 : 1u << 6 | 1u << 17;
-    if (node == 2 && verb == 0xf000b) return 1;
+    if (node == 2 && verb == 0xf0009) return (dac_channel_count & 1u) |
+        (dac_channel_count >> 1) << 13 | (amps_present ? 4u : 0u) |
+        (amp_override ? 1u << 3 : 0u) | (format_override ? 1u << 4 : 0u) | 1u << 10;
+    if (node == 2 && (verb == 0xf000a || verb == 0xf000b)) {
+        ++widget_format_queries;
+        return !format_override || unsupported_route || bad_format ? 0 :
+               verb == 0xf000a ? (1u << 6) | (1u << 17) : 1u;
+    }
     if (node == 2 && verb == 0xf0012) { ++widget_amp_queries; return amp_override ? output_caps : 0; }
     if (node == 3 && verb == 0xf0009) return 4u << 20 | (amps_present ? 2u | 4u : 0u) |
         (amp_override ? 1u << 3 : 0u) | 1u << 8 | 1u << 10;
@@ -50,7 +72,7 @@ static u32 answer(u32 word) {
     if (node == 3 && verb == 0xf1c00) return 0x01014010;
     if (node == 3 && verb == 0xf000e) return wide_connections ? 17 : 1;
     if (node == 3 && (verb & 0xfff00) == 0xf0200)
-        return wide_connections ? ((verb & 255) == 16 ? 2 : 0) : 2;
+        return wide_connections ? ((verb & 255) == 16 ? 2 : 0) : second_group ? 5 : 2;
     if (node == 3 && (verb & 0xfff00) == 0x70700) pin_control = verb & 255;
     if (node == 2 && (verb & 0xf0000) == 0x30000) amp_control = verb;
     if (node == 3 && (verb & 0xf0000) == 0x30000) {
@@ -64,7 +86,12 @@ static void write_reg(u32 offset, u32 value, u32 bytes) {
     memcpy(regs + offset, &value, bytes);
     if (offset == 0x68 && bytes == 2) {
         if (value == 1) {
-            u32 cmd = read_reg(0x60, 4), result = answer(cmd);
+            u32 cmd = read_reg(0x60, 4);
+            if (failed_param && (cmd & 0xfffff) == (0xf0000u | failed_param)) {
+                regs[0x68] = 0; /* Immediate command receives no response. */
+                return;
+            }
+            u32 result = answer(cmd);
             memcpy(regs + 0x64, &result, 4);
             regs[0x68] = 2;
         } else regs[0x68] = 0;
@@ -120,10 +147,11 @@ static void irq_disable(void) {}
 static void reset_device(void) {
     memset(regs, 0, sizeof(regs));
     regs[1] = 0x22; /* GCAP: two input and two output streams */
-    regs[0x0e] = codec_present ? 1 : 0;
+    regs[0x0e] = codec_present ? (multiple_codecs ? 3 : 1) : 0;
     next_page = submitted = played = pin_control = amp_control = pci_command = 0;
     input_amp_control = pin_amp_control = 0;
     widget_amp_queries = group_amp_queries = 0;
+    widget_format_queries = group_format_queries = 0;
 }
 int main(void) {
     user_page = mmap(NULL, PAGE, PROT_READ | PROT_WRITE,
@@ -138,6 +166,7 @@ int main(void) {
     assert((input_amp_control & 0xffffu) == (0x7000u | 17u));
     assert((pin_amp_control & 0xffffu) == (0xb000u | 29u));
     assert(widget_amp_queries == 3 && !group_amp_queries);
+    assert(widget_format_queries == 2 && !group_format_queries);
     struct nv_audio_info *info = (void *)user_page;
     assert(audio_ioctl(NV_AUDIO_INFO, (uptr)info) == 0 &&
            info->outputs == 1 && info->sample_rate == 48000 &&
@@ -185,6 +214,50 @@ int main(void) {
     assert(audio_ioctl(NV_AUDIO_WRITE64, (uptr)request) == -NV_EIO && hda.ready);
     stalled = false;
     assert(audio_ioctl(NV_AUDIO_WRITE64, (uptr)request) == 4);
+    /* FMT 0x11 requires two channels. A mono DAC cannot advertise that
+     * output; multichannel DACs support it, including three with Stereo=0. */
+    dac_channel_count = 0;
+    reset_device(); audio_init(); assert(!hda.ready && !next_page);
+    for (u32 encoded = 2; encoded <= 15; encoded += 13) {
+        dac_channel_count = encoded;
+        reset_device(); audio_init(); assert(hda.ready);
+    }
+    dac_channel_count = 1;
+    /* A DAC without Format Override inherits both PCM rates/bit depths and
+     * stream formats from its own audio function group. Widget parameters
+     * are zero in this model and must not be queried in that case. */
+    format_override = false;
+    reset_device(); audio_init();
+    assert(hda.ready && !widget_format_queries && group_format_queries == 2);
+    group_pcm &= ~(1u << 6);
+    reset_device(); audio_init(); assert(!hda.ready && !next_page);
+    group_pcm |= 1u << 6;
+    group_pcm &= ~(1u << 17);
+    reset_device(); audio_init(); assert(!hda.ready && !next_page);
+    group_pcm |= 1u << 17;
+    group_formats = 0;
+    reset_device(); audio_init(); assert(!hda.ready && !next_page);
+    /* Format Override set continues to honor the DAC rather than the AFG. */
+    format_override = true;
+    reset_device(); audio_init();
+    assert(hda.ready && widget_format_queries == 2 && !group_format_queries);
+    bad_format = true; group_formats = 1;
+    reset_device(); audio_init(); assert(!hda.ready && !next_page);
+    bad_format = false;
+    for (u32 override = 0; override < 2; ++override)
+        for (u32 parameter = 0x0a; parameter <= 0x0b; ++parameter) {
+            format_override = override; failed_param = (u8)parameter;
+            reset_device(); audio_init();
+            assert(!hda.ready && !next_page);
+        }
+    failed_param = 0;
+    /* Earlier groups and codecs advertise incompatible formats. Inherited
+     * parameters must remain scoped to the eventual codec 1 / AFG 4 route. */
+    format_override = false; multiple_groups = multiple_codecs = true;
+    reset_device(); audio_init();
+    assert(hda.ready && hda.codec == 1 && hda.group == 4 &&
+           hda.pin == 6 && hda.dac == 5 && !widget_format_queries);
+    multiple_groups = multiple_codecs = false; format_override = true;
     /* AFG amp parameters are inherited when the widget override bit is clear.
      * Widget parameter queries return zero in this model and must not occur. */
     amp_override = false;
@@ -247,6 +320,6 @@ int main(void) {
     reset_device(); audio_init();
     assert(!hda.ready && !next_page);
     assert(munmap(user_page, PAGE) == 0);
-    puts("PASS audio: HDA codec route, 0 dB amp offsets/AFG inheritance/bounds, immediate verbs, two DMA descriptors and absent device");
+    puts("PASS audio: HDA route/channel count, DAC/AFG format inheritance, 0 dB amp offsets/bounds, immediate verbs, two DMA descriptors and absent device");
     return 0;
 }

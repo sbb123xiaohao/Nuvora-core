@@ -189,6 +189,14 @@ static u32 route(u32 address) {
     struct nv_net_info *n = &adapters[active];
     return (address & n->mask) == (n->ip & n->mask) ? address : n->gateway;
 }
+static bool ipv4_broadcast(const struct nv_net_info *n, u32 address) {
+    u32 host = ~n->mask;
+    /* /31 point-to-point links and /32 host routes have no subnet broadcast.
+     * DHCP can provide a mask, so validate contiguity here as for static IP. */
+    return address == 0xffffffffu ||
+        (n->ip && n->mask && host > 1u && !(host & (host + 1u)) &&
+         address == (n->ip | host));
+}
 static int send_ipv4(const u8 *mac, u32 src, u32 dest, u8 protocol,
                      const u8 *payload, u32 length) {
     if (length + 20 > 1500) return -NV_E2BIG;
@@ -464,7 +472,8 @@ static void input_ipv4(const u8 *p, u32 size) {
         checksum(p, hdr) || (be16(p + 6) & 0x3fffu)) return;
     struct nv_net_info *n = &adapters[active];
     u32 dest = be32(p + 16), src = be32(p + 12);
-    if (dest != 0xffffffffu && dest != n->ip) return;
+    if (dest != n->ip && dest != 0xffffffffu &&
+        !(p[9] == 17 && ipv4_broadcast(n, dest))) return;
     const u8 *data = p + hdr; u32 bytes = total - hdr;
     if (p[9] == 17 && bytes >= 8 && be16(data + 4) >= 8 && be16(data + 4) <= bytes &&
         udp_checksum_valid(data, be16(data + 4), src, dest)) {
@@ -717,6 +726,9 @@ int net_ioctl(u32 op, uptr pointer) {
             adapters[active].state != NV_NET_ONLINE || !is_active()) return -NV_ENODEV;
         if (!item.port || !item.local_port || item.port > 65535 || item.local_port > 65535 ||
             !item.address || item.length > NV_NET_DATA_MAX) return -NV_EINVAL;
+        if (ipv4_broadcast(&adapters[active], item.address))
+            return udp_raw(broadcast, adapters[active].ip, item.address,
+                           (u16)item.local_port, (u16)item.port, item.data, item.length);
         u32 next = route(item.address);
         if (!next) return -NV_ENODEV;
         if (peer_ip != next || ticks >= peer_valid_until) {

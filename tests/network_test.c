@@ -138,6 +138,100 @@ static void deliver(const u8 *body, u32 length, u32 source, u16 source_port, u16
     u8 packet[1514]; u32 size = sent_length;
     memcpy(packet, sent, size); receive(packet, size);
 }
+static void broadcast_configuration(u32 mask, u32 gateway) {
+    struct nv_net_static config = {.index = active, .ip = 0xc0a80164,
+        .mask = mask, .gateway = gateway};
+    assert(!call_net(NV_NET_STATIC, &config, sizeof(config)));
+}
+static void deliver_udp_destination(u32 destination) {
+    const u8 payload[] = {'l', 'a', 'n'};
+    assert(!udp_raw(broadcast, 0xc0a80101, destination, 7000, 40000,
+                    payload, sizeof(payload)));
+    u8 packet[1514]; u32 size = sent_length;
+    memcpy(packet, sent, size); receive(packet, size);
+}
+static void exercise_udp_broadcast_receive(void) {
+    const u32 masks[] = {0xffffff00, 0xffff0000};
+    const u32 destinations[] = {0xc0a801ff, 0xc0a8ffff};
+    for (u32 i = 0; i < ARRAY_LEN(masks); ++i) {
+        broadcast_configuration(masks[i], 0);
+        deliver_udp_destination(destinations[i]);
+        struct nv_net_udp io = {.index = active, .local_port = 40000};
+        assert(call_net(NV_NET_UDP_RECV, &io, sizeof(io)) == 3);
+        assert(io.address == 0xc0a80101 && io.port == 7000 &&
+               !memcmp(io.data, "lan", 3));
+        deliver_udp_destination(0xffffffffu);
+        io.local_port = 40000;
+        assert(call_net(NV_NET_UDP_RECV, &io, sizeof(io)) == 3);
+        deliver_udp_destination(0xc0a9ffff); /* A different LAN's broadcast. */
+        assert(!inbox_full);
+    }
+    broadcast_configuration(0xfffffffeu, 0); /* /31 has two unicast hosts. */
+    deliver_udp_destination(0xc0a80165);
+    assert(!inbox_full);
+    broadcast_configuration(0xffffffffu, 0);
+    deliver_udp_destination(0xc0a80165);
+    assert(!inbox_full);
+    deliver_udp_destination(0xc0a80164); /* /32's own address remains unicast. */
+    assert(inbox_full);
+    inbox_full = false;
+    /* An invalid DHCP-provided mask must not expand local broadcast delivery. */
+    adapters[active].mask = 0xfffffefdu;
+    deliver_udp_destination(adapters[active].ip | ~adapters[active].mask);
+    assert(!inbox_full);
+    puts("PASS UDP broadcast RX: local /24 and /16, limited broadcast, foreign subnet and /31-/32 boundaries");
+}
+static void exercise_udp_broadcast_send(void) {
+    const u32 masks[] = {0xffffff00, 0xffff0000};
+    const u32 destinations[] = {0xc0a801ff, 0xc0a8ffff};
+    const u8 learned[6] = {2, 9, 8, 7, 6, 5};
+    struct nv_net_udp io = {.index = active, .port = 7000,
+        .local_port = 40000, .length = 3, .data = {'l', 'a', 'n'}};
+    for (u32 i = 0; i < ARRAY_LEN(masks); ++i) {
+        for (u32 have_gateway = 0; have_gateway < 2; ++have_gateway) {
+            broadcast_configuration(masks[i], have_gateway ? 0xc0a80101 : 0);
+            /* A learned gateway must never receive a local broadcast by unicast. */
+            peer_ip = 0xc0a80101; memcpy(peer_mac, learned, 6);
+            peer_valid_until = ticks + 6000;
+            const u32 targets[] = {0xffffffffu, destinations[i]};
+            for (u32 j = 0; j < ARRAY_LEN(targets); ++j) {
+                u32 before = transmissions;
+                io.address = targets[j];
+                assert(!call_net(NV_NET_UDP_SEND, &io, sizeof(io)));
+                assert(transmissions == before + 1 && !memcmp(sent, broadcast, 6) &&
+                       be16(sent + 12) == 0x0800 &&
+                       be32(sent + 14 + 16) == targets[j]);
+                assert(checksum(sent + 14, 20) == 0 &&
+                       udp_checksum_valid(sent + 14 + 20, 11, 0xc0a80164, targets[j]));
+                assert(peer_ip == 0xc0a80101 && !memcmp(peer_mac, learned, 6));
+            }
+        }
+    }
+    /* Remote subnet broadcasts still use the configured next-hop router. */
+    io.address = 0xc0a9ffff;
+    assert(!call_net(NV_NET_UDP_SEND, &io, sizeof(io)) && !memcmp(sent, learned, 6));
+    const u32 unicast_masks[] = {0xfffffffeu, 0xffffffffu};
+    const u32 unicast_targets[] = {0xc0a80165, 0xc0a80164};
+    for (u32 i = 0; i < ARRAY_LEN(unicast_masks); ++i) {
+        broadcast_configuration(unicast_masks[i], 0);
+        peer_ip = unicast_targets[i]; memcpy(peer_mac, learned, 6);
+        peer_valid_until = ticks + 6000; io.address = peer_ip;
+        assert(!call_net(NV_NET_UDP_SEND, &io, sizeof(io)) && !memcmp(sent, learned, 6));
+    }
+    /* Invalid configuration leaves the previous, valid unicast route intact. */
+    struct nv_net_static invalid = {.index = active, .ip = 0xc0a80164, .mask = 0xfffffefd};
+    assert(call_net(NV_NET_STATIC, &invalid, sizeof(invalid)) == -NV_EINVAL);
+    assert(!call_net(NV_NET_UDP_SEND, &io, sizeof(io)) && !memcmp(sent, learned, 6));
+    /* DHCP's mask is not statically validated; noncontiguous masks must still
+     * never turn ordinary next-hop traffic into an Ethernet broadcast. */
+    adapters[active].mask = invalid.mask;
+    io.address = adapters[active].ip | ~invalid.mask; peer_ip = io.address;
+    assert(!call_net(NV_NET_UDP_SEND, &io, sizeof(io)) && !memcmp(sent, learned, 6));
+    send_blocked = true; io.address = 0xffffffffu;
+    assert(call_net(NV_NET_UDP_SEND, &io, sizeof(io)) == -NV_EAGAIN);
+    send_blocked = false;
+    puts("PASS UDP broadcast TX: Ethernet broadcast with or without gateway, checksum, neighbour preservation and unicast boundaries");
+}
 static void exercise_configuration_reset(void) {
     link_up = true;
     const u32 operations[] = {NV_NET_STATIC, NV_NET_DHCP};
@@ -545,6 +639,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[1], "tcp-zero-window")) exercise_tcp_zero_window();
         else if (!strcmp(argv[1], "tcp-eof")) exercise_tcp_eof();
         else if (!strcmp(argv[1], "tcp-wrap")) exercise_tcp_wrap();
+        else if (!strcmp(argv[1], "udp-broadcast")) exercise_udp_broadcast_send();
+        else if (!strcmp(argv[1], "udp-broadcast-receive")) exercise_udp_broadcast_receive();
         else {
             assert(!strcmp(argv[1], "reconfigure"));
             exercise_configuration_reset();
@@ -612,5 +708,7 @@ int main(int argc, char **argv) {
     net_usb_attach(0x303a, 0x0001, bridge);
     assert(count == 3 && usb_index == 2); /* hotplug reuses its adapter slot */
     exercise_configuration_reset();
+    exercise_udp_broadcast_send();
+    exercise_udp_broadcast_receive();
     puts("PASS network: PCI/USB, DHCP, UDP, ICMP and TCP frames, checksum, link loss");
 }
