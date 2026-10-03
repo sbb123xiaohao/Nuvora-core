@@ -138,6 +138,45 @@ static void deliver(const u8 *body, u32 length, u32 source, u16 source_port, u16
     u8 packet[1514]; u32 size = sent_length;
     memcpy(packet, sent, size); receive(packet, size);
 }
+static void exercise_dhcp_mask(void) {
+    const u32 invalid[] = {0, 0xfffffefdu, 0xfffffeffu, 0x7fffffffu,
+        0x80000001u, 0x00ffffffu, 0xfffffffdu};
+    const u32 valid[] = {0xffffff00u, 0xffff0000u, 0xfffffffeu, 0xffffffffu};
+    u8 message[300];
+    struct nv_net_static config = {.index = active};
+    for (u32 i = 0; i < ARRAY_LEN(valid); ++i) {
+        assert(!call_net(NV_NET_DHCP, &config, sizeof(config)));
+        fixture_message(message, 2, 0xc0a80164);
+        deliver(message, sizeof(message), 0xc0a80101, 67, 68);
+        assert(lease_state == 2 && offered == 0xc0a80164 && server == 0xc0a80101);
+        for (u32 j = 0; j < ARRAY_LEN(invalid); ++j) {
+            fixture_message(message, 5, offered);
+            put32(message + 251, invalid[j]);
+            deliver(message, sizeof(message), server, 67, 68);
+            assert(lease_state == 2 && adapters[active].state == NV_NET_CONFIGURING &&
+                   !adapters[active].ip && !adapters[active].mask &&
+                   !adapters[active].gateway && !adapters[active].dns);
+            assert(offered == 0xc0a80164 && server == 0xc0a80101);
+        }
+        u32 before = transmissions;
+        ticks += 400;
+        net_poll();
+        assert(transmissions == before + 1 && lease_state == 2 &&
+               sent[42 + 242] == 3 && be32(sent + 42 + 254) == offered &&
+               be32(sent + 42 + 260) == server);
+        fixture_message(message, 5, offered);
+        put32(message + 251, valid[i]);
+        /* Narrow host routes need no default gateway. */
+        put32(message + 257, i < 2 ? server : 0);
+        deliver(message, sizeof(message), server, 67, 68);
+        assert(!lease_state && adapters[active].state == NV_NET_ONLINE &&
+               adapters[active].ip == offered && adapters[active].mask == valid[i]);
+        u32 local = offered ^ (valid[i] == 0xffffffffu ? 0 : 1);
+        assert(route(local) == local);
+        assert(ipv4_broadcast(&adapters[active], offered | ~valid[i]) == (i < 2));
+    }
+    puts("PASS DHCP masks: invalid ACK preserves request/retry; /16, /24, /31 and /32 ACKs install usable routes");
+}
 static void broadcast_configuration(u32 mask, u32 gateway) {
     struct nv_net_static config = {.index = active, .ip = 0xc0a80164,
         .mask = mask, .gateway = gateway};
@@ -175,7 +214,7 @@ static void exercise_udp_broadcast_receive(void) {
     deliver_udp_destination(0xc0a80164); /* /32's own address remains unicast. */
     assert(inbox_full);
     inbox_full = false;
-    /* An invalid DHCP-provided mask must not expand local broadcast delivery. */
+    /* A corrupt internal mask must not expand local broadcast delivery. */
     adapters[active].mask = 0xfffffefdu;
     deliver_udp_destination(adapters[active].ip | ~adapters[active].mask);
     assert(!inbox_full);
@@ -222,8 +261,8 @@ static void exercise_udp_broadcast_send(void) {
     struct nv_net_static invalid = {.index = active, .ip = 0xc0a80164, .mask = 0xfffffefd};
     assert(call_net(NV_NET_STATIC, &invalid, sizeof(invalid)) == -NV_EINVAL);
     assert(!call_net(NV_NET_UDP_SEND, &io, sizeof(io)) && !memcmp(sent, learned, 6));
-    /* DHCP's mask is not statically validated; noncontiguous masks must still
-     * never turn ordinary next-hop traffic into an Ethernet broadcast. */
+    /* Defensive broadcast classification must remain safe if internal state
+     * is corrupt, even though both configuration paths now validate masks. */
     adapters[active].mask = invalid.mask;
     io.address = adapters[active].ip | ~invalid.mask; peer_ip = io.address;
     assert(!call_net(NV_NET_UDP_SEND, &io, sizeof(io)) && !memcmp(sent, learned, 6));
@@ -641,6 +680,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[1], "tcp-wrap")) exercise_tcp_wrap();
         else if (!strcmp(argv[1], "udp-broadcast")) exercise_udp_broadcast_send();
         else if (!strcmp(argv[1], "udp-broadcast-receive")) exercise_udp_broadcast_receive();
+        else if (!strcmp(argv[1], "dhcp-mask")) exercise_dhcp_mask();
         else {
             assert(!strcmp(argv[1], "reconfigure"));
             exercise_configuration_reset();
@@ -710,5 +750,6 @@ int main(int argc, char **argv) {
     exercise_configuration_reset();
     exercise_udp_broadcast_send();
     exercise_udp_broadcast_receive();
+    exercise_dhcp_mask();
     puts("PASS network: PCI/USB, DHCP, UDP, ICMP and TCP frames, checksum, link loss");
 }

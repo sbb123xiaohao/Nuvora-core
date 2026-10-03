@@ -9,9 +9,17 @@
 #define PAGE 4096u
 #define SNAP_CAP_MAX (16u * 1024u * 1024u)
 static volatile u64 ticks;
-static uptr irq_save(void) { return 0; }
-static void irq_restore(uptr flags) { assert(!flags); }
-static void idle_once(void) { ++ticks; }
+static bool irq_enabled;
+static bool stale_timer_irq, imminent_timer_edge;
+static u64 elapsed_us;
+static uptr irq_save(void) { uptr flags = irq_enabled ? 0x200u : 0; irq_enabled = false; return flags; }
+static void irq_restore(uptr flags) { irq_enabled = !!(flags & 0x200u); }
+static void idle_once(void) {
+    assert(!irq_enabled); ++ticks;
+    if (stale_timer_irq) stale_timer_irq = false;
+    else if (imminent_timer_edge) { imminent_timer_edge = false; ++elapsed_us; }
+    else elapsed_us += 10000;
+}
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static FILE *disk_file;
 static u64 disk_sectors;
@@ -28,6 +36,9 @@ static uptr pending_prp;
 static u16 pending_cid;
 static u64 cap = 15u | 1ull << 37;
 static u32 ready;
+static bool ready_pending;
+static u32 ready_target, ready_delay, controller_ready_delay;
+static u64 ready_at, status_reads;
 static uptr page_alloc_below(u64 limit) {
     assert(limit >= 0x100000000ull && next_page + 1 < 32);
     ++next_page; assert(!page_live[next_page]); page_live[next_page] = true;
@@ -78,7 +89,13 @@ static bool ahci_shutdown(void) { return true; }
 static u32 sim_read(u32 offset) {
     if (offset == 0) return (u32)cap;
     if (offset == 4) return (u32)(cap >> 32);
-    if (offset == 0x1c) return ready;
+    if (offset == 0x1c) {
+        ++status_reads;
+        if (ready_pending && ticks - ready_at >= ready_delay) {
+            ready = ready_target; ready_pending = false;
+        }
+        return ready;
+    }
     return 0;
 }
 static void sim_write(u32 offset, u32 value);
@@ -95,6 +112,10 @@ static void sim_write(u32 offset, u32 value) {
                 if (bytes[i] != 0xa5) { ++unsafe_dma_reuse; break; }
             if (stop_blocked) return;
             admin_pending = false;
+        }
+        if (controller_ready_delay) {
+            ready_target = !!(value & 1); ready_delay = controller_ready_delay;
+            ready_at = ticks; ready_pending = true; return;
         }
         ready = !!(value & 1); return;
     }
@@ -188,6 +209,63 @@ static void reset_admin_model(enum admin_fault fault) {
     ready = 0; admin_fault = fault;
     fault_fired = admin_pending = stop_blocked = invalid_namespace = late_posted = false;
 }
+static void ready_timing_tests(void) {
+    /* Controller progress follows elapsed time, independently of how many
+     * times a fast CPU can read CSTS. CAP.TO units are 500 ms at 100 Hz. */
+    for (u32 enabled = 0; enabled < 2; ++enabled) {
+        irq_enabled = enabled; ticks = 10; status_reads = 0;
+        ready = 0; ready_target = 1; ready_delay = 25;
+        ready_at = ticks; ready_pending = true;
+        assert(nvme_wait_ready(true, 1));
+        assert(ticks == 35 && irq_enabled == (bool)enabled && !ready_pending);
+        assert(status_reads < 2000);
+        ready_target = 0; ready_delay = 24;
+        ready_at = ticks; ready_pending = true;
+        assert(nvme_wait_ready(false, 1));
+        assert(ticks == 59 && irq_enabled == (bool)enabled && !ready_pending);
+    }
+    /* A large advertised budget must not be truncated to eight units. */
+    ready = 0; ready_target = 1; ready_delay = 999;
+    ready_at = ticks; ready_pending = true;
+    assert(nvme_wait_ready(true, 20) && ticks - ready_at == 999);
+    /* Zero means a conservative one-unit budget, and a stuck controller
+     * consumes that budget without losing the caller's interrupt state. */
+    for (u32 enabled = 0; enabled < 2; ++enabled) {
+        irq_enabled = enabled; ready = 0; ready_pending = false;
+        u64 start = ticks;
+        assert(!nvme_wait_ready(true, 0));
+        assert(ticks - start == 52 && irq_enabled == (bool)enabled);
+    }
+    /* An old pending PIC IRQ followed by an imminent fresh PIT edge must
+     * not consume any of the advertised real-time readiness interval. */
+    const u32 budgets[] = {1, 3, 20};
+    for (u32 i = 0; i < sizeof(budgets) / sizeof(*budgets); ++i) {
+        elapsed_us = 0; stale_timer_irq = imminent_timer_edge = true;
+        u64 start = ticks;
+        assert(!nvme_wait_ready(true, budgets[i]));
+        assert(ticks - start == budgets[i] * 50u + 2u);
+        assert(elapsed_us >= (u64)budgets[i] * 500000u && irq_enabled);
+    }
+    ticks = ~(u64)0 - 2; ready = 0; ready_target = 1; ready_delay = 4;
+    ready_at = ticks; ready_pending = true;
+    assert(nvme_wait_ready(true, 1) && ticks == 1 && irq_enabled);
+    /* RDY and CFS may both be set. A fatal controller cannot be enabled,
+     * while CFS must not prevent recognizing a successful disable. */
+    ready_pending = false; ready = 3; u64 start = ticks;
+    assert(!nvme_wait_ready(true, 1) && ticks == start && irq_enabled);
+    ready = 2;
+    assert(nvme_wait_ready(false, 1) && ticks == start && irq_enabled);
+    /* Release must retain the same advertised controller budget. A valid
+     * disable after 1.25 s cannot be quarantined by a fixed 500 ms wait. */
+    ready = 1; controller_ready_delay = 125;
+    nvme.regs = dma[0]; nvme.pci = 0x1000; nvme.ready_timeout = 3;
+    pci_command[0] = 6; start = ticks;
+    assert(nvme_release(true) && ticks - start == 125 && irq_enabled);
+    assert(!nvme.regs && !(pci_command[0] & 4u) && !ready_pending);
+    controller_ready_delay = 0;
+    ready = 0; ticks = 0; irq_enabled = false;
+    puts("PASS NVMe readiness: full elapsed CAP.TO budgets, PIT phase/stale IRQ, delayed enable/disable, fatal status, IF and tick wrap");
+}
 static void admin_ownership_tests(void) {
     const enum admin_fault faults[] = {FATAL_COMPLETION, LIST_TIMEOUT, NAMESPACE_TIMEOUT, BAD_COMPLETION, FATAL_STATUS};
     u64 capacity; u32 pci, nsid;
@@ -238,6 +316,7 @@ int main(int argc, char **argv) {
     id[130] = 12; assert(!nvme_namespace(id, &blocks));
     id[130] = 9; id[128] = 8; assert(!nvme_namespace(id, &blocks));
     id[128] = 0; id[29] = 1; assert(!nvme_namespace(id, &blocks));
+    ready_timing_tests();
     if (modern && !strcmp(argv[3], "admin-ownership")) {
         admin_ownership_tests(); fclose(disk_file); return 0;
     }

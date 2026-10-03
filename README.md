@@ -6,6 +6,32 @@ Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动�
 
 保留 0.14.0 的原生 64 位 ABI：代码、栈、堆及图形/音频缓冲可使用 4 GiB 以上地址，兼容旧 ABI 1 ELF64 二进制。实体 PC 使用 FAT32 UEFI 启动介质、GOP 模式回退、按设备能力选择的 DMA 地址及 ACPI 电源路径；本版修正 UEFI ACPI 1.0 表 GUID，并优先选择 ACPI 2.0。上机步骤与准确边界见[实体机与 64 位说明](docs/NATIVE64-HARDWARE.md)。
 
+## 运行截图
+
+以下图片来自正式 x86-64 系统在 QEMU/OVMF 中的实际运行：UEFI USB 启动、
+256 MiB 内存、AHCI 数据盘和 USB 键盘/鼠标。直接截取客体帧缓冲并无损
+转换为 PNG，未合成界面；这是模拟 PC 的运行结果。
+
+桌面与浮动 Dock：
+
+![Nuvora Core 实际运行的桌面](docs/screenshots/desktop.png)
+
+Files 与 Terminal 并排显示，终端查看系统版本、内存和数据卷：
+
+![文件管理器与原生终端](docs/screenshots/files-terminal.png)
+
+Text Editor 编辑并保存到数据卷，Files 显示已保存的文档：
+
+![文件管理器与文本编辑器](docs/screenshots/files-editor.png)
+
+设置中心：
+
+![Nuvora Core 设置中心](docs/screenshots/settings.png)
+
+构建后运行 `python3 tests/capture_screenshots.py` 可重新拍摄；脚本使用
+临时启动介质和数据盘，并核验换行后的光标移动及保存的实际文件内容。
+截图和构建镜像的校验值见[截图清单](docs/screenshots/manifest.json)。
+
 ## 实体机启动
 
 在 Linux 构建机安装 GCC、binutils、Python 3 和 mtools 后：
@@ -67,7 +93,7 @@ make iso-uefi   # 需要 mtools 和 xorriso
 make media      # 生成 GPT/ESP 启动镜像，不写宿主磁盘
 ```
 
-当前通过 38 组宿主回归，包括原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、ACPI 电源解析、高地址 DMA 与网络配置状态清理。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
+当前通过 39 组宿主回归，包括原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、ACPI 电源解析、高地址 DMA 与网络配置状态清理。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
 
 目前只挂载 Nuvora 自有格式，**不会格式化或写入普通 Windows/Linux 分区**。4Kn 逻辑扇区、USB 存储挂载、笔记本内置 PCI Wi-Fi、USB NCM、VirtIO/SCSI、Secure Boot、多核和 Linux/POSIX 应用兼容尚未实现。完整边界与历史变更见[测试说明](docs/TESTING.md)、[架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)和[更新记录](docs/CHANGELOG.md)。
 

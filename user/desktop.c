@@ -771,25 +771,28 @@ static int settings_activate(u32 hit) {
     }
     return 0;
 }
+static u32 editor_columns(void) {
+    const struct desktop_window *w=&windows[DESKTOP_EDITOR];
+    return MAX(1u,(w->w-36)/DESKTOP_EDITOR_CELL);
+}
+static void editor_position(u32 cursor, u32 *row, u32 *col) {
+    u32 cols=editor_columns();
+    *row=*col=0;
+    for (u32 i=0;i<cursor;++i) {
+        if (editor_text[i]=='\n') { ++*row; *col=0; }
+        else if (++*col>=cols) { ++*row; *col=0; }
+    }
+}
 static void editor_ensure_visible(void) {
     const struct desktop_window *w=&windows[DESKTOP_EDITOR];
-    u32 s=desktop_scale(mode.width,mode.height);
-    u32 cols=MAX(1u,(w->w*s-36*s)/(DESKTOP_EDITOR_CELL*s));
-    u32 row=0,col=0;
-    for (u32 i=0;i<editor_cursor;++i) {
-        if (editor_text[i]=='\n') { ++row; col=0; }
-        else if (++col>=cols) { ++row; col=0; }
-    }
+    u32 row,col;
+    editor_position(editor_cursor,&row,&col);
     u32 visible=MAX(1u,(w->h-94)/DESKTOP_EDITOR_LINE);
     if (row<editor_scroll) editor_scroll=row;
     if (row>=editor_scroll+visible) editor_scroll=row-visible+1;
 }
-static u32 editor_cursor_at(u32 rx, u32 ry) {
-    const struct desktop_window *w=&windows[DESKTOP_EDITOR];
-    u32 s=desktop_scale(mode.width,mode.height);
-    u32 cols=MAX(1u,(w->w*s-36*s)/(DESKTOP_EDITOR_CELL*s));
-    u32 target_row=editor_scroll+(ry>73?(ry-73)/DESKTOP_EDITOR_LINE:0);
-    u32 target_col=rx>19?MIN((rx-19)/DESKTOP_EDITOR_CELL,cols-1):0;
+static u32 editor_cursor_on_row(u32 target_row, u32 target_col) {
+    u32 cols=editor_columns();
     u32 row=0,col=0;
     for (u32 i=0;i<editor_length;++i) {
         if (row==target_row && col>=target_col) return i;
@@ -800,6 +803,11 @@ static u32 editor_cursor_at(u32 rx, u32 ry) {
         if (row>target_row) return i+1;
     }
     return editor_length;
+}
+static u32 editor_cursor_at(u32 rx, u32 ry) {
+    u32 row=editor_scroll+(ry>73?(ry-73)/DESKTOP_EDITOR_LINE:0);
+    u32 col=rx>19?MIN((rx-19)/DESKTOP_EDITOR_CELL,editor_columns()-1):0;
+    return editor_cursor_on_row(row,col);
 }
 static void editor_insert(char ch) {
     if (editor_length>=EDITOR_CAP) { note("Editor memory is full; file storage is unaffected."); return; }
@@ -848,22 +856,15 @@ static int editor_key(u32 key, u32 flags) {
     } else if (key==NV_KEY_END) {
         while (editor_cursor<editor_length && editor_text[editor_cursor]!='\n') ++editor_cursor;
     } else if (key==NV_KEY_UP || key==NV_KEY_DOWN) {
-        u32 start=editor_cursor;
-        while (start && editor_text[start-1]!='\n') --start;
-        u32 col=editor_cursor-start;
-        if (key==NV_KEY_UP && start) {
-            u32 previous=start-1;
-            while (previous && editor_text[previous-1]!='\n') --previous;
-            editor_cursor=MIN(previous+col,start-1);
-        } else if (key==NV_KEY_DOWN) {
-            u32 next=start;
-            while (next<editor_length && editor_text[next]!='\n') ++next;
-            if (next<editor_length) {
-                u32 end=next+1;
-                while (end<editor_length && editor_text[end]!='\n') ++end;
-                editor_cursor=MIN(next+1+col,end);
-            }
-        }
+        /* Match the visual rows used for painting and pointer placement,
+         * including soft wraps and empty rows after full-width lines. */
+        u32 row,col,last_row,last_col;
+        editor_position(editor_cursor,&row,&col);
+        editor_position(editor_length,&last_row,&last_col);
+        if (key==NV_KEY_UP && row)
+            editor_cursor=editor_cursor_on_row(row-1,col);
+        else if (key==NV_KEY_DOWN && row<last_row)
+            editor_cursor=editor_cursor_on_row(row+1,col);
     } else if (key=='\b' && editor_cursor) {
         memmove(editor_text+editor_cursor-1,editor_text+editor_cursor,
                 editor_length-editor_cursor+1);

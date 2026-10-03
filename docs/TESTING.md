@@ -1,5 +1,51 @@
 # 测试与复现
 
+## 未发布：编辑器、DHCP、NVMe 等待与运行截图
+
+以包含此前全部修复的完整 `aaeaba1` 为基线，本轮先确认三个原代码失败：
+
+- Text Editor 在 38 列窗口显示 90 字符段落，光标位置 45 按 Up 应移到
+  位置 7，原代码停在 45。现直接调用生产 `editor_key`，覆盖软换行、
+  满行后换行、短行、首尾边界、鼠标定位和两倍缩放。
+- DHCP 经完整 Ethernet/IPv4/UDP 报文收到非连续掩码 ACK 后，原代码
+  错误进入 ONLINE。新增七类非法掩码、请求重试和后续合法 ACK，核验
+  配置不被污染，以及 /16、/24、/31、/32 的路由和广播边界。
+- NVMe 控制器按时间延迟 RDY，原代码固定 MMIO 轮询耗尽却不让 PIT
+  推进。新模型覆盖完整 CAP.TO、延迟启停、关闭保留设备期限、IF、tick
+  回绕及 CFS/RDY；积压旧 IRQ 加上仅 1 µs 后的新 PIT 边沿时，1、3、20
+  个 CAP 单位仍保留至少公布的真实时间。故障期间继续保留 DMA 隔离。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/pc_storage_boot_test.py --case nvme-single --case nvme-ns2 --case nvme-controller2 --case pcie-nvme
+python3 tests/pc_network_boot_test.py
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64 --boot-only
+python3 tests/capture_screenshots.py
+```
+
+截图脚本启动正式 UEFI USB 系统，使用私有 AHCI 数据卷和固件变量，
+通过真实 USB 输入创建账户、操作桌面和保存文档；软换行段落 Up/Down
+往返后插入换行，再暂停客体读取已提交文件，核验完整字节内容。
+桌面、Files/Terminal、Files/Text Editor 与 Settings 四张图来自 QMP
+`screendump`，只做无损 RGB PNG 转换。原始尺寸和 PNG、内核、ESP、
+OVMF 的 SHA-256 见 [截图清单](screenshots/manifest.json)，README 直接
+引用仓库中的图片。重新拍摄仅需 Python 标准库，无需 FFmpeg 或 Pillow。
+
+宿主故障回归执行生产代码并使用 UBSan；NVMe 时序与异常 DHCP 是明确
+模型输入。QEMU/OVMF 结果属于模拟硬件验证，不代表实体机兼容认证。
+
+统一运行代码在 Arch GCC 16.2.1、Python 3.14.7、QEMU 11.1.1 / TCG、
+OVMF 202608-1 上通过生产/诊断 BIOS/UEFI 构建和全部 **39 组**宿主
+回归。上述四种 NVMe 拓扑均通过保存、重启恢复及各 **144 项**子进程
+断言，外来盘 SHA-256 保持不变；三种网卡均通过 DHCP、ping、重连、
+两种实际 UDP 广播抓包和 **256 KiB** 下载持久化字节核验。64 MiB
+UEFI USB 启动通过 144 项断言，正式图形会话通过 OOBE、终端和 7 项
+客户端权限断言。四张截图均为 **1280×800**，使用独立 Pillow 解码逐一
+核对与原始 PPM 每个 RGB 像素一致。可选外部转码因没有 FFmpeg/ffprobe
+明确 SKIP，截图流程不依赖这些工具。
+
 ## 未发布：硬件交接、初始化与源码交付的验证
 
 本轮以最新完整 `1822e09` 为基线，先复现以下原代码失败，再修复：

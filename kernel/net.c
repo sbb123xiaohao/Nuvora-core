@@ -189,12 +189,16 @@ static u32 route(u32 address) {
     struct nv_net_info *n = &adapters[active];
     return (address & n->mask) == (n->ip & n->mask) ? address : n->gateway;
 }
+static bool ipv4_mask_valid(u32 mask) {
+    u32 host = ~mask;
+    return mask && !(host & (host + 1u));
+}
 static bool ipv4_broadcast(const struct nv_net_info *n, u32 address) {
     u32 host = ~n->mask;
     /* /31 point-to-point links and /32 host routes have no subnet broadcast.
-     * DHCP can provide a mask, so validate contiguity here as for static IP. */
+     * Keep this check defensive even though configuration validates masks. */
     return address == 0xffffffffu ||
-        (n->ip && n->mask && host > 1u && !(host & (host + 1u)) &&
+        (n->ip && ipv4_mask_valid(n->mask) && host > 1u &&
          address == (n->ip | host));
 }
 static int send_ipv4(const u8 *mac, u32 src, u32 dest, u8 protocol,
@@ -433,7 +437,7 @@ static void dhcp_receive(const u8 *p, u32 size) {
         offered = be32(p + 16); server = from;
         lease_state = 2; dhcp_send(true);
     } else if (lease_state == 2 && message_type == 5 && from == server &&
-               be32(p + 16) == offered && mask) {
+               be32(p + 16) == offered && ipv4_mask_valid(mask)) {
         struct nv_net_info *n = &adapters[active];
         n->ip = offered; n->mask = mask; n->gateway = gateway; n->dns = dns;
         n->state = NV_NET_ONLINE; lease_state = 0;
@@ -699,8 +703,7 @@ int net_ioctl(u32 op, uptr pointer) {
             dhcp_xid = 0x4e560000u ^ ticks ^ (u32)n->mac[5] << 8 ^ n->product;
             lease_state = 1; dhcp_send(false);
         } else {
-            u32 host = ~config.mask;
-            if (!config.ip || !config.mask || (host & (host + 1u)) != 0 ||
+            if (!config.ip || !ipv4_mask_valid(config.mask) ||
                 (config.gateway && (config.gateway & config.mask) !=
                                    (config.ip & config.mask))) return -NV_EINVAL;
             reset_protocol_state();

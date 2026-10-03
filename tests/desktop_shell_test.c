@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../user/desktop_shell.h"
+#include "../user/desktop.c"
 
 static void search(void) {
     struct desktop_launcher l={0}; desktop_search(&l);
@@ -70,8 +71,47 @@ static void placement(void) {
         }
     }
 }
+static void editor_navigation(void) {
+    /* A 340-pixel editor has 38 visible columns. Exercise the actual key and
+     * pointer paths so keyboard navigation agrees with the rendered rows. */
+    mode.width=1024; mode.height=768;
+    windows[DESKTOP_EDITOR]=(struct desktop_window){.w=340,.h=220};
+    memset(editor_text,'x',90); editor_text[90]=0;
+    editor_length=90; editor_cursor=45; editor_scroll=0;
+    editor_mode=DESKTOP_EDIT_NORMAL; editor_dirty=false;
+    assert(editor_key(NV_KEY_UP,0)==0 && editor_cursor==7);
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==45);
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==83);
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==83);
+    assert(!editor_dirty && editor_length==90 && editor_text[90]==0);
+
+    /* A short explicit line clamps the column; a full-width line followed by
+     * a newline includes the same empty visual row as the renderer. */
+    memset(editor_text,'a',38);
+    memcpy(editor_text+38,"\nabc\n0123456789",15);
+    editor_length=53; editor_text[editor_length]=0;
+    editor_cursor=7;
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==38);
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==39);
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==43);
+    assert(editor_key(NV_KEY_UP,0)==0 && editor_cursor==39);
+    assert(editor_key(NV_KEY_UP,0)==0 && editor_cursor==38);
+    assert(editor_key(NV_KEY_UP,0)==0 && editor_cursor==0);
+    assert(editor_key(NV_KEY_UP,0)==0 && editor_cursor==0);
+    editor_cursor=42;
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==46);
+    assert(editor_key(NV_KEY_UP,0)==0 && editor_cursor==42);
+
+    /* The logical window width is unchanged at 2x UI scale. */
+    mode.width=1920; mode.height=1080;
+    memset(editor_text,'x',90); editor_text[90]=0; editor_length=90;
+    editor_cursor=45; editor_scroll=0;
+    assert(editor_key(NV_KEY_UP,0)==0 && editor_cursor==7);
+    assert(editor_key(NV_KEY_DOWN,0)==0 && editor_cursor==45);
+    assert(editor_cursor_at(19+7*DESKTOP_EDITOR_CELL,73+DESKTOP_EDITOR_LINE)==45);
+}
 int main(void) {
-    search(); switching(); placement();
-    puts("PASS desktop shell: search, stable MRU, minimized/closed windows, tiling and preview bounds");
+    search(); switching(); placement(); editor_navigation();
+    puts("PASS desktop shell: search, stable MRU, minimized/closed windows, tiling, preview bounds and wrapped editor navigation");
     return 0;
 }

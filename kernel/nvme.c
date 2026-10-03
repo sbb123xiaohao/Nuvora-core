@@ -25,7 +25,7 @@ struct nvme_queue {
 };
 static struct {
     volatile u8 *regs;
-    u32 pci, nsid, stride, scan_min_pci;
+    u32 pci, nsid, stride, scan_min_pci, ready_timeout;
     u64 sectors;
     uptr data_page, list_page;
     struct nvme_queue admin, io;
@@ -42,14 +42,24 @@ static u64 nr64(u32 off) { return (u64)nr32(off) | (u64)nr32(off + 4) << 32; }
 static u64 le64_at(const u8 *p) { u64 n; memcpy(&n, p, 8); return n; }
 
 static bool nvme_wait_ready(bool ready, u32 timeout) {
-    u64 polls = (u64)MIN(MAX(timeout, 1u), 8u) * NVME_POLLS;
-    while (polls--) {
+    /* CAP.TO is elapsed time in 500 ms units, not a status-read count.
+     * Allow PIT IRQs to advance delayed firmware/device transitions while
+     * retaining the caller's IF state. The full advertised budget applies
+     * to both enabling and disabling a controller. */
+    uptr flags = irq_save();
+    /* One old pending PIT IRQ and one imminent fresh edge can advance two
+     * ticks before a full period elapses. Retain the complete CAP.TO budget. */
+    u64 start = ticks, budget = (u64)MAX(timeout, 1u) * 50u + 2u;
+    bool result = false;
+    for (u32 fast = 0;; ++fast) {
         u32 status = nr32(0x1c);
-        if (!!(status & 1u) == ready) return true;
-        if (ready && (status & 2u)) return false;
-        __asm__ volatile("pause");
+        if (ready && (status & 2u)) break;
+        if (!!(status & 1u) == ready) { result = true; break; }
+        if (ticks - start >= budget) break;
+        if (fast >= 1000) idle_once();
     }
-    return false;
+    irq_restore(flags);
+    return result;
 }
 
 static bool nvme_release(bool stop) {
@@ -57,7 +67,7 @@ static bool nvme_release(bool stop) {
         nw32(0x14, 0);
         /* A controller which fails to quiesce may still DMA. Leave its pages
          * pinned in that case, and disable PCI bus mastering. */
-        if (!nvme_wait_ready(false, 1)) {
+        if (!nvme_wait_ready(false, nvme.ready_timeout)) {
             pci_write16(nvme.pci, 4, (u16)(pci_read(nvme.pci, 4) & ~4u));
             nvme.online = false;
             return false;
@@ -185,6 +195,7 @@ static bool nvme_open(u64 *capacity, u32 first_nsid, u32 *selected_nsid) {
     u64 cap = nr64(0);
     u32 max_entries = (u32)(cap & 0xffffu) + 1u;
     u32 timeout = (u32)(cap >> 24) & 255u;
+    nvme.ready_timeout = MAX(timeout, 1u);
     u32 stride_shift = (u32)(cap >> 32) & 15u;
     u32 css = (u32)(cap >> 37) & 255u;
     /* Four doorbells (admin and one I/O pair) must fit into the mapped BAR. */

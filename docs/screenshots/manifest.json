@@ -1,0 +1,34 @@
+{
+  "capture": "QMP screendump; lossless P6 to RGB PNG",
+  "boot": "production UEFI USB; q35; 256 MiB; AHCI; USB keyboard/tablet",
+  "qemu": "QEMU emulator version 11.1.1",
+  "kernel_sha256": "d582983143e1834d0d9a1c83141dc11ba0b57da1f5b005aa0f995a201ec4ae35",
+  "esp_sha256": "d6ab97e5d486a9a85287c3ec770dde2e758e98ee00d9d788938a1646bf97fb58",
+  "firmware_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
+  "screenshots": [
+    {
+      "file": "desktop.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "d6300843fa77bbf2217868338c22e5d267c436b3f2827cf945986bfe757bad34"
+    },
+    {
+      "file": "files-terminal.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "4b93aca6766aeca6094802ee39a567ec59508bbb69bf797574eab1bb098b82b9"
+    },
+    {
+      "file": "files-editor.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "fd9090e2f86d4b918148f1ba1024cd87662a15f8c9f4d0ce61651b857328500f"
+    },
+    {
+      "file": "settings.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "8151dd79506f4f7474e7c1d604b8f8eee719ec844aa91b7c9ae6c282c4ab3157"
+    }
+  ]
+}
