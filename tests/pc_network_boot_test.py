@@ -103,7 +103,8 @@ def run(model, directory, port):
                       uefi=True, hardware=hardware, monitor=True, boot_timeout=90)
         try:
             configure(vm)
-            vm.send(f'wget -O /home/blob http://10.0.2.2:{port}/blob', timeout=90)
+            vm.send(f'wget -O /home/blob http://10.0.2.2:{port}/blob',
+                    f'Downloaded {len(PAYLOAD)} bytes to /home/blob', timeout=90)
             vm.send('anchor', 'Saved /home.')
             if model == 'usb-net':
                 vm.monitor('human-monitor-command', {'command-line': 'device_del nic'})

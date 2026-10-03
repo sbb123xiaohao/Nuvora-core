@@ -24,18 +24,18 @@ static struct {
 enum { TCP_IDLE, TCP_SYN_SENT, TCP_ESTABLISHED, TCP_ERROR };
 static struct {
     u32 owner, index, address, source_ip, next_tx, acked_tx, next_rx;
-    u64 last_send;
+    u64 last_send, ack_last_send;
     u32 attempts, queued, used;
     u16 local_port, remote_port;
     u8 state, buffer[NV_NET_DATA_MAX], outgoing[NV_NET_DATA_MAX];
-    bool eof;
+    bool eof, ack_pending;
 } stream;
 
 /* Traffic and neighbour state belong to the current interface and IPv4
  * configuration. Never return a packet or finish a probe from the old one. */
 static void reset_protocol_state(void) {
     lease_state = 0; peer_ip = 0; inbox_full = false;
-    echo_probe.pending = false; stream.state = TCP_IDLE;
+    echo_probe.pending = false; stream.state = TCP_IDLE; stream.ack_pending = false;
 }
 static u16 be16(const u8 *p) { return ((u16)p[0] << 8) | p[1]; }
 static u32 be32(const u8 *p) {
@@ -264,7 +264,15 @@ static int tcp_packet(u32 sequence, u8 flags, const u8 *body, u32 length) {
         sum += (u16)packet[i] << 8 | (i + 1 < length + 20 ? packet[i + 1] : 0);
     while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
     put16(packet + 16, (u16)~sum);
-    return send_ipv4(peer_mac, stream.source_ip, stream.address, 6, packet, length + 20);
+    int r = send_ipv4(peer_mac, stream.source_ip, stream.address, 6, packet, length + 20);
+    if (r >= 0 && (flags & 0x10)) stream.ack_pending = false;
+    return r;
+}
+/* Keep only the latest cumulative ACK/window; a busy TX ring or unresolved
+ * neighbour must not discard a handshake ACK or a receive-window update. */
+static void tcp_ack(void) {
+    stream.ack_last_send = ticks;
+    stream.ack_pending = tcp_packet(stream.next_tx, 0x10, NULL, 0) == -NV_EAGAIN;
 }
 static bool tcp_checksum_valid(const u8 *packet, u32 length, u32 source, u32 dest) {
     u8 pseudo[12] = {0};
@@ -291,17 +299,17 @@ static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
     if (stream.state == TCP_SYN_SENT) {
         /* A reset must acknowledge our SYN. Check it before accepting SYN+ACK. */
         if (!(flags & 0x10) || ack != stream.next_tx) return;
-        if (flags & 4) { stream.state = TCP_ERROR; return; }
+        if (flags & 4) { stream.state = TCP_ERROR; stream.ack_pending = false; return; }
         if (flags & 2) {
             stream.next_rx = seq + 1;
             stream.acked_tx = ack;
             stream.state = TCP_ESTABLISHED;
-            tcp_packet(stream.next_tx, 0x10, NULL, 0);
+            tcp_ack();
         }
         return;
     }
     if (flags & 4) {
-        if (seq == stream.next_rx) stream.state = TCP_ERROR;
+        if (seq == stream.next_rx) { stream.state = TCP_ERROR; stream.ack_pending = false; }
         return;
     }
     if (!(flags & 0x10)) return;
@@ -315,7 +323,7 @@ static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
         window && (seq - stream.next_rx < window ||
                    seq + span - 1 - stream.next_rx < window);
     if (!acceptable || (flags & 2) || (i32)(ack - stream.next_tx) > 0) {
-        tcp_packet(stream.next_tx, 0x10, NULL, 0);
+        tcp_ack();
         return;
     }
     if ((i32)(ack - stream.acked_tx) >= 0 &&
@@ -333,7 +341,7 @@ static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
     if ((i32)(seq - stream.next_rx) < 0)
         skip = MIN(length, stream.next_rx - seq);
     if (seq + skip != stream.next_rx) {
-        tcp_packet(stream.next_tx, 0x10, NULL, 0);
+        tcp_ack();
         return;
     }
     u32 accepted = MIN(length - skip, window);
@@ -346,21 +354,30 @@ static void tcp_input(const u8 *packet, u32 size, u32 source, u32 dest) {
         ++stream.next_rx;
         stream.eof = true;
     }
-    if (length || (flags & 1)) tcp_packet(stream.next_tx, 0x10, NULL, 0);
+    if (length || (flags & 1)) tcp_ack();
 }
 static void tcp_retry(void) {
     if (stream.state != TCP_SYN_SENT && stream.state != TCP_ESTABLISHED) return;
-    if (stream.state == TCP_ESTABLISHED && stream.acked_tx == stream.next_tx) return;
-    if (ticks - stream.last_send < 100) return;
-    if (stream.attempts >= 5) { stream.state = TCP_ERROR; return; }
-    u32 seq = stream.state == TCP_SYN_SENT ? stream.next_tx - 1 : stream.acked_tx;
-    u32 length = stream.state == TCP_SYN_SENT ? 0 : stream.queued;
-    int r = tcp_packet(seq, stream.state == TCP_SYN_SENT ? 2 : 0x18,
-                       stream.outgoing, length);
-    if (r == -NV_EAGAIN) { stream.last_send = ticks; return; }
-    if (r < 0) { stream.state = TCP_ERROR; return; }
-    ++stream.attempts;
-    stream.last_send = ticks;
+    bool queued = stream.state == TCP_SYN_SENT || stream.acked_tx != stream.next_tx;
+    if (queued && ticks - stream.last_send >= 100) {
+        if (stream.attempts >= 5) {
+            stream.state = TCP_ERROR; stream.ack_pending = false; return;
+        }
+        u32 seq = stream.state == TCP_SYN_SENT ? stream.next_tx - 1 : stream.acked_tx;
+        u32 length = stream.state == TCP_SYN_SENT ? 0 : stream.queued;
+        /* A due data retransmission already carries the current ACK/window.
+         * Make at most one ACK attempt this poll, even if DMA is still busy. */
+        if (stream.state == TCP_ESTABLISHED) stream.ack_last_send = ticks;
+        int r = tcp_packet(seq, stream.state == TCP_SYN_SENT ? 2 : 0x18,
+                           stream.outgoing, length);
+        if (r == -NV_EAGAIN) { stream.last_send = ticks; return; }
+        if (r < 0) { stream.state = TCP_ERROR; stream.ack_pending = false; return; }
+        ++stream.attempts;
+        stream.last_send = ticks;
+        return;
+    }
+    if (stream.state == TCP_ESTABLISHED && stream.ack_pending &&
+        ticks != stream.ack_last_send) tcp_ack();
 }
 static void dhcp_send(bool request) {
     if (!is_active()) return;
@@ -516,7 +533,9 @@ void net_poll(void) {
     polling = false;
 }
 void net_task_release(u32 pid) {
-    if (stream.state != TCP_IDLE && stream.owner == pid) stream.state = TCP_IDLE;
+    if (stream.state != TCP_IDLE && stream.owner == pid) {
+        stream.state = TCP_IDLE; stream.ack_pending = false;
+    }
 }
 int net_ioctl(u32 op, uptr pointer) {
     if (op >= NV_NET_TCP_OPEN && op <= NV_NET_TCP_CLOSE) {
@@ -529,7 +548,7 @@ int net_ioctl(u32 op, uptr pointer) {
             if (stream.state == TCP_ESTABLISHED)
                 tcp_packet(stream.next_tx, stream.acked_tx == stream.next_tx ? 0x11 : 0x14,
                            NULL, 0);
-            stream.state = TCP_IDLE;
+            stream.state = TCP_IDLE; stream.ack_pending = false;
             return 0;
         }
         if (op == NV_NET_TCP_OPEN && stream.state == TCP_IDLE) {
@@ -553,7 +572,9 @@ int net_ioctl(u32 op, uptr pointer) {
         if (stream.owner != current->pid || io.index != stream.index ||
             io.address != stream.address || io.port != stream.remote_port)
             return -NV_EBUSY;
-        if (stream.state == TCP_ERROR) { stream.state = TCP_IDLE; return -NV_EIO; }
+        if (stream.state == TCP_ERROR) {
+            stream.state = TCP_IDLE; stream.ack_pending = false; return -NV_EIO;
+        }
         io.local_port = stream.local_port;
         if (op == NV_NET_TCP_OPEN) {
             memcpy((void *)(uptr)pointer, &io, sizeof(io));
@@ -569,7 +590,7 @@ int net_ioctl(u32 op, uptr pointer) {
             memmove(stream.buffer, stream.buffer + got, stream.used);
             io.length = got;
             memcpy((void *)(uptr)pointer, &io, sizeof(io));
-            tcp_packet(stream.next_tx, 0x10, NULL, 0); /* reopen the receive window */
+            tcp_ack(); /* reopen the receive window */
             return (int)got;
         }
         if (!io.length || io.length > sizeof(io.data)) return -NV_EINVAL;

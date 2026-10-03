@@ -60,6 +60,9 @@ static int load_elf(struct task *t, const u8 *data, usize len, uptr *entry) {
         return -NV_ENOEXEC;
     const struct program_header *ph = (const void *)(uptr)(data + h->phoff);
     bool executable_entry = false;
+    u32 abi = 0;
+    /* Reject the complete image before an invalid later segment or entry can
+     * consume the physical budget while mapping an earlier large BSS. */
     for (u32 i = 0; i < h->phnum; ++i) {
         const struct program_header *p = &ph[i];
         if (p->type == 2 || p->type == 3 || p->type == 7)
@@ -77,11 +80,25 @@ static int load_elf(struct task *t, const u8 *data, usize len, uptr *entry) {
             return -NV_ENOEXEC;
         if (!p->memsz)
             continue;
-        u32 abi = p->vaddr >= NV_USER_IMAGE ? NV_ABI_VERSION : NV_ABI_LEGACY;
-        if (t->abi && t->abi != abi) return -NV_ENOEXEC;
-        t->abi = abi;
+        u32 segment_abi = p->vaddr >= NV_USER_IMAGE ? NV_ABI_VERSION : NV_ABI_LEGACY;
+        if (abi && abi != segment_abi) return -NV_ENOEXEC;
+        abi = segment_abi;
         if ((p->flags & 1) && h->entry >= p->vaddr && h->entry - p->vaddr < p->memsz)
             executable_entry = true;
+        uptr first = p->vaddr & ~(uptr)4095, end = ALIGN_UP(p->vaddr + p->memsz, PAGE);
+        for (u32 j = 0; j < i; ++j) {
+            if (ph[j].type != 1 || !ph[j].memsz) continue;
+            uptr other_first = ph[j].vaddr & ~(uptr)4095;
+            uptr other_end = ALIGN_UP(ph[j].vaddr + ph[j].memsz, PAGE);
+            if (first < other_end && other_first < end) return -NV_ENOEXEC;
+        }
+    }
+    if (!executable_entry)
+        return -NV_ENOEXEC;
+    t->abi = abi;
+    for (u32 i = 0; i < h->phnum; ++i) {
+        const struct program_header *p = &ph[i];
+        if (p->type != 1 || !p->memsz) continue;
         uptr first = p->vaddr & ~(uptr)4095, end = ALIGN_UP(p->vaddr + p->memsz, PAGE);
         for (uptr va = first; va < end; va += PAGE) {
             int r =
@@ -92,8 +109,6 @@ static int load_elf(struct task *t, const u8 *data, usize len, uptr *entry) {
         if (copy_to_space(t->pd, p->vaddr, data + p->offset, p->filesz) < 0)
             return -NV_ENOEXEC;
     }
-    if (!executable_entry)
-        return -NV_ENOEXEC;
     *entry = h->entry;
     return 0;
 }

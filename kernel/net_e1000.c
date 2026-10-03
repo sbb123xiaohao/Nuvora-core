@@ -150,8 +150,11 @@ int net_e1000_send(const void *frame, u32 size) {
     if (!net_e1000_link()) return -NV_ENODEV;
     if (size < 14 || size > 1514) return -NV_EINVAL;
     struct e1000_tx_desc *d = &tx[tx_head];
+    u32 next = (tx_head + 1u) % E1000_RING;
     fence();
-    if (!(d->status & 1u)) return -NV_EAGAIN;
+    /* Head equals tail means empty to the NIC. Keep the next slot free
+     * until its previous DMA use has completed. */
+    if (!(d->status & 1u) || !(tx[next].status & 1u)) return -NV_EAGAIN;
     memcpy(phys_ptr(tx_buf[tx_head]), frame, size);
     d->address = tx_buf[tx_head];
     d->length = (u16)size;
@@ -160,7 +163,7 @@ int net_e1000_send(const void *frame, u32 size) {
     fence();
     d->status = 0;
     fence();
-    tx_head = (tx_head + 1u) % E1000_RING;
+    tx_head = next;
     wr(TDT, tx_head);
     return 0;
 }

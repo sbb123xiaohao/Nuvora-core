@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <nv/bootinfo.h>
+#define NV_UEFI_TEST_HOST
+static u8 nv_uefi_host_inb(u16 port) { (void)port; return 0x20; }
+static void nv_uefi_host_outb(u16 port, u8 value) { (void)port; (void)value; }
 #include "../arch/x86_64/uefi.c"
 
 static uptr position, file_length, reads, closes, allocations, mapped_length;
@@ -135,6 +139,148 @@ static void check_acpi_tables(void) {
     assert(find_rsdp(&st)==0x12340000ull);
     tables[0].vendor_table=NULL;
     assert(!find_rsdp(&st));
+}
+
+/* Exercise the complete loader with explicit firmware allocation/error
+ * callbacks. Memory services remain valid after a failed exit, and the ledger
+ * rejects double frees and attempts to release firmware-owned destinations. */
+enum flow_failure { FLOW_MAP_ERROR, FLOW_BAD_STRIDE, FLOW_POOL_ERROR,
+    FLOW_REPLACEMENT_ERROR, FLOW_BAD_MAP, FLOW_RESERVED, FLOW_EXIT_ERROR,
+    FLOW_EXIT_EXHAUSTED, FLOW_MAP_AFTER_EXIT_ERROR, FLOW_MAP_AFTER_EXIT_GROW };
+static struct { void *address; uptr size; bool pages, mapped; } flow_blocks[8];
+static u32 flow_live, flow_pools, flow_maps, flow_exits, flow_target_frees;
+static enum flow_failure flow_failure;
+static bool flow_relocate, flow_unowned;
+static struct efi_file flow_root, flow_file;
+static struct efi_sfs flow_sfs;
+static struct efi_loaded_image flow_image = {.device_handle=(void *)2,
+    .image_base=(void *)0x2000000, .image_size=0x20000};
+static void flow_track(void *address, uptr size, bool pages, bool mapped) {
+    for (u32 i=0;i<ARRAY_LEN(flow_blocks);++i) if (!flow_blocks[i].address) {
+        flow_blocks[i]=(__typeof__(flow_blocks[0])){address,size,pages,mapped};
+        ++flow_live;return;
+    }
+    assert(false);
+}
+static void flow_free(void *address, uptr size, bool pages) {
+    for (u32 i=0;i<ARRAY_LEN(flow_blocks);++i) if (flow_blocks[i].address==address) {
+        assert(flow_blocks[i].pages==pages && (!pages || flow_blocks[i].size==size));
+        if (flow_blocks[i].mapped) assert(!munmap(address,flow_blocks[i].size));
+        else free(address);
+        flow_blocks[i]=(__typeof__(flow_blocks[0])){0};--flow_live;return;
+    }
+    assert(false);
+}
+static efi_status MSABI flow_pool(u32 type, uptr size, void **out) {
+    assert(type==EFI_LOADER_POOL);++flow_pools;
+    if ((flow_failure==FLOW_POOL_ERROR && flow_pools==2) ||
+        (flow_failure==FLOW_REPLACEMENT_ERROR && flow_pools==3)) {
+        /* Failed AllocatePool leaves no owned buffer, regardless of output. */
+        assert(!*out);*out=(void *)0xdeadbeef;return EFI_DEVICE_ERROR;
+    }
+    bool mapped=flow_relocate && flow_pools==1;
+    uptr allocated=mapped?ALIGN_UP(size,4096):size;
+    *out=mapped?mmap((void *)0x1b00000,allocated,PROT_READ|PROT_WRITE,
+        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0):malloc(size);
+    assert(*out && *out!=MAP_FAILED && (!mapped || *out==(void *)0x1b00000));
+    flow_track(*out,allocated,false,mapped);return EFI_SUCCESS;
+}
+static efi_status MSABI flow_free_pool(void *address) {
+    flow_free(address,0,false);return EFI_SUCCESS;
+}
+static efi_status MSABI flow_pages(u32 kind, u32 type, uptr pages, u64 *address) {
+    if (kind==EFI_ALLOCATE_ADDRESS) {
+        assert(type==EFI_LOADER_CODE);
+        if (flow_unowned) return EFI_NOT_FOUND;
+    } else {
+        assert(kind==EFI_ALLOCATE_MAX_ADDRESS && type==EFI_LOADER_DATA);
+        *address=((*address+1)&~4095ull)-pages*4096;
+    }
+    void *p=mmap((void *)(uptr)*address,pages*4096,PROT_READ|PROT_WRITE,
+        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+    assert(p==(void *)(uptr)*address);
+    flow_track(p,pages*4096,true,true);return EFI_SUCCESS;
+}
+static efi_status MSABI flow_free_pages(u64 address, uptr pages) {
+    if (address==kernel_first) ++flow_target_frees;
+    flow_free((void *)(uptr)address,pages*4096,true);return EFI_SUCCESS;
+}
+static efi_status MSABI flow_open(struct efi_file *root, void **out,
+        const char16 *path, u64 mode, u64 flags) {
+    (void)root;(void)mode;(void)flags;
+    if (path[12]=='C') return EFI_NOT_FOUND; /* No optional command line. */
+    position=0;*out=&flow_file;return EFI_SUCCESS;
+}
+static efi_status MSABI flow_volume(struct efi_sfs *sfs, void **out) {
+    (void)sfs;*out=&flow_root;return EFI_SUCCESS;
+}
+static efi_status MSABI flow_read(struct efi_file *file, uptr *n, void *out) {
+    (void)file;*n=MIN(*n,file_length-position);
+    memcpy(out,file_bytes+position,*n);position+=*n;return EFI_SUCCESS;
+}
+static efi_status MSABI flow_handle(efi_handle handle,const struct efi_guid *guid,void **out) {
+    if (handle==(void *)1 && !memcmp(guid,&loaded_image_guid,sizeof(*guid))) {
+        *out=&flow_image;return EFI_SUCCESS;
+    }
+    if (handle==(void *)2 && !memcmp(guid,&sfs_guid,sizeof(*guid))) {
+        *out=&flow_sfs;return EFI_SUCCESS;
+    }
+    return EFI_NOT_FOUND;
+}
+static efi_status MSABI flow_locate(const struct efi_guid *guid,void *registration,void **out) {
+    (void)guid;(void)registration;(void)out;return EFI_NOT_FOUND;
+}
+static efi_status MSABI flow_watchdog(uptr timeout,u64 code,uptr size,const char16 *text) {
+    (void)timeout;(void)code;(void)size;(void)text;return EFI_SUCCESS;
+}
+static efi_status MSABI flow_map(uptr *size,struct efi_memory_descriptor *map,
+        uptr *key,uptr *stride,u32 *version) {
+    ++flow_maps;
+    if (flow_failure==FLOW_MAP_ERROR ||
+        (flow_failure==FLOW_MAP_AFTER_EXIT_ERROR && flow_exits)) return EFI_DEVICE_ERROR;
+    *stride=flow_failure==FLOW_BAD_STRIDE?8:sizeof(*map);*version=1;*key=flow_maps;
+    if (!map) { *size=sizeof(*map);return EFI_BUFFER_TOO_SMALL; }
+    if (flow_failure==FLOW_REPLACEMENT_ERROR ||
+        (flow_failure==FLOW_MAP_AFTER_EXIT_GROW && flow_exits)) {
+        *size+=16*sizeof(*map);return EFI_BUFFER_TOO_SMALL;
+    }
+    *map=(struct efi_memory_descriptor){.type=flow_failure==FLOW_RESERVED?EFI_RESERVED:
+        flow_unowned?EFI_BOOT_SERVICES_DATA:EFI_LOADER_CODE,
+        .physical_start=kernel_first,.number_of_pages=(kernel_limit-kernel_first)/4096};
+    *size=flow_failure==FLOW_BAD_MAP?sizeof(*map)-1:sizeof(*map);
+    return EFI_SUCCESS;
+}
+static efi_status MSABI flow_exit(efi_handle image,uptr key) {
+    (void)image;(void)key;++flow_exits;
+    return flow_failure==FLOW_EXIT_ERROR?EFI_DEVICE_ERROR:EFI_INVALID_PARAMETER;
+}
+static void check_failure_cleanup(u8 *elf,uptr length) {
+    file_bytes=elf;file_length=length;
+    flow_root=(struct efi_file){.open=flow_open,.close=mock_close};
+    flow_file=(struct efi_file){.close=mock_close,.read=flow_read,
+        .set_position=mock_seek,.get_position=mock_tell};
+    flow_sfs.open_volume=flow_volume;
+    struct efi_boot_services bs={.allocate_pool=flow_pool,.free_pool=flow_free_pool,
+        .allocate_pages=flow_pages,.free_pages=flow_free_pages,.handle_protocol=flow_handle,
+        .locate_protocol=flow_locate,.set_watchdog_timer=flow_watchdog,
+        .get_memory_map=flow_map,.exit_boot_services=flow_exit};
+    struct efi_system_table st={.boot_services=&bs};
+    for (u32 failure=FLOW_MAP_ERROR;failure<=FLOW_MAP_AFTER_EXIT_GROW;++failure) {
+        for (u32 relocate=0;relocate<2;++relocate) {
+            for (u32 retry=0;retry<2;++retry) {
+                flow_failure=(enum flow_failure)failure;flow_relocate=relocate;
+                flow_unowned=failure==FLOW_RESERVED || (failure==FLOW_EXIT_ERROR && relocate);
+                flow_pools=flow_maps=flow_exits=flow_target_frees=0;
+                efi_status result=efi_main((void *)1,&st);
+                efi_status expected=failure==FLOW_RESERVED?EFI_LOAD_ERROR:
+                    failure==FLOW_MAP_AFTER_EXIT_GROW?EFI_BUFFER_TOO_SMALL:EFI_DEVICE_ERROR;
+                assert(result==expected && !flow_live && !kernel_file_pages && !kernel_pages_owned);
+                assert(!pending_kernel && !pending_entry);
+                assert(flow_target_frees==(flow_unowned?0u:1u));
+                if (failure==FLOW_EXIT_EXHAUSTED) assert(flow_exits>1);
+            }
+        }
+    }
 }
 
 int main(int argc, char **argv) {
@@ -273,7 +419,8 @@ int main(int argc, char **argv) {
     free_kernel_file(&bs, staged);
     assert(staging_frees == 3 && !kernel_file_pages);
     assert(!munmap((void *)(uptr)kernel_first, mapped_length));
+    check_failure_cleanup(elf,(uptr)length);
     free(elf);
-    puts("PASS UEFI: ACPI GUID/preference/high address, partial reads/rewind, memory-map replacement, malformed ELF, page ownership, overlapping ELF relocation/OOM, segment copy/BSS");
+    puts("PASS UEFI: ACPI GUID/preference/high address, partial reads/rewind, memory-map replacement, malformed ELF, page ownership, overlapping ELF relocation/OOM, failed handover cleanup/retry, segment copy/BSS");
     return 0;
 }

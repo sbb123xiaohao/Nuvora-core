@@ -28,18 +28,26 @@ static void delay400(void) {
         (void)inb(0x3f6);
 }
 static int wait_ready(bool data) {
-    for (u32 i = 0; i < 1000000; ++i) {
+    /* A count of status reads is not a device timeout: a fast CPU can exhaust
+     * it while a valid PIO write is still waiting for its disk backend. PIT
+     * is initialized before disk_init. Ring-0 timer/keyboard IRQs do not
+     * schedule another task or enter this transport. Preserve the caller's
+     * IF state while allowing elapsed time and asynchronous I/O to advance. */
+    uptr flags = irq_save();
+    u64 start = ticks;
+    int result = -NV_EIO;
+    for (u32 fast = 0;; ++fast) {
         u8 s = inb(0x1f7);
-        if (!s || s == 0xff)
-            return -NV_ENODEV;
-        if (s & 0x80)
-            continue;
-        if (s & 0x21)
-            return -NV_EIO;
-        if (!data || (s & 8))
-            return 0;
+        if (!s || s == 0xff) { result = -NV_ENODEV; break; }
+        if (!(s & 0x80)) {
+            if (s & 0x21) break; /* ERR / device fault */
+            if (((s & 8) != 0) == data) { result = 0; break; }
+        }
+        if (ticks - start >= 500) break; /* five seconds at 100 Hz */
+        if (fast >= 1000) idle_once();
     }
-    return -NV_EIO;
+    irq_restore(flags);
+    return result;
 }
 static int command(u64 lba, u8 base_op) {
     if (!identified || lba >= sectors)

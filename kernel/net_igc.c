@@ -127,9 +127,12 @@ bool net_igc_link(void) { return running && (rd(STATUS) & 2u); }
 int net_igc_send(const void *frame, u32 size) {
     if (!net_igc_link()) return -NV_ENODEV;
     if (size < 14 || size > 1514) return -NV_EINVAL;
-    u32 i = tx_head;
+    u32 i = tx_head, next = (i + 1u) % IGC_RING;
+    fence();
+    /* Preserve an empty ring slot: publishing tail equal to an unadvanced
+     * hardware head would hide the entire pending transmit queue. */
+    if (pending[next] && !(tx[next].flags & (1ull << 32))) return -NV_EAGAIN;
     if (pending[i]) {
-        fence();
         if (!(tx[i].flags & (1ull << 32))) return -NV_EAGAIN;
         pending[i] = 0;
     }
@@ -140,7 +143,7 @@ int net_igc_send(const void *frame, u32 size) {
                         0x02000000u | 0x08000000u);
     pending[i] = 1;
     fence();
-    tx_head = (i + 1) % IGC_RING;
+    tx_head = next;
     wr(TDT, tx_head);
     return 0;
 }

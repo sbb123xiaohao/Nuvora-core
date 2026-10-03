@@ -192,12 +192,20 @@ _Static_assert(sizeof(struct elf64_ehdr) == 64, "ELF64 header");
 _Static_assert(sizeof(struct elf64_phdr) == 56, "ELF64 program header");
 extern void kernel_start(const struct boot_info *) __attribute__((sysv_abi));
 static u8 inb(u16 port) {
+#ifdef NV_UEFI_TEST_HOST
+    return nv_uefi_host_inb(port);
+#else
     u8 v;
     __asm__ volatile("inb %1,%0" : "=a"(v) : "Nd"(port));
     return v;
+#endif
 }
 static void outb(u16 port, u8 v) {
+#ifdef NV_UEFI_TEST_HOST
+    nv_uefi_host_outb(port, v);
+#else
     __asm__ volatile("outb %0,%1" ::"a"(v), "Nd"(port));
+#endif
 }
 static void serial_putc(char c) {
     for (u32 t = 100000; t && !(inb(0x3fd) & 0x20); --t) {
@@ -339,6 +347,7 @@ static bool load_kernel(struct efi_boot_services *bs, u8 **image, uptr size,
                         u64 stub_base, u64 stub_size, u64 *entry) {
     const u8 *file = image ? *image : NULL;
     kernel_file_pages = 0;
+    kernel_pages_owned = false;
     kernel_load_status = EFI_LOAD_ERROR;
     if (!file || size > ~(uptr)0 - 4095 || size > ~0ull - (u64)(uptr)file ||
         size < sizeof(struct elf64_ehdr) || memcmp(file, "\x7f" "ELF", 4) ||
@@ -728,21 +737,27 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
         uptr map_size = map_capacity;
         s = bs->get_memory_map(&map_size, map, &map_key, &descriptor_size, &descriptor_version);
         if (s == EFI_BUFFER_TOO_SMALL && !exit_attempted) {
-            if (descriptor_size < sizeof(*map) || descriptor_size > (~(uptr)0 - map_size) / 8)
-                return EFI_DEVICE_ERROR;
+            if (descriptor_size < sizeof(*map) || descriptor_size > (~(uptr)0 - map_size) / 8) {
+                s = EFI_DEVICE_ERROR;
+                goto failed;
+            }
             if (map)
                 bs->free_pool(map);
+            map = NULL;
             map_capacity = map_size + 8 * descriptor_size;
             s = bs->allocate_pool(EFI_LOADER_POOL, map_capacity, (void **)&map);
-            if (EFI_ERROR(s))
-                return s;
+            if (EFI_ERROR(s)) {
+                map = NULL;
+                goto failed;
+            }
             continue;
         }
         if (EFI_ERROR(s))
-            return s;
+            goto failed;
         if (!convert_memory_map(map, map_size, descriptor_size)) {
             loader_text("invalid or overly complex EFI memory map\n");
-            return EFI_DEVICE_ERROR;
+            s = EFI_DEVICE_ERROR;
+            goto failed;
         }
         if (!kernel_destination_ready()) {
             loader_text("kernel load address intersects reserved firmware memory\n");
@@ -754,7 +769,8 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
                     loader_status("reserved at:  0x", bi.mem[i].base);
                     break;
                 }
-            return EFI_LOAD_ERROR;
+            s = EFI_LOAD_ERROR;
+            goto failed;
         }
         /* Reconvert every retry: only the map matching the successful exit
          * key may be handed to the allocator. Do not replace firmware CR3. */
@@ -765,12 +781,28 @@ __attribute__((ms_abi)) efi_status efi_main(efi_handle image, struct efi_system_
             break;
         }
         if (s != EFI_INVALID_PARAMETER)
-            return s;
+            goto failed;
     }
-    if (!exited)
-        return EFI_DEVICE_ERROR;
+    if (!exited) {
+        s = EFI_DEVICE_ERROR;
+        goto failed;
+    }
     __asm__ volatile("cli" ::: "memory");
     enable_nx();
     serial_text("entering kernel\n");
     switch_handover_stack(handover_stack + sizeof(handover_stack), finish_handover);
+failed:
+    /* Failed ExitBootServices leaves memory services available. Release only
+     * allocations owned by this loader; a BootServices destination fallback
+     * belongs to firmware. Successful exit goes directly to the handover. */
+    if (map)
+        bs->free_pool(map);
+    if (kernel_pages_owned) {
+        bs->free_pages(kernel_first, (kernel_limit - kernel_first) / 4096);
+        kernel_pages_owned = false;
+    }
+    free_kernel_file(bs, kernel);
+    pending_kernel = NULL;
+    pending_entry = 0;
+    return s;
 }

@@ -7,6 +7,10 @@
 #define PAGE 4096u
 #define SNAP_CAP_MAX (128u * 1024u * 1024u)
 #define AHCI_MMIO 0x3000u
+static volatile u64 ticks;
+static uptr irq_save(void) { return 0; }
+static void irq_restore(uptr flags) { assert(!flags); }
+static void idle_once(void) { ++ticks; }
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static u8 dma[32][PAGE], mmio[2][AHCI_MMIO], nuvora_header[512];
 static u32 next_page, pci_command[2], port_command[2][2], clb[2][2], writes[2][2], lba28_reads;

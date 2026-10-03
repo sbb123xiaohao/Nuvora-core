@@ -58,7 +58,9 @@ static int extent_allocate(u32 v, u64 blocks, u64 *result) {
     u64 begin = extent_vol[v].hint;
     for (u32 pass = 0; pass < 2; ++pass) {
         u64 at = pass ? extent_vol[v].first : begin;
-        u64 limit = pass ? begin : extent_vol[v].end;
+        /* The hint chooses where to begin, not a boundary between free
+         * regions. Reclaimed blocks may form one run across that hint. */
+        u64 limit = extent_vol[v].end;
         while (at <= limit && blocks <= limit - at) {
             u64 next = at;
             for (int s = 0; s < 2; ++s)

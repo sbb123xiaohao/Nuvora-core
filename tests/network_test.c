@@ -12,7 +12,8 @@ static u64 ticks;
 static bool link_up = true;
 static bool bridge_up;
 static u8 sent[1514];
-static u32 sent_length, transmissions;
+static u32 sent_length, transmissions, send_attempts;
+static bool send_blocked;
 static void *user_buffer;
 static usize user_size;
 static void pci_visit(void (*cb)(u32, u32, u32)) {
@@ -27,6 +28,8 @@ static bool net_igc_start(u32 address, u8 mac[6]) {
 }
 static bool net_igc_link(void) { return link_up; }
 static int net_igc_send(const void *p, u32 size) {
+    ++send_attempts;
+    if (send_blocked) return -NV_EAGAIN;
     assert(size <= sizeof(sent));
     memcpy(sent, p, size); sent_length = size; ++transmissions;
     return 0;
@@ -218,6 +221,123 @@ static struct nv_net_tcp establish_tcp_fixture(u32 peer_sequence) {
     assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == 1);
     assert(stream.next_rx == peer_sequence + 1);
     return io;
+}
+static void exercise_tcp_ack_backpressure(void) {
+    struct nv_net_tcp io = establish_tcp_fixture(5000);
+    u8 data[NV_NET_DATA_MAX] = {0};
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x18, data, sizeof(data));
+    assert(stream.used == sizeof(data) && be16(sent + 48) == 0);
+    u32 before = transmissions, attempts = stream.attempts;
+    u64 last_send = stream.last_send;
+    send_blocked = true;
+    io.length = sizeof(io.data);
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == sizeof(data));
+    assert(!stream.used && transmissions == before);
+    u32 tries = send_attempts;
+    net_poll(); net_poll();
+    assert(send_attempts == tries); /* bound retries even under busy syscall polling */
+    for (u32 i = 0; i < 8; ++i) {
+        ticks += 100; net_poll();
+        assert(stream.state == TCP_ESTABLISHED && stream.attempts == attempts &&
+               stream.last_send == last_send && transmissions == before);
+    }
+    send_blocked = false;
+    ++ticks; net_poll();
+    assert(transmissions == before + 1 && sent[47] == 0x10 &&
+           be32(sent + 38) == stream.next_tx && be32(sent + 42) == stream.next_rx &&
+           be16(sent + 48) == NV_NET_DATA_MAX);
+    assert(stream.attempts == attempts && stream.last_send == last_send);
+    ++ticks; net_poll(); assert(transmissions == before + 1);
+
+    /* SYN completion, challenge ACK, an out-of-order segment and FIN all
+     * require the same control-frame retry despite no queued transmit bytes. */
+    for (u32 event = 0; event < 4; ++event) {
+        io = event ? establish_tcp_fixture(6000 + event * 100) : open_tcp_fixture();
+        send_blocked = true;
+        before = transmissions;
+        if (!event) deliver_tcp(6000, stream.next_tx, 0x12, NULL, 0);
+        else if (event == 1)
+            deliver_tcp(stream.next_rx, stream.next_tx + 1, 0x10, NULL, 0);
+        else if (event == 2)
+            deliver_tcp(stream.next_rx + 1, stream.next_tx, 0x18, data, 1);
+        else deliver_tcp(stream.next_rx, stream.next_tx, 0x11, NULL, 0);
+        attempts = stream.attempts; last_send = stream.last_send;
+        assert(transmissions == before && !stream.used);
+        send_blocked = false; ++ticks; net_poll();
+        assert(transmissions == before + 1 && sent[47] == 0x10 &&
+               be32(sent + 42) == stream.next_rx &&
+               be16(sent + 48) == (event == 3 ? 0 : NV_NET_DATA_MAX));
+        assert(stream.attempts == attempts && stream.last_send == last_send);
+    }
+
+    /* Several failed ACKs coalesce into the current sequence/window. */
+    io = establish_tcp_fixture(7000);
+    send_blocked = true;
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x18, data, 512);
+    deliver_tcp(stream.next_rx, stream.next_tx, 0x18, data, 512);
+    io.length = 256;
+    assert(call_net(NV_NET_TCP_RECV, &io, sizeof(io)) == 256);
+    before = transmissions;
+    send_blocked = false; ++ticks; net_poll();
+    assert(transmissions == before + 1 && be32(sent + 42) == stream.next_rx &&
+           be16(sent + 48) == 256);
+
+    /* New data and due retransmissions already carry the ACK, so no extra
+     * pure ACK consumes the newly available hardware descriptor. */
+    io = establish_tcp_fixture(8000);
+    send_blocked = true;
+    deliver_tcp(stream.next_rx + 1, stream.next_tx, 0x18, data, 1);
+    send_blocked = false;
+    memcpy(io.data, "GET", 3); io.length = 3;
+    assert(call_net(NV_NET_TCP_SEND, &io, sizeof(io)) == 3);
+    before = transmissions; ++ticks; net_poll(); assert(transmissions == before);
+    send_blocked = true;
+    deliver_tcp(stream.next_rx + 1, stream.acked_tx, 0x18, data, 1);
+    send_blocked = false;
+    ticks += 100; net_poll();
+    assert(transmissions == before + 1 && sent[47] == 0x18 && be16(sent + 16) == 43 && !memcmp(sent + 54, "GET", 3));
+    ++ticks; net_poll(); assert(transmissions == before + 1);
+
+    /* ARP expiry has the same EAGAIN contract as hardware backpressure. */
+    io = establish_tcp_fixture(9000);
+    peer_valid_until = ticks;
+    deliver_tcp(stream.next_rx + 1, stream.next_tx, 0x18, data, 1);
+    assert(be16(sent + 12) == 0x0806);
+    peer_valid_until = ticks + 100;
+    before = transmissions; ++ticks; net_poll();
+    assert(transmissions == before + 1 && sent[47] == 0x10);
+
+    /* A pending ACK belongs to its connection and interface configuration. */
+    const u32 resets[] = {NV_NET_TCP_CLOSE, NV_NET_STATIC, NV_NET_SELECT, NV_NET_DHCP};
+    for (u32 i = 0; i < 7; ++i) {
+        io = establish_tcp_fixture(10000 + i * 100);
+        send_blocked = true;
+        deliver_tcp(stream.next_rx + 1, stream.next_tx, 0x18, data, 1);
+        assert(stream.ack_pending);
+        struct nv_net_static config = {.index = active, .ip = 0xc0a80164,
+            .mask = 0xffffff00, .gateway = 0xc0a80101};
+        if (i == 2) {
+            const u8 mac[6] = {2, 1, 2, 3, 4, 5};
+            net_usb_attach(0x303a, 1, mac); bridge_up = true;
+            config.index = usb_index;
+        }
+        if (!i) assert(!call_net(resets[i], &io, sizeof(io)));
+        else if (i < ARRAY_LEN(resets))
+            assert(!call_net(resets[i], &config, sizeof(config)));
+        else if (i == 4) net_task_release(task_object.pid);
+        else if (i == 5) { link_up = false; net_poll(); }
+        else deliver_tcp(stream.next_rx, stream.next_tx, 0x14, NULL, 0);
+        assert(!stream.ack_pending);
+        if (i == 2) {
+            config.index = wired;
+            assert(!call_net(NV_NET_SELECT, &config, sizeof(config)));
+        }
+        send_blocked = false;
+        before = transmissions; ++ticks; net_poll();
+        assert(transmissions == before);
+        link_up = true;
+    }
+    puts("PASS TCP ACK backpressure: window/handshake/challenge/order/FIN retry with current state; data piggybacks, no retry-budget loss or stale connection ACKs");
 }
 static void exercise_tcp_reset(void) {
     struct nv_net_tcp io = open_tcp_fixture();
@@ -418,6 +538,7 @@ int main(int argc, char **argv) {
     if (argc == 2) {
         if (!strcmp(argv[1], "select")) exercise_adapter_selection();
         else if (!strcmp(argv[1], "usb-mac")) exercise_usb_mac();
+        else if (!strcmp(argv[1], "tcp-ack-backpressure")) exercise_tcp_ack_backpressure();
         else if (!strcmp(argv[1], "tcp-reset")) exercise_tcp_reset();
         else if (!strcmp(argv[1], "tcp-window-ack")) exercise_tcp_window_ack();
         else if (!strcmp(argv[1], "tcp-future-ack")) exercise_tcp_future_ack();

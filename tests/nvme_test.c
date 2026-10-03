@@ -8,6 +8,10 @@
 #define NV_KERNEL_H
 #define PAGE 4096u
 #define SNAP_CAP_MAX (16u * 1024u * 1024u)
+static volatile u64 ticks;
+static uptr irq_save(void) { return 0; }
+static void irq_restore(uptr flags) { assert(!flags); }
+static void idle_once(void) { ++ticks; }
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static FILE *disk_file;
 static u64 disk_sectors;

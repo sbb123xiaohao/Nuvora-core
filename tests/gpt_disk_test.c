@@ -6,20 +6,24 @@
 #include <nv/string.h>
 #define NV_KERNEL_H
 #define SNAP_CAP_MAX (16u * 1024u * 1024u)
+static volatile u64 ticks;
+static uptr irq_save(void) { return 0; }
+static void irq_restore(uptr flags) { assert(!flags); }
+static void idle_once(void) { ++ticks; }
 struct store_layout { u32 slot_lba[2], slot_sectors, snap_cap; u32 version; u64 data_first, data_end; };
 static FILE *disk_file;
 static u64 disk_size, selected_lba;
 static u8 high[3], low[3], sector_data[512];
 static u32 words;
-static bool identifying;
+static bool identifying, data_pending;
 static bool break_primary, break_backup, misplaced_primary, misplaced_backup;
 static bool wrong_alternate, invalid_pmbr, second_pmbr;
 static u32 misplaced_reads;
-static u8 inb(u16 port) { return port == 0x1f7 ? 0x48 : 0; }
+static u8 inb(u16 port) { return port == 0x1f7 ? (data_pending ? 0x48 : 0x50) : 0; }
 static u16 inw(u16 port) {
     assert(port == 0x1f0);
     if (identifying) {
-        ++words;
+        if (++words == 256) data_pending = false;
         if (words == 50) return 1u << 9;
         if (words == 84) return 0x4400;
         if (words >= 101 && words <= 104)
@@ -28,7 +32,7 @@ static u16 inw(u16 port) {
     }
     assert(words < 256);
     u16 value = (u16)sector_data[2 * words] | (u16)sector_data[2 * words + 1] << 8;
-    ++words;
+    if (++words == 256) data_pending = false;
     return value;
 }
 static void outb(u16 port, u8 value) {
@@ -36,9 +40,10 @@ static void outb(u16 port, u8 value) {
         u32 index = port - 0x1f3;
         high[index] = low[index]; low[index] = value;
     }
-    if (port == 0x1f7 && value == 0xec) { identifying = true; words = 0; }
+    if (port == 0x1f7 && value == 0xec) { identifying = data_pending = true; words = 0; }
+    if (port == 0x1f7 && (value == 0x34 || value == 0x30)) { data_pending = true; words = 0; }
     if (port == 0x1f7 && (value == 0x24 || value == 0x20)) {
-        identifying = false; words = 0;
+        identifying = false; data_pending = true; words = 0;
         selected_lba = (u64)low[0] | (u64)low[1] << 8 | (u64)low[2] << 16;
         if (value == 0x24)
             selected_lba |= (u64)high[0] << 24 | (u64)high[1] << 32 | (u64)high[2] << 40;
@@ -64,7 +69,10 @@ static void outb(u16 port, u8 value) {
             sector_data[16] ^= 1; /* corrupt only the in-memory GPT header CRC */
     }
 }
-static void outw(u16 port, u16 value) { (void)port; (void)value; }
+static void outw(u16 port, u16 value) {
+    (void)value; assert(port == 0x1f0 && data_pending && words < 256);
+    if (++words == 256) data_pending = false;
+}
 static bool nvme_init(u64 *capacity, u32 first_pci, u32 first_nsid,
                       u32 *selected_pci, u32 *selected_nsid) {
     (void)capacity; (void)first_pci; (void)first_nsid;

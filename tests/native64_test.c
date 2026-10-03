@@ -9,12 +9,12 @@
 #define POOL_PAGES 128u
 static const uptr physical_base = 0x100200000ull;
 static bool owned[POOL_PAGES];
-static u32 live, budget = POOL_PAGES;
+static u32 live, budget = POOL_PAGES, page_allocations;
 volatile u64 ticks;
 uptr page_alloc(void) {
     if (!budget) return 0;
     for (u32 i=0; i<POOL_PAGES; ++i) if (!owned[i]) {
-        owned[i]=true; ++live; --budget;
+        owned[i]=true; ++live; --budget; ++page_allocations;
         uptr p=physical_base+(uptr)i*PAGE;
         memset(phys_ptr(p),0,PAGE); return p;
     }
@@ -113,6 +113,42 @@ static void loader_and_heap(void) {
     assert(load_elf(&task,image,sizeof(image),&entry)==-NV_ENOEXEC);
     vm_destroy(task.pd); assert(!live);
 }
+static void loader_validation_budget(void) {
+    for (u32 which=0;which<6;++which) {
+        reset(); executable(NV_USER_IMAGE);
+        struct elf_header *h=(void *)image;
+        struct program_header *ph=(void *)(image+h->phoff);
+        ph[0].memsz=(u64)POOL_PAGES*PAGE;
+        h->phnum=2;
+        ph[1]=(struct program_header){.type=1,.flags=6,.offset=256,
+            .vaddr=NV_USER_IMAGE+ph[0].memsz,.filesz=1,.memsz=PAGE,.align=1};
+        if (which==0) ph[1].type=3; /* A late unsupported PT_INTERP. */
+        if (which==1) ph[1].offset=sizeof(image); /* Data extends beyond EOF. */
+        if (which==2) ph[1].flags=7; /* Writable executable segment. */
+        if (which==3) h->entry=NV_USER_HEAP; /* Entry outside executable data. */
+        if (which==4) ph[1].vaddr=USER_BASE; /* Mixed legacy/native layout. */
+        if (which==5) {
+            ph[0].memsz=(u64)(POOL_PAGES-1)*PAGE+1;
+            ph[1].vaddr=NV_USER_IMAGE+ph[0].memsz; /* Adjacent bytes, shared page. */
+        }
+        struct task task={.pd=vm_create()}; assert(task.pd);
+        u32 before=live, allocations_before=page_allocations;
+        uptr entry=0;
+        assert(load_elf(&task,image,sizeof(image),&entry)==-NV_ENOEXEC);
+        assert(live==before && page_allocations==allocations_before && !entry && !task.abi);
+        vm_destroy(task.pd); assert(!live);
+    }
+    /* A valid BSS larger than the remaining physical budget still reports
+     * OOM; the caller can reclaim its complete partially mapped image. */
+    reset(); executable(NV_USER_IMAGE);
+    struct elf_header *h=(void *)image;
+    struct program_header *ph=(void *)(image+h->phoff);
+    ph[0].memsz=(u64)POOL_PAGES*PAGE;
+    struct task task={0}; struct frame frame;
+    assert(prepare_image(&task,"/apps/large-bss","",&frame)==-NV_ENOMEM);
+    assert(task.abi==NV_ABI_VERSION && live>2);
+    vm_destroy(task.pd); assert(!live && budget==POOL_PAGES);
+}
 static void framebuffer_masks(void) {
     u32 rgb[]={0xff0000,0xff00,0xff,0};
     u32 bgr[]={0xff,0xff00,0xff0000,0};
@@ -128,7 +164,7 @@ int main(void) {
     void *ram=mmap(phys_ptr(physical_base),bytes,PROT_READ|PROT_WRITE,
                   MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
     assert(ram==phys_ptr(physical_base));
-    mapping_boundaries(); loader_and_heap(); framebuffer_masks();
+    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); framebuffer_masks();
     assert(!munmap(ram,bytes));
-    puts("PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, rollback, legacy ELF and GOP masks");
+    puts("PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, full validation before allocation, OOM rollback, legacy ELF and GOP masks");
 }

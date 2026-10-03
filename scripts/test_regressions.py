@@ -38,7 +38,7 @@ def main():
             subprocess.run(args, check=True)
             if name == 'network':
                 for scenario in ('usb-mac', 'tcp-reset', 'tcp-window-ack', 'tcp-future-ack',
-                                 'tcp-zero-window', 'tcp-eof', 'tcp-wrap'):
+                                 'tcp-zero-window', 'tcp-eof', 'tcp-wrap', 'tcp-ack-backpressure'):
                     subprocess.run([str(output), scenario], check=True)
             if name == 'igc':
                 for scenario in ('zero', 'multicast', 'broadcast', 'unprogrammed'):

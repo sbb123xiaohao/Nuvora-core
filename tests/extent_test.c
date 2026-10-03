@@ -19,13 +19,15 @@ static struct store_layout external_layout;
 static const u64 disk_blocks = 32ull * 1024 * 1024 * 1024 / PAGE;
 static int fail_after = -1, flush_after = -1;
 static u64 written_sectors;
+static u64 arena_blocks;
 bool disk_ready(void) { return true; }
 u32 disk_volume_count(void) { return 1; }
 bool disk_volume_layout(u32 v, struct store_layout *l) {
     assert(!v);
     if (disk_base) { *l = external_layout; return true; }
     *l = (struct store_layout){.slot_lba={8, 4105}, .slot_sectors=4097,
-        .snap_cap=2*1024*1024, .version=3, .data_first=1026, .data_end=disk_blocks};
+        .snap_cap=2*1024*1024, .version=3, .data_first=1026,
+        .data_end=arena_blocks ? 1026 + arena_blocks : disk_blocks};
     return true;
 }
 int disk_volume_read(u32 v, u64 lba, void *out) {
@@ -64,10 +66,92 @@ static void expect(int fd, u64 at, const char *s, u32 n) {
     char out[32]; assert(n <= sizeof(out)); seek64(fd, at);
     assert(fs_read(&task, fd, out, n) == (int)n && !memcmp(s, out, n));
 }
+static void fresh_arena(u64 blocks) {
+    if (disk) fclose(disk);
+    disk = tmpfile(); assert(disk);
+    arena_blocks = blocks; reset();
+}
+static int write_pattern(const char *name, u8 value, u32 blocks) {
+    static u8 bytes[3*PAGE];
+    memset(bytes, value, sizeof(bytes));
+    int fd = fs_open(&task, name, NV_CREATE|NV_WRITE|NV_READ); assert(fd >= 3);
+    assert(fs_write(&task, fd, bytes, blocks*PAGE) == (int)(blocks*PAGE));
+    return fd;
+}
+static void expect_pattern(int fd, u8 value, u32 blocks) {
+    u8 bytes[3*PAGE];
+    seek64(fd, 0);
+    assert(fs_read(&task, fd, bytes, blocks*PAGE) == (int)(blocks*PAGE));
+    for (u32 i = 0; i < blocks*PAGE; ++i) assert(bytes[i] == value);
+}
+static void allocation_regressions(void) {
+    /* Deleting a temporary file leaves one free run across the cursor. */
+    fresh_arena(4);
+    int temporary = write_pattern("temporary", 'T', 2);
+    assert(!fs_close(&task, temporary) && !fs_remove(home_node, "temporary"));
+    int replacement = write_pattern("replacement", 'R', 3);
+    expect_pattern(replacement, 'R', 3);
+
+    /* A failed write also releases its unreferenced allocation. Its retry
+     * must overwrite all bytes and retain the original empty file on error. */
+    fresh_arena(4);
+    int retry = fs_open(&task, "retry", NV_CREATE|NV_WRITE|NV_READ); assert(retry >= 3);
+    static u8 bytes[3*PAGE]; memset(bytes, 'F', sizeof(bytes));
+    fail_after = 1;
+    assert(fs_write(&task, retry, bytes, 2*PAGE) == -NV_EIO);
+    fail_after = -1;
+    struct nv_stat64 st;
+    assert(!fs_stat64(&task, retry, &st) && !st.size && !st.allocated);
+    assert(task.fd[retry].offset == 0);
+    memset(bytes, 'R', sizeof(bytes));
+    assert(fs_write(&task, retry, bytes, sizeof(bytes)) == sizeof(bytes));
+    expect_pattern(retry, 'R', 3);
+
+    /* Four free blocks split by live files cannot satisfy one three-block
+     * write. Reaching the whole arena must not overwrite either blocker. */
+    fresh_arena(6);
+    int a = write_pattern("a", 'A', 2), b = write_pattern("b", 'B', 1);
+    int c = write_pattern("c", 'C', 2), d = write_pattern("d", 'D', 1);
+    assert(!fs_close(&task, a) && !fs_remove(home_node, "a"));
+    assert(!fs_close(&task, c) && !fs_remove(home_node, "c"));
+    int full = fs_open(&task, "full", NV_CREATE|NV_WRITE|NV_READ); assert(full >= 3);
+    u64 writes_before = written_sectors;
+    assert(fs_write(&task, full, bytes, sizeof(bytes)) == -NV_ENOSPC);
+    assert(written_sectors == writes_before && task.fd[full].offset == 0);
+    assert(!fs_stat64(&task, full, &st) && !st.size && !st.allocated);
+    expect_pattern(b, 'B', 1); expect_pattern(d, 'D', 1);
+
+    /* Two committed generations pin four blocks. Reclaim the following
+     * temporary allocation across the cursor, then fall back to the older
+     * root: neither the current file nor that root's bytes may be reused. */
+    fresh_arena(8);
+    int durable = write_pattern("durable", 'A', 2);
+    assert(!store_sync());
+    seek64(durable, 0); memset(bytes, 'B', 2*PAGE);
+    assert(fs_write(&task, durable, bytes, 2*PAGE) == 2*PAGE);
+    assert(!store_sync());
+    temporary = write_pattern("temporary", 'T', 2);
+    assert(!fs_close(&task, temporary) && !fs_remove(home_node, "temporary"));
+    replacement = write_pattern("replacement", 'R', 3);
+    expect_pattern(replacement, 'R', 3); expect_pattern(durable, 'B', 2);
+    u8 sector[512];
+    u64 lba = volume[0].layout.slot_lba[volume[0].active_slot] + 1;
+    disk_volume_read(0, lba, sector); sector[0] ^= 0x80;
+    assert(!disk_volume_write(0, lba, sector));
+    reset();
+    durable = fs_open(&task, "durable", NV_READ); assert(durable >= 3);
+    assert(store_generation() == 1 && fs_lookup(home_node, "replacement") == -NV_ENOENT);
+    expect_pattern(durable, 'A', 2);
+    fresh_arena(0); fclose(disk); disk = NULL;
+    puts("PASS extent allocation: reclaimed cursor-spanning runs, failed writes, fragmentation and durable root protection");
+}
 int main(int argc, char **argv) {
     heap = aligned_alloc(PAGE, HEAP_SIZE); assert(heap);
     head = (struct block *)heap;
     *head = (struct block){.magic=BLOCK_MAGIC, .size=HEAP_SIZE-sizeof(*head), .free=1};
+    if (argc == 2 && !strcmp(argv[1], "allocation-wrap")) {
+        allocation_regressions(); free(heap); return 0;
+    }
     if (argc == 2) {
         disk = fopen(argv[1], "r+b"); assert(disk); disk_base = 2048;
         u8 header[512]; disk_volume_read(0, 0, header);
@@ -89,6 +173,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     assert(argc==1);
+    allocation_regressions();
     disk = tmpfile(); assert(disk); reset();
     int fd = fs_open(&task, "big.bin", NV_CREATE|NV_READ|NV_WRITE); assert(fd >= 3);
     u64 far = 10ull * 1024 * 1024 * 1024 + 4093;

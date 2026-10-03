@@ -1,5 +1,58 @@
 # 测试与复现
 
+## 未发布：分配、网络背压与装载失败路径的验证
+
+基于包含此前全部修改的 `93c6153`，新增回归在修复前确认以下问题：
+
+- NVSTORE3 四块可分配空间先写入并删除两块临时文件后，三块连续写入
+  错误返回 ENOSPC；失败写入也会推进游标，使可回收区被错误分隔。
+  现在回绕扫描完整数据区。真实 `fs.c` / `store.c` 回归还验证碎片化
+  2+2 块仍拒绝三块连续写入、失败写不改变文件、双持久根保护，以及
+  新根损坏后恢复旧根的数据。
+- e1000 / IGC 原先允许 16 槽全部未完成，TDT 回绕到未前进的 TDH，
+  硬件按空环处理。MMIO/DMA 夹具暂停消费，验证 15 次成功、第 16 次
+  EAGAIN 且无写入；消费后恢复发送，32 轮压力循环逐帧核对内容并覆盖回绕。
+- TCP 接收窗口重开 ACK 遇到发送 EAGAIN 后被丢弃，后续轮询没有重试；
+  新增端口背压夹具验证累计确认与窗口更新的重试，和数据重传状态独立。
+- Q35 e1000e 下载回归重复捕获 ATA PIO 写入等待失败：状态为
+  `0xd0`（BSY/DRDY/DSC），没有 ERR/DF，但主机异步写未完成前，
+  固定的一百万次状态读取已耗尽。改用 PIT 截止时间，并验证慢完成、
+  永久忙、真实错误与设备消失；下载测试明确检查成功消息后再校验落盘数据。
+- 用户 ELF 的后续不支持段、越界数据、W+X、错误入口、混合 ABI 和
+  共享页段未完整检查前，首段大 BSS 已消耗页。完整校验前不再映射
+  目标页；合法大 BSS 仍返回 ENOMEM，并能完全回收部分映像。
+- UEFI 内核已装载后，内存表或 ExitBootServices 失败留下 LoaderCode
+  页及 ELF 暂存分配。固件回调夹具检查所有权、失败清理和重试，
+  成功退出固件服务后的路径不会调用固件释放服务。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 scripts/test.py --phase memory
+python3 scripts/test.py --phase storage
+python3 tests/pc_network_boot_test.py
+python3 tests/pc_storage_boot_test.py
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64 --boot-only
+```
+
+本轮 Arch GCC 16.2.1、QEMU 11.1.1 / TCG、OVMF 202608-1 验证通过：
+生产与诊断 BIOS/UEFI 构建，全部 **38 组** UBSan 宿主回归，内存阶段
+**12 组**检查（32/64/128/256/1024/5120 MiB、碎片化、OOM 回收与预期故障），
+以及最终 PIO 修复后的存储阶段 **12 组**检查（含重启恢复、坏根回退、
+GPT 双卷、4 TiB 容量声明、编辑器保存与外来盘保护）。七种 AHCI/NVMe
+拓扑完成保存、重启和 144 项子进程诊断；三种网卡均完成 DHCP、ping、
+重连及 256 KiB 下载落盘逐字节校验。此前能重复触发 PIO 超时的 e1000e
+还以无诊断打印的生产实现连续运行 **5 次**，全部通过。最后的 32 MiB
+BIOS 与 64 MiB UEFI USB 启动各通过 144 项断言；64 MiB 正式图形会话
+通过 OOBE、终端和 7 项客户端权限断言。EFI 失败清理夹具覆盖 40 次
+失败/重试组合，确认拥有的分配完全回收且不会释放固件所属页。
+
+宿主回归直接调用生产分配器、用户 ELF 装载器与网卡队列代码，C 夹具
+使用 UBSan；MMIO、DMA 消费和 EFI 回调是明确模拟输入。I225/I226
+本轮使用宿主队列夹具，实际网卡收发由 QEMU e1000/e1000e/RNDIS 验证；
+不能将结果解释为实体 I225/I226 或主板固件已认证。磁盘格式与 ABI 保持兼容。
+
 ## 未发布：PC 硬件模拟修复的验证
 
 在包含此前全部修复的 `a6ac234` 上，用 Arch QEMU **11.1.1 / TCG**、
