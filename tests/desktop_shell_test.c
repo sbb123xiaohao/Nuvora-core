@@ -4,6 +4,11 @@
 #include "../user/desktop.c"
 
 static void search(void) {
+    assert(desktop_client_app("Music")==DESKTOP_MEDIA);
+    assert(desktop_client_app("Media")==DESKTOP_MEDIA);
+    assert(desktop_client_app("Terminal")==DESKTOP_TERMINAL);
+    assert(desktop_client_app("Folio")==DESKTOP_WINDOW_COUNT);
+    assert(desktop_client_app(NULL)==DESKTOP_WINDOW_COUNT);
     struct desktop_launcher l={0}; desktop_search(&l);
     assert(l.count==7 && l.selected==0);
     strlcpy(l.query,"  MP3 VIDEO  ",sizeof(l.query)); desktop_search(&l);
@@ -145,13 +150,19 @@ static void spaces_model(void) {
 
     windows[DESKTOP_FILES]=(struct desktop_window){.w=640,.h=420};
     count=10;selected=scroll=0;file_view=0;
+    struct files_layout grid=desktop_files_layout(&windows[DESKTOP_FILES],file_view);
     files_move(NV_KEY_RIGHT);assert(selected==1 && !scroll);
-    files_move(NV_KEY_DOWN);assert(selected==4 && !scroll);
-    files_move(NV_KEY_DOWN);assert(selected==7 && scroll==3);
-    files_move(NV_KEY_LEFT);assert(selected==6 && scroll==3);
-    files_move(NV_KEY_PGDN);assert(selected==9 && scroll==6);
-    windows[DESKTOP_FILES].w=340;scroll_to_selection();assert(selected==9 && scroll==8);
-    file_view=1;scroll_to_selection();assert(selected==9 && scroll==5);
+    files_move(NV_KEY_DOWN);assert(selected==1+grid.columns);
+    files_move(NV_KEY_DOWN);assert(selected==1+2*grid.columns);
+    files_move(NV_KEY_LEFT);assert(selected==2*grid.columns);
+    for (u32 i=0;i<3;++i) files_move(NV_KEY_PGDN);
+    assert(selected==9 && scroll%grid.columns==0 && selected>=scroll &&
+        selected<scroll+grid.columns*grid.rows);
+    windows[DESKTOP_FILES].w=340;scroll_to_selection();
+    grid=desktop_files_layout(&windows[DESKTOP_FILES],file_view);
+    assert(selected==9 && selected>=scroll && selected<scroll+grid.columns*grid.rows);
+    file_view=1;scroll_to_selection();grid=desktop_files_layout(&windows[DESKTOP_FILES],file_view);
+    assert(grid.columns==1 && selected==9 && selected>=scroll && selected<scroll+grid.rows);
     count=0;files_move(NV_KEY_UP);assert(!selected && !scroll);
     settings_tab=SETTINGS_SYSTEM;account.info.role=0;
     assert(settings_activate(SETTINGS_ACTION+1)==-NV_EACCESS);

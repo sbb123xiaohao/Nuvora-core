@@ -66,7 +66,13 @@ static efi_status MSABI mock_pages(u32 kind, u32 type, uptr pages, u64 *address)
         assert(type == EFI_LOADER_DATA);
         ++staging_allocations;
         if (deny_staging) return EFI_DEVICE_ERROR;
-        *address = bad_staging ? 0x2000000 : ((*address + 1) & ~4095ull) - pages * 4096;
+        if (bad_staging) {
+            /* Return an invalid address above the firmware request without
+             * aliasing the source ELF when its pool extends past 32 MiB. */
+            u64 rejected = (u64)(uptr)overlap_pool + overlap_length;
+            assert(overlap_pool && rejected > *address);
+            *address = rejected;
+        } else *address = ((*address + 1) & ~4095ull) - pages * 4096;
         void *p = mmap((void *)(uptr)*address, pages * 4096, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
         assert(p == (void *)(uptr)*address);
@@ -393,7 +399,8 @@ int main(int argc, char **argv) {
     bad_staging = true;
     assert(!load_kernel(&bs, &staged, length, 0x2000000, 0x10000, &entry));
     assert(staged == overlap_pool && staging_allocations == 2 && allocations == previous);
-    assert(staging_frees == 1 && kernel_load_status == EFI_DEVICE_ERROR);
+    assert(staging_frees == 1 && kernel_load_status == EFI_DEVICE_ERROR && !kernel_file_pages);
+    assert(!memcmp(staged, elf, (usize)length));
     bad_staging = false;
     target_status = EFI_DEVICE_ERROR;
     assert(!load_kernel(&bs, &staged, length, 0x2000000, 0x10000, &entry));

@@ -1,6 +1,7 @@
 #ifndef NV_UI_THEME_H
 #define NV_UI_THEME_H
 #include "gui_text.h"
+#include "ui_controls.h"
 /* Wallpaper is generated at the display's native resolution. No bitmap
  * asset, floating point, GPU driver or network connection is required. */
 static inline u32 desktop_glow(i32 x,i32 y,i32 cx,i32 cy,u32 radius) {
@@ -14,10 +15,10 @@ static inline void desktop_wallpaper(struct nv_canvas *c,struct desktop_clip cli
     u32 height,u32 theme,bool dim) {
     u32 left=MIN(clip.left,c->width),right=MIN(clip.right,c->width);
     u32 top=MAX(clip.top,c->y0),bottom=MIN(MIN(clip.bottom,height),c->y0+c->rows);
-    static const u32 base[]={0x101831,0x0c2136,0x21172e};
-    static const u32 blue[]={0x286ab2,0x167a98,0x864c83};
-    static const u32 mint[]={0x498b9f,0x2ca6a0,0xb37786};
-    static const u32 violet[]={0x674f9f,0x294c8c,0x6c478e};
+    static const u32 base[]={0xe8ebf1,0xe6edf1,0xede7ef};
+    static const u32 blue[]={0xdbe7f7,0xcbdff1,0xdcd9f1};
+    static const u32 mint[]={0xf8fbff,0xe1f3f3,0xf8edf1};
+    static const u32 violet[]={0xebe5f7,0xdce6f6,0xe8daf0};
     theme=MIN(theme,2u);
     for (u32 py=top;py<bottom;++py) {
         i32 ny=(i32)((u64)py*1024/height);

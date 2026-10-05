@@ -14,13 +14,15 @@ static struct nv_display_info mode;
 static struct app_window app;
 static struct media_view view;
 static u32 *tile, tile_rows;
-static char path[NV_PATH_MAX], status[160], title[NV_NAME_MAX + 1];
+static char path[NV_PATH_MAX], status[160], title[NV_NAME_MAX + 1], track_info[96];
 static bool audio_ready, stop_playback;
+static u32 queued_index = ~0u;
 static u64 paused_ticks;
 static u32 pointer_buttons;
 static bool volume_drag;
 static i16 decoded[MINIMP3_MAX_SAMPLES_PER_FRAME];
 static u8 compressed[16384];
+static void media_information(const char *codec, u32 rate, u32 channels);
 
 static bool suffix(const char *name, const char *ext) {
     u32 n = (u32)strlen(name), m = (u32)strlen(ext);
@@ -94,12 +96,14 @@ static int draw(void) {
     return 0;
 }
 static void scroll_to_selection(void) {
-    u32 visible = media_visible(mode.height, media_scale(mode.width, mode.height));
+    u32 visible = view.playing ? media_layout(mode.width, mode.height, &view).library_rows :
+                  media_visible(mode.height, media_scale(mode.width, mode.height));
     if (view.selected < view.scroll) view.scroll = view.selected;
     if (view.selected >= view.scroll + visible)
         view.scroll = view.selected - visible + 1;
 }
 static int pointer_input(bool *clicked) {
+    *clicked = false;
     struct nv_pointer_event event;
     int r;
     if (app.id) {
@@ -188,17 +192,44 @@ static int volume_key(u32 key) {
     if (key=='-' || key=='_') return set_volume(view.volume_percent<5?0:view.volume_percent-5);
     return 0;
 }
+static bool sync_volume(void) {
+    struct nv_audio_volume setting;
+    if (nv_audio_get_volume(&setting) < 0 || setting.percent > 100 ||
+        setting.percent == view.volume_percent) return false;
+    view.volume_percent = setting.percent;
+    return true;
+}
 static int volume_pointer(bool clicked) {
+    if (app.id && !app.focused) { volume_drag = false; pointer_buttons = 0; return 0; }
     if (clicked) {
         struct media_hit hit=media_hit(mode.width,mode.height,&view,
                                         view.pointer_x,view.pointer_y);
         if (hit.kind==MEDIA_HIT_VOLUME && audio_ready) volume_drag=true;
     }
     if (!volume_drag || !(pointer_buttons&NV_POINTER_LEFT)) return 0;
-    u32 s=media_scale(mode.width,mode.height), start=145*s, span=mode.width-245*s;
+    struct media_geometry layout=media_layout(mode.width,mode.height,&view);
+    u32 start=layout.volume_x, span=layout.volume_w;
+    if (span<2) return 0;
     u32 value=view.pointer_x<=start?0:
               view.pointer_x>=start+span-1?100:(view.pointer_x-start)*100/(span-1);
     return set_volume(value);
+}
+static void transport_hit(struct media_hit hit) {
+    if (hit.kind == MEDIA_HIT_BACK) { stop_playback = true; view.paused = false; }
+    else if (hit.kind == MEDIA_HIT_PAUSE) view.paused = !view.paused;
+    else if ((hit.kind == MEDIA_HIT_ITEM || hit.kind == MEDIA_HIT_PREVIOUS ||
+              hit.kind == MEDIA_HIT_NEXT) && hit.index < view.count &&
+             entries[hit.index].kind == NV_FILE && hit.index != view.current) {
+        queued_index = hit.index; stop_playback = true; view.paused = false;
+    }
+}
+static void transport_key(u32 k) {
+    if (k == 27) { stop_playback = true; view.paused = false; }
+    else if (k == ' ' || k == '\n') view.paused = !view.paused;
+    else if (k == NV_KEY_LEFT && view.previous < view.count)
+        transport_hit((struct media_hit){MEDIA_HIT_PREVIOUS, view.previous});
+    else if (k == NV_KEY_RIGHT && view.next < view.count)
+        transport_hit((struct media_hit){MEDIA_HIT_NEXT, view.next});
 }
 static int transport(void) {
     if (app.id) {
@@ -207,24 +238,21 @@ static int transport(void) {
         if (app.closed) { stop_playback = true; view.paused = false; return 0; }
         if (app.resized) { r = draw(); if (r < 0) return r; }
     }
-    struct nv_audio_volume setting;
-    if (nv_audio_get_volume(&setting) == 0) view.volume_percent = setting.percent;
+    sync_volume();
     bool clicked = false;
     int mouse = pointer_input(&clicked);
     if (mouse < 0) return mouse;
     int change=volume_pointer(clicked);
     if (change<0) return change;
-    if (clicked) {
+    if (clicked && (!app.id || app.focused)) {
         struct media_hit hit = media_hit(mode.width, mode.height, &view,
                                          view.pointer_x, view.pointer_y);
-        if (hit.kind == MEDIA_HIT_BACK) { stop_playback = true; return 0; }
-        if (hit.kind == MEDIA_HIT_PAUSE) view.paused = !view.paused;
+        transport_hit(hit);
     }
     int key = app.id ? app_window_key(&app) : key_event();
     if (key >= 0) {
         u32 k = (u32)key & 4095u;
-        if (k == 27) stop_playback = true;
-        if (k == ' ' || k == '\n') view.paused = !view.paused;
+        transport_key(k);
         change=volume_key(k);
         if (change<0) return change;
     } else if (key != -NV_EAGAIN) return key;
@@ -234,13 +262,17 @@ static int transport(void) {
         int r = draw();
         if (r < 0) return r;
     }
+    bool refresh_pending = false;
     while (view.paused && !stop_playback) {
+        bool dirty = refresh_pending;
+        refresh_pending = false;
         if (app.id) {
             int r = app_window_pump(&app); if (r < 0) return r;
             if (app.closed) { stop_playback = true; break; }
-            if (app.resized) { r = draw(); if (r < 0) return r; }
+            if (app.resized) dirty = true;
         }
-        if (mouse || clicked) {
+        if (sync_volume()) dirty = true;
+        if (mouse || clicked || dirty) {
             int r = draw();
             if (r < 0) return r;
         }
@@ -249,19 +281,19 @@ static int transport(void) {
         if (mouse < 0) return mouse;
         change=volume_pointer(clicked);
         if (change<0) return change;
-        if (clicked) {
+        if (clicked && (!app.id || app.focused)) {
             struct media_hit hit = media_hit(mode.width, mode.height, &view,
                                              view.pointer_x, view.pointer_y);
-            if (hit.kind == MEDIA_HIT_BACK) stop_playback = true;
-            if (hit.kind == MEDIA_HIT_PAUSE) view.paused = false;
+            transport_hit(hit);
         }
         key = app.id ? app_window_key(&app) : key_event();
         if (key >= 0) {
             u32 k = (u32)key & 4095u;
-            if (k == 27) stop_playback = true;
-            if (k == ' ' || k == '\n') view.paused = false;
+            transport_key(k);
+            u32 previous_volume = view.volume_percent;
             change=volume_key(k);
             if (change<0) return change;
+            if (view.volume_percent != previous_volume) refresh_pending = true;
         } else if (key != -NV_EAGAIN) return key;
     }
     if (had_pause) paused_ticks += clock_ticks() - pause_begin;
@@ -303,6 +335,7 @@ static int play_mp3(int fd) {
             break;
         }
         if (count > 0 && (info.channels == 1 || info.channels == 2)) {
+            if (!frames) media_information("MP3", (u32)info.hz, (u32)info.channels);
             for (int i = 0; i < count; ++i)
                 sample_at_rate(decoded[i * info.channels],
                                decoded[i * info.channels + info.channels - 1],
@@ -340,6 +373,16 @@ static void mix_channels(const i32 *pcm, u32 channels, u32 rate) {
     }
     sample_at_rate((i16)left, (i16)right, rate);
 }
+static void media_information(const char *codec, u32 rate, u32 channels) {
+    strlcpy(track_info, codec, sizeof(track_info));
+    u32 n = (u32)strlen(track_info);
+    strlcpy(track_info + n, " / ", sizeof(track_info) - n);
+    n = (u32)strlen(track_info); char hz[16]; number(hz, rate, 10);
+    strlcpy(track_info + n, hz, sizeof(track_info) - n);
+    n = (u32)strlen(track_info);
+    strlcpy(track_info + n, channels == 1 ? " Hz / Mono" :
+            channels == 2 ? " Hz / Stereo" : " Hz / Stereo mix", sizeof(track_info) - n);
+}
 static int play_wav(int fd) {
     if (!audio_ready) return -NV_ENODEV;
     struct nv_stat64 st;
@@ -347,9 +390,14 @@ static int play_wav(int fd) {
     struct wav_io io = {&fd, source_read, source_seek};
     struct wav_format f;
     r = wav_open(&io, st.size, &f); if (r < 0) return r;
+    view.duration = (u32)MIN((f.bytes / f.frame) / f.rate, 0xffffffffu);
+    view.duration_known = true;
+    media_information("WAV", f.rate, f.channels);
+    r = draw(); if (r < 0) return r;
     u64 bytes = f.bytes; u64 last_draw = clock_ticks();
     while (bytes && !stop_playback && sound.error >= 0) {
         r = transport(); if (r < 0) return r;
+        if (stop_playback) break;
         u32 chunk = (u32)MIN(bytes, sizeof(compressed)/f.frame*f.frame);
         r = wav_exact(&io, compressed, chunk); if (r < 0) return r;
         for (u32 at = 0; at < chunk; at += f.frame) {
@@ -372,8 +420,15 @@ static int play_flac(int fd) {
     if (!flac) return source.error < 0 ? source.error : -NV_EINVAL;
     u64 frames = 0; u64 last_draw = clock_ticks(); int r = 0;
     if (!flac->channels || flac->channels > 8 || flac->sampleRate < 8000 || flac->sampleRate > 655350) r = -NV_EINVAL;
+    if (!r) {
+        view.duration = (u32)MIN(flac->totalPCMFrameCount / flac->sampleRate, 0xffffffffu);
+        view.duration_known = flac->totalPCMFrameCount != 0;
+        media_information("FLAC", flac->sampleRate, flac->channels);
+        r = draw();
+    }
     while (!r && !stop_playback && sound.error >= 0) {
         r = transport(); if (r < 0) break;
+        if (stop_playback) break;
         u64 got = drflac_read_pcm_frames_s16(flac, ARRAY_LEN(decoded)/flac->channels, decoded);
         if (!got) break;
         frames += got;
@@ -434,6 +489,7 @@ static int play_video(int fd) {
         u64 paused_before = paused_ticks;
         r = transport();
         if (r < 0) { state.error = r; break; }
+        if (stop_playback) break;
         u64 now = clock_ticks(); u32 delta = (u32)MIN(now - previous, 25u);
         u64 paused_here = paused_ticks - paused_before;
         delta = delta > paused_here ? delta - paused_here : 0;
@@ -457,8 +513,10 @@ static int play_mp2(int fd) {
     u64 frames = 0, last_draw = clock_ticks();
     while (!stop_playback && source.error >= 0 && sound.error >= 0) {
         r = transport(); if (r < 0) break;
+        if (stop_playback) break;
         plm_samples_t *samples = plm_audio_decode(decoder); if (!samples) break;
         u32 rate = (u32)plm_audio_get_samplerate(decoder);
+        if (!frames) media_information("MP2", rate, 2);
         for (u32 i = 0; i < samples->count; ++i) {
             i32 l = (i32)(samples->interleaved[2*i]*32767.0f);
             i32 right = (i32)(samples->interleaved[2*i+1]*32767.0f);
@@ -479,12 +537,26 @@ static int play(const char *file) {
     view.playing = true; view.paused = false;
     view.video = suffix(file, ".mpg") || suffix(file, ".mpeg");
     view.frame = NULL; view.peak_left = view.peak_right = view.seconds = 0;
-    view.title = title;
+    view.duration = 0; view.duration_known = false;
+    view.title = title; view.media_info = track_info;
+    view.previous = media_adjacent(entries, view.count, view.current, false);
+    view.next = media_adjacent(entries, view.count, view.current, true);
     stop_playback = false;
+    queued_index = ~0u;
     paused_ticks = 0;
     const char *base = file;
     for (const char *p = file; *p; ++p) if (*p == '/') base = p + 1;
     strlcpy(title, base, sizeof(title));
+    if (supported(title)) {
+        char *dot = NULL;
+        for (char *p = title; *p; ++p) if (*p == '.') dot = p;
+        if (dot && dot != title) *dot = 0;
+    }
+    strlcpy(track_info, view.video ? "Local MPEG-1 video" :
+            suffix(file, ".flac") ? "Local FLAC audio" : suffix(file, ".mp3") ? "Local MP3 audio" :
+            suffix(file, ".mp2") ? "Local MP2 audio" : "Local WAV audio", sizeof(track_info));
+    note("");
+    scroll_to_selection();
     int r = draw();
     if (r >= 0) r = view.video ? play_video(fd) :
                     suffix(file, ".mp3") ? play_mp3(fd) : suffix(file, ".flac") ? play_flac(fd) :
@@ -497,7 +569,7 @@ static int play(const char *file) {
     else if (r == -NV_ENODEV) note("Audio output unavailable; connect an HDA device.");
     else if (r < 0) failure("Playback", r);
     else note(stop_playback ? "Stopped." : "Finished.");
-    return draw();
+    return queued_index < view.count ? 0 : draw();
 }
 static int open_selected(void) {
     if (!view.count) return 0;
@@ -509,16 +581,22 @@ static int open_selected(void) {
         note("");
         return refresh();
     }
-    char full[NV_PATH_MAX];
-    u32 n = (u32)strlcpy(full, path, sizeof(full));
-    if (n >= sizeof(full)) return -NV_E2BIG;
-    if (n != 1 || full[0] != '/') {
-        if (n + 1 >= sizeof(full)) return -NV_E2BIG;
-        full[n++] = '/'; full[n] = 0;
+    for (;;) {
+        e = &entries[view.selected];
+        char full[NV_PATH_MAX];
+        u32 n = (u32)strlcpy(full, path, sizeof(full));
+        if (n >= sizeof(full)) return -NV_E2BIG;
+        if (n != 1 || full[0] != '/') {
+            if (n + 1 >= sizeof(full)) return -NV_E2BIG;
+            full[n++] = '/'; full[n] = 0;
+        }
+        if (strlcpy(full + n, e->name, sizeof(full) - n) >= sizeof(full) - n)
+            return -NV_E2BIG;
+        view.current = view.selected;
+        int r = play(full);
+        if (r < 0 || queued_index >= view.count || app.closed) return r;
+        view.selected = queued_index;
     }
-    if (strlcpy(full + n, e->name, sizeof(full) - n) >= sizeof(full) - n)
-        return -NV_E2BIG;
-    return play(full);
 }
 int user_main(const char *args) {
     if (app_help("media", args)) return 0;
@@ -545,21 +623,42 @@ int user_main(const char *args) {
                         setting.percent : 100;
     struct nv_window_info window_info;
     if (nv_window_info(&window_info) == 0 && window_info.server_pid) {
-        r = app_window_open(&app, "Media", MIN(900u, mode.width - 40), MIN(550u, mode.height - 100));
+        r = app_window_open(&app, "Music", MIN(620u, mode.width - 40), MIN(760u, mode.height - 100));
         if (r < 0) { report_error("Media window", r); return 1; }
         mode.width = app.width; mode.height = app.height;
     }
     tile_rows = mode.max_copy_bytes / (mode.width * 4);
     tile = grow((mode.max_copy_bytes + NV_PAGE - 1) / NV_PAGE);
     if ((iptr)tile < 0) { report_error("Media buffer", (int)(iptr)tile); return 1; }
+    char initial[NV_PATH_MAX] = "";
+    if (*args) {
+        if (!media_absolute_path(args)) {
+            r = getcwd_path(path, sizeof(path));
+            if (r < 0) { report_error("Media path", r); return 1; }
+        }
+        r = media_resolve_file(initial, sizeof(initial), path, args);
+        if (r < 0) { report_error("Media path", r); return 1; }
+        char folder[NV_PATH_MAX];
+        r = media_parent_path(folder, sizeof(folder), initial);
+        if (r < 0) { report_error("Media folder", r); return 1; }
+        r = chdir_path(folder);
+        if (r < 0) { report_error("Media folder", r); return 1; }
+    }
     r = refresh();
     if (r < 0) { report_error("Media files", r); return 1; }
     r = app.id ? 0 : nv_display_acquire();
     if (r < 0) { report_error("Media display", r); return 1; }
     view.pointer_x = mode.width / 2; view.pointer_y = mode.height / 2;
     note(audio_ready ? "" : "No HDA output; silent MPEG video remains available.");
+    view.current = view.previous = view.next = ~0u;
     if (*args) {
-        r = play(args);
+        const char *base = initial;
+        for (const char *p = initial; *p; ++p) if (*p == '/') base = p + 1;
+        u32 selected = ~0u;
+        for (u32 i = 0; i < view.count; ++i)
+            if (entries[i].kind == NV_FILE && !strcmp(entries[i].name, base)) { selected = i; break; }
+        if (selected < view.count) { view.selected = selected; r = open_selected(); }
+        else r = play(initial);
         if (r < 0) goto done;
     }
     u32 last_click = ~0u; u64 last_tick = 0;

@@ -397,8 +397,8 @@ static int client_poll(bool *dirty) {
         u32 id=DESKTOP_WINDOW_COUNT;
         for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) if (windows[i].client==e.id) { id=i; break; }
         if (id==DESKTOP_WINDOW_COUNT) {
-            if (!strcmp(e.title,"Terminal") && !windows[DESKTOP_TERMINAL].client) id=DESKTOP_TERMINAL;
-            else if (!strcmp(e.title,"Media") && !windows[DESKTOP_MEDIA].client) id=DESKTOP_MEDIA;
+            u32 preferred=desktop_client_app(e.title);
+            if (preferred<DESKTOP_WINDOW_COUNT && !windows[preferred].client) id=preferred;
             else for (u32 i=DESKTOP_CLIENT_FIRST;i<DESKTOP_WINDOW_COUNT;++i) if (!windows[i].client) { id=i; break; }
             if (id==DESKTOP_WINDOW_COUNT) continue;
             struct desktop_window *w=&windows[id];
@@ -1104,7 +1104,7 @@ int user_main(const char *args) {
     wallpaper_update();
     u32 s=desktop_scale(mode.width,mode.height), sw=mode.width/s, sh=mode.height/s;
     windows[DESKTOP_FILES]=(struct desktop_window){.x=36,.y=42,
-        .w=MIN(960u,sw-72),.h=MIN(540u,sh-110)};
+        .w=MIN(1040u,sw-72),.h=MIN(650u,sh-100)};
     windows[DESKTOP_EDITOR]=(struct desktop_window){.x=140,.y=62,
         .w=MIN(680u,sw-155),.h=MIN(470u,sh-104)};
     windows[DESKTOP_TERMINAL]=(struct desktop_window){.x=150,.y=86,
@@ -1112,8 +1112,8 @@ int user_main(const char *args) {
     windows[DESKTOP_ACCOUNTS]=(struct desktop_window){.x=(i32)(sw-MIN(560u,sw-40))/2,.y=20,
         .w=MIN(560u,sw-40),.h=MIN(455u,sh-DESKTOP_BAR_HEIGHT-20)};
     windows[DESKTOP_SETTINGS]=windows[DESKTOP_ACCOUNTS];
-    windows[DESKTOP_SETTINGS].w=MIN(720u,sw-40);
-    windows[DESKTOP_SETTINGS].h=MIN(480u,sh-DESKTOP_BAR_HEIGHT-20);
+    windows[DESKTOP_SETTINGS].w=MIN(1000u,sw-40);
+    windows[DESKTOP_SETTINGS].h=MIN(610u,sh-DESKTOP_BAR_HEIGHT-20);
     windows[DESKTOP_SETTINGS].x=(i32)(sw-windows[DESKTOP_SETTINGS].w)/2;
     settings_refresh();
     for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
@@ -1258,7 +1258,9 @@ int user_main(const char *args) {
                     u32 level;
                     if (drag_kind==DESKTOP_HIT_SETTINGS_VOLUME) {
                         const struct desktop_window *w=&windows[DESKTOP_SETTINGS];
-                        i32 relative=(i32)x-w->x-155;u32 span=w->w-180;
+                        struct desktop_rect slider=desktop_settings_slider_rect(w->w-2,w->h-29);
+                        i32 relative=(i32)x-w->x-1-(i32)slider.x;
+                        u32 span=MAX(1u,slider.w-1);
                         level=relative<=0?0:(u32)relative>=span?100:(u32)relative*100/span;
                     } else level=x<=sw-174?0:x>=sw-19?100:(x-(sw-174))*100/155;
                     if (level!=volume_percent) {
@@ -1285,6 +1287,8 @@ int user_main(const char *args) {
                         w->tiled=DESKTOP_FLOATING;
                         i32 dx=(i32)x-(i32)oldx,dy=(i32)y-(i32)oldy;
                         i32 minw=300,minh=160;
+                        if (drag_window==DESKTOP_MEDIA || !strcmp(w->title,"Music") || !strcmp(w->title,"Media"))
+                            minh=MIN(270u,sh-DESKTOP_BAR_HEIGHT);
                         if (drag_window==DESKTOP_FILES) { minw=MIN(340u,sw);minh=MIN(310u,sh-DESKTOP_BAR_HEIGHT); }
                         if (drag_window==DESKTOP_ACCOUNTS) { minw=MIN(500u,sw);minh=MIN(429u,sh-DESKTOP_BAR_HEIGHT); }
                         if (drag_window==DESKTOP_SETTINGS) { minw=MIN(560u,sw);minh=MIN(429u,sh-DESKTOP_BAR_HEIGHT); }
@@ -1423,7 +1427,10 @@ int user_main(const char *args) {
                     focus_window(DESKTOP_FILES);file_query_focus=true;last_file=0xffffffffu;
                 } else if (hit.kind==DESKTOP_HIT_FILE_VIEW || hit.kind==DESKTOP_HIT_FILE_SORT || hit.kind==DESKTOP_HIT_FILE_HIDDEN) {
                     focus_window(DESKTOP_FILES);last_file=0xffffffffu;
-                    r=files_option(hit.kind);if (r<0) note_error("Files",r);
+                    if (hit.kind==DESKTOP_HIT_FILE_VIEW) {
+                        file_view=MIN(hit.index,1u);scroll_to_selection();r=preferences_save();
+                    } else r=files_option(hit.kind);
+                    if (r<0) note_error("Files",r);
                 } else if (hit.kind==DESKTOP_HIT_FILE_PARENT) {
                     focus_window(DESKTOP_FILES);file_query_focus=false;
                     r=chdir_path("..");if (r>=0) { selected=scroll=0;r=refresh(); }

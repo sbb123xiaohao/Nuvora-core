@@ -27,7 +27,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `unfold FILE` | 输出文件内容 | `unfold /home/note` |
 | `folio [FILE]` | 打开全文编辑器和 Word 可读 RTF 排版编辑器 | `folio /home/report.nvd` |
 | `desktop` | 打开 UEFI 窗口桌面 | `desktop` |
-| `media [FILE]` | 图形 MP3、PCM WAV 和 MPEG-1/MP2 播放器 | `media /home/clip.mpg` |
+| `media [FILE]` | Music 图形播放器，支持 MP3、FLAC、PCM WAV、MP2 和 MPEG-1 视频 | `media /home/clip.mpg` |
 | `wave FILE.wav \| wave --test` | HDA 模拟输出的 PCM WAV 播放与测试音 | `wave --test` |
 | `mirror FROM TO` | 复制到新文件，拒绝覆盖已有目标 | `mirror /home/note /home/copy` |
 | `shift FROM TO` | 移动或重命名，拒绝覆盖目标 | `shift /home/copy /home/draft` |
@@ -45,7 +45,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `rest` | 请求 ACPI 关机，不自动保存；固件不支持时停机 | `rest` |
 | `renew` | 请求固件/PC 重启，不自动保存 | `renew` |
 
-`forge` 和 `scatter` 接收不带 `/` 的名称时，在 `/apps/` 查找。内置程序同样支持 `forge APP --help`：`loom` 是完整命令行，`desktop` 管理图形窗口，`folio` 是全文与格式编辑器，`media` 播放 MP3、PCM WAV 和 MPEG-1/MP2，`wave` 播放 PCM 音频，`pulse` 输出五次时间，`spin` 是抢占测试死循环，`fault` 故意触发 CPU 异常，`probe` 执行集成检查，`relay` 是内核回归辅助程序。
+`forge` 和 `scatter` 接收不带 `/` 的名称时，在 `/apps/` 查找。内置程序同样支持 `forge APP --help`：`loom` 是完整命令行，`desktop` 管理图形窗口，`folio` 是全文与格式编辑器，`media` 播放 MP3、FLAC、PCM WAV、MP2 音频和 MPEG-1 视频，`wave` 播放 PCM 音频，`pulse` 输出五次时间，`spin` 是抢占测试死循环，`fault` 故意触发 CPU 异常，`probe` 执行集成检查，`relay` 是内核回归辅助程序。
 
 `ports` 会列出 PCI 控制器的总线地址、厂商/产品 ID、xHCI/UHCI/OHCI/EHCI 状态，以及真实 USB 设备的速度、VID/PID、USB 类、Hub 父子关系、厂商、产品和序列号。xHCI 设备枚举读取标准描述符；Hub 会递归扫描，USB Boot Protocol 键盘输入进入 Loom 和 Folio，CDC-ECM 网卡会显示 `Ethernet=active`。Boot 鼠标和 QEMU USB Tablet 会显示 `input=active`；U 盘等尚未启用的设备标注为“identification only”，本版本仍没有 USB 大容量存储块读写或文件系统挂载。
 
@@ -57,9 +57,15 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 
 Settings 有外观、声音、网络、安全、系统五页，支持壁纸和文件视图偏好、实际输出音量/静音、网卡与 IPv4 状态、管理员 DHCP 操作和 1/5/15 分钟自动锁屏。System 显示实时内存、任务数、运行时长和数据盘状态。保存数据可供当前用户使用；重启/关机只向管理员开放，先显示默认选中 Cancel 的确认框，再处理未保存文档并提交数据卷。键盘用左右键切换页、Tab 选择操作、Enter 执行、Esc 取消；外观和锁屏选项也可用数字 1–3。偏好保存到用户目录，兼容旧版记录。
 
-Files 默认使用 Spaces 类型卡片，宽窗口有选中项详情。Ctrl-F 激活即时搜索，不区分大小写；Enter 返回文件导航，Esc 清空搜索。Ctrl-1/2 切换卡片/紧凑列表，F8 循环名称、类型、大小排序，文件夹始终排在前面。方向键按可见网格移动，PageUp/Down 翻页。双击或 Enter 进入目录/打开文件，Backspace 返回上级，数字 `1`–`7` 切换卷与常用目录；上方 `+ Space` 新建文件夹，`+ Note` 创建纯文本文档；F2 改名，Delete 打开确认框。删除框显示文件名和不可撤销提示，按 D 或点击 Delete 才执行，Enter 不会删除。F5 刷新，F6 保存数据卷，Ctrl-H 显示/隐藏点文件。键盘 `Ctrl-N` 可新建文件夹，`Ctrl-T` 可创建文本。文件管理器的修改会尝试提交到数据卷；`/tmp` 只在内存中。
+Files 默认显示 Cards 文件卡片，宽窗口显示选中项的真实名称、类型和大小等详情。点击 Cards 或 List 明确选择卡片或紧凑列表，重复点击当前视图保持该视图；Ctrl-1/2 同样分别选择两种视图。侧栏搜索框或 Ctrl-F 激活即时搜索，不区分大小写；Enter 返回文件导航，Esc 清空搜索。Sort 按钮或 F8 循环名称、类型、大小排序，文件夹始终排在前面；Hidden 按钮或 Ctrl-H 显示/隐藏点文件。
+
+方向键按可见网格移动，PageUp/Down 翻页。双击或 Enter 进入目录/打开文件，Backspace 或侧栏 Up 按钮返回上级，数字 `1`–`7` 切换卷与常用目录。上方 `+ Folder` 打开新建文件夹输入框，`+ Note` 打开 Text Editor 的新文档，随后用 Ctrl-S 保存；键盘对应为 Ctrl-N 和 Ctrl-T。窄窗口会隐藏详情及放不下的工具按钮，并将 Folder/Note 缩为图标；Ctrl-1/2、F8、Ctrl-H、Ctrl-N、Ctrl-T 仍可操作对应功能。F2 改名，Delete 打开确认框。删除框显示文件名和不可撤销提示，按 D 或点击 Delete 才执行，Enter 不会删除。F5 刷新，F6 保存数据卷。文件管理器的修改会尝试提交到数据卷；`/tmp` 只在内存中。
 
 双击 `.txt` 或 `.md` 会在 Text Editor 窗口打开。Ctrl-S 保存、Ctrl-Shift-S 另存、Ctrl-N 新建；关闭或切换文档时如有未保存内容会询问。窗口编辑器每份文档最多读取 128 KiB 的纯文本，不限制数据卷里其他文件的大小；格式排版使用 `folio` 和 `.nvd`。`.nvd`、Media 音视频和完整终端在各自的进程窗口中运行；播放、下载时可以切换其他窗口。Alt-F4 请求关闭，Alt-F9 最小化，Alt-F10 最大化/恢复。
+
+开始菜单或 Dock 的 Media 打开 Music 窗口；从 Files 打开音视频文件时，播放列表来自该文件所在目录中的真实媒体文件和目录。在文件浏览状态用上下键选择、Enter 或双击打开、Backspace 返回上级、F5 刷新。播放时点击列表中的另一媒体文件，或点击上一首/下一首按钮可切换播放；左右键同样切换相邻媒体文件，跳过目录，没有相邻文件时对应按钮不可用。Space 或 Enter 暂停/继续，Esc 停止并返回列表；暂停保留当前位置，最小化后仍可继续播放。
+
+Music 的音量条可点击或拖动，`+`/`-` 每次调整 5%，与 Settings 声音页及 Dock 共用实际 HDA 输出音量，暂停时也会同步。时间显示来自实际播放数据；PCM WAV 和带总帧数的 FLAC 显示计算出的真实总时长，无法获得总时长时显示 `--:--`。音频默认封面由程序绘制，当前不读取文件内嵌的专辑封面；视频区域显示实际解码画面。
 
 `ports --scan` 立即重试端口并处理拔插；后台还会定期扫描。xHCI 控制器发生不可恢复错误时会停止并显示 `failed`，不会把损坏 DMA 页重新交给用户进程。UHCI/OHCI/EHCI 控制器目前只报告 `unsupported`，不会伪造设备列表。
 

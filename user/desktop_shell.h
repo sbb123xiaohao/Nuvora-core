@@ -21,6 +21,12 @@ struct desktop_window {
     char title[64];
 };
 struct desktop_rect { u32 x, y, w, h; };
+static inline u32 desktop_client_app(const char *title) {
+    if (!title) return DESKTOP_WINDOW_COUNT;
+    if (!strcmp(title,"Terminal")) return DESKTOP_TERMINAL;
+    if (!strcmp(title,"Media") || !strcmp(title,"Music")) return DESKTOP_MEDIA;
+    return DESKTOP_WINDOW_COUNT;
+}
 struct desktop_app { const char *name, *description, *keywords; };
 static const struct desktop_app desktop_apps[] = {
     {"Files", "Spaces and collections", "file folder space disk drive home search"},

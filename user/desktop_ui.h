@@ -86,17 +86,18 @@ static u32 desktop_pointer_axis(u32 current, i32 value, u32 extent, bool absolut
 }
 struct files_layout { u32 left,top,width,height,columns,rows,cell_width,cell_height,inspector; };
 static struct files_layout desktop_files_layout(const struct desktop_window *w,u32 list) {
-    struct files_layout g={.left=134,.top=166,.inspector=w->w>=820 && w->h>=350?180:0};
-    g.width=w->w>g.left+g.inspector+14?w->w-g.left-g.inspector-14:1;
+    struct files_layout g={.left=w->w>=700?180:134,.top=154,
+        .inspector=w->w>=900 && w->h>=400?190:0};
+    g.width=w->w>g.left+g.inspector+28?w->w-g.left-g.inspector-28:1;
     g.height=w->h>g.top+34?w->h-g.top-34:1;
-    g.columns=list?1:MAX(1u,(g.width+10)/166);
-    g.cell_height=list?40:108;
+    g.columns=list?1:MAX(1u,(g.width+12)/182);
+    g.cell_height=list?44:124;
     g.rows=MAX(1u,g.height/g.cell_height);
-    g.cell_width=(g.width+10)/g.columns-10;
+    g.cell_width=(g.width+12)/g.columns-12;
     return g;
 }
 static struct desktop_rect desktop_file_rect(struct files_layout g,u32 offset) {
-    return (struct desktop_rect){g.left+(offset%g.columns)*(g.cell_width+10),
+    return (struct desktop_rect){g.left+(offset%g.columns)*(g.cell_width+12),
         g.top+(offset/g.columns)*g.cell_height,g.cell_width,g.cell_height-8};
 }
 enum { DESKTOP_HIT_NONE, DESKTOP_HIT_START, DESKTOP_HIT_MENU,
@@ -114,6 +115,30 @@ enum { DESKTOP_HIT_NONE, DESKTOP_HIT_START, DESKTOP_HIT_MENU,
        DESKTOP_HIT_FILE_SEARCH, DESKTOP_HIT_FILE_VIEW, DESKTOP_HIT_FILE_SORT,
        DESKTOP_HIT_FILE_HIDDEN, DESKTOP_HIT_FILE_PARENT, DESKTOP_HIT_SETTINGS_VOLUME };
 struct desktop_hit { u32 kind, index, window; };
+static struct desktop_rect desktop_file_place_rect(const struct desktop_window *w,u32 index) {
+    struct files_layout g=desktop_files_layout(w,0);
+    u32 top=96+index*(w->h>=460?38:30);
+    if (index>=7 || top+30>=w->h-56) return (struct desktop_rect){0};
+    return (struct desktop_rect){8,top,g.left-36,30};
+}
+static struct desktop_rect desktop_file_control_rect(const struct desktop_window *w,u32 kind,u32 index) {
+    struct files_layout g=desktop_files_layout(w,0);
+    u32 side=g.left-20,right=g.left+g.width;
+    if (kind==DESKTOP_HIT_FILE_SEARCH) return (struct desktop_rect){12,44,side-24,30};
+    if (kind==DESKTOP_HIT_FILE_PARENT) return (struct desktop_rect){12,w->h-50,side-24,30};
+    if (kind==DESKTOP_HIT_FILE_NEW_FOLDER || kind==DESKTOP_HIT_FILE_NEW_TEXT) {
+        bool note=kind==DESKTOP_HIT_FILE_NEW_TEXT;
+        if (g.width<270) return (struct desktop_rect){right-(note?36:76),42,32,30};
+        return (struct desktop_rect){right-(note?76:164),42,note?76:82,30};
+    }
+    if (kind==DESKTOP_HIT_FILE_VIEW && g.width>=130 && index<2)
+        return (struct desktop_rect){g.left+(index?72:0),108,index?58:66,30};
+    if (kind==DESKTOP_HIT_FILE_SORT && g.width>=240)
+        return (struct desktop_rect){g.left+140,108,94,30};
+    if (kind==DESKTOP_HIT_FILE_HIDDEN && g.width>=350)
+        return (struct desktop_rect){g.left+242,108,104,30};
+    return (struct desktop_rect){0};
+}
 enum { SETTINGS_APPEARANCE, SETTINGS_SOUND, SETTINGS_NETWORK, SETTINGS_SECURITY,
        SETTINGS_SYSTEM, SETTINGS_TABS, SETTINGS_ACTION=16,
        SETTINGS_CANCEL=48, SETTINGS_CONTINUE=49 };
@@ -123,19 +148,37 @@ static bool desktop_inside(struct desktop_rect r,u32 x,u32 y) {
 static u32 desktop_settings_choices(u32 tab) {
     return tab==SETTINGS_APPEARANCE?6:tab==SETTINGS_SECURITY?5:3;
 }
+struct settings_layout { u32 side,left,width,details; };
+static struct settings_layout desktop_settings_layout(u32 w,u32 h,u32 tab) {
+    struct settings_layout g={.side=w>=760?176:146,
+        .details=tab==SETTINGS_NETWORK && w>=820 && h>=390?256:0};
+    g.left=g.side+16;
+    u32 reserved=g.left+16+(g.details?g.details+16:0);
+    g.width=w>reserved?w-reserved:1;
+    return g;
+}
+static struct desktop_rect desktop_settings_slider_rect(u32 w,u32 h) {
+    struct settings_layout g=desktop_settings_layout(w,h,SETTINGS_SOUND);
+    return (struct desktop_rect){g.left+28,166,g.width>56?g.width-56:1,26};
+}
 static struct desktop_rect desktop_settings_rect(u32 w,u32 h,u32 tab,u32 action) {
-    u32 aw=w>178?w-178:1,bw=aw/3;
+    struct settings_layout g=desktop_settings_layout(w,h,tab);
+    u32 aw=g.width>32?g.width-32:1,bw=aw/3;
     if (action==SETTINGS_CANCEL || action==SETTINGS_CONTINUE) {
-        bw=MIN(160u,(w-40)/2);
-        return (struct desktop_rect){24+(action-SETTINGS_CANCEL)*(bw+8),h-62,bw,28};
+        bw=MIN(170u,(g.width-44)/2);
+        return (struct desktop_rect){g.left+16+(action-SETTINGS_CANCEL)*(bw+12),h-70,bw,34};
     }
-    if (action<SETTINGS_ACTION) return (struct desktop_rect){12,70+action*44,118,34};
+    if (action<SETTINGS_ACTION) return (struct desktop_rect){12,84+action*46,g.side-24,38};
     u32 i=action-SETTINGS_ACTION;
-    if (tab==SETTINGS_SYSTEM) return (struct desktop_rect){154,224+i*44,MIN(190u,aw),28};
-    if (i<3) return (struct desktop_rect){154+i*bw,tab==SETTINGS_NETWORK?310:142,bw-7,32};
+    if (tab==SETTINGS_SYSTEM) {
+        if (h<390) return (struct desktop_rect){g.left+16+i*bw,276,bw-8,32};
+        return (struct desktop_rect){g.left+16,268+i*44,aw,32};
+    }
+    if (i<3) return (struct desktop_rect){g.left+16+i*bw,
+        tab==SETTINGS_APPEARANCE || tab==SETTINGS_SECURITY?150:224,bw>8?bw-8:1,32};
     if (tab==SETTINGS_APPEARANCE && i<5)
-        return (struct desktop_rect){154+(i-3)*(aw/2),238,aw/2-7,30};
-    return (struct desktop_rect){154,tab==SETTINGS_APPEARANCE?290:224+(i-3)*44,MIN(210u,aw),28};
+        return (struct desktop_rect){g.left+16+(i-3)*(aw/2),270,aw/2-8,32};
+    return (struct desktop_rect){g.left+16,tab==SETTINGS_APPEARANCE?324:270+(i-3)*44,aw,32};
 }
 static u32 desktop_tasks(const struct desktop_view *v) {
     u32 count=4;
@@ -255,10 +298,11 @@ static struct desktop_hit desktop_hit(u32 width, u32 height,
                 for (u32 i=0;i<SETTINGS_TABS;++i)
                     if (desktop_inside(desktop_settings_rect(w->w-2,w->h-29,0,i),cx,cy))
                         return (struct desktop_hit){DESKTOP_HIT_SETTINGS,i,id};
+                struct desktop_rect slider=desktop_settings_slider_rect(w->w-2,w->h-29);
                 if (v->settings_tab==SETTINGS_SOUND && v->audio_ready &&
-                    cx>=154 && cx<w->w-23 && cy>=210 && cy<244)
+                    desktop_inside(slider,cx,cy))
                     return (struct desktop_hit){DESKTOP_HIT_SETTINGS_VOLUME,
-                        MIN(100u,(cx-154)*100/(w->w-180)),id};
+                        MIN(100u,(cx-slider.x)*100/MAX(1u,slider.w-1)),id};
                 for (u32 i=0;i<desktop_settings_choices(v->settings_tab);++i)
                     if (desktop_inside(desktop_settings_rect(w->w-2,w->h-29,v->settings_tab,SETTINGS_ACTION+i),cx,cy))
                         return (struct desktop_hit){DESKTOP_HIT_SETTINGS,SETTINGS_ACTION+i,id};
@@ -276,27 +320,18 @@ static struct desktop_hit desktop_hit(u32 width, u32 height,
                 }
                 return (struct desktop_hit){DESKTOP_HIT_FILE_DIALOG,0,id};
             }
-            if (ry>=35 && ry<58) {
-                if (rx>=w->w-147 && rx<w->w-77)
-                    return (struct desktop_hit){DESKTOP_HIT_FILE_NEW_FOLDER,0,id};
-                if (rx>=w->w-74 && rx<w->w-7)
-                    return (struct desktop_hit){DESKTOP_HIT_FILE_NEW_TEXT,0,id};
+            const u32 controls[]={DESKTOP_HIT_FILE_NEW_FOLDER,DESKTOP_HIT_FILE_NEW_TEXT,
+                DESKTOP_HIT_FILE_SEARCH,DESKTOP_HIT_FILE_VIEW,DESKTOP_HIT_FILE_SORT,
+                DESKTOP_HIT_FILE_HIDDEN,DESKTOP_HIT_FILE_PARENT};
+            for (u32 i=0;i<ARRAY_LEN(controls);++i) {
+                u32 variants=controls[i]==DESKTOP_HIT_FILE_VIEW?2:1;
+                for (u32 j=0;j<variants;++j)
+                    if (desktop_inside(desktop_file_control_rect(w,controls[i],j),rx,ry))
+                        return (struct desktop_hit){controls[i],j,id};
             }
-            if (ry>=86 && ry<116) {
-                if (rx>=134 && rx<w->w-92)
-                    return (struct desktop_hit){DESKTOP_HIT_FILE_SEARCH,0,id};
-                if (rx>=w->w-82 && rx<w->w-14)
-                    return (struct desktop_hit){DESKTOP_HIT_FILE_VIEW,0,id};
-            }
-            if (ry>=126 && ry<152) {
-                if (rx>=134 && rx<226) return (struct desktop_hit){DESKTOP_HIT_FILE_SORT,0,id};
-                if (rx>=234 && rx<332) return (struct desktop_hit){DESKTOP_HIT_FILE_HIDDEN,0,id};
-            }
-            if (rx>=12 && rx<112 && ry>=w->h-48 && ry<w->h-22)
-                return (struct desktop_hit){DESKTOP_HIT_FILE_PARENT,0,id};
             u32 spaces=MAX(1u,v->volumes);
             for (u32 i = 0; i < spaces + 3; ++i)
-                if (rx >= 10 && rx < 122 && ry >= 94 + i*36 && ry < 124 + i*36 && ry<w->h-58)
+                if (desktop_inside(desktop_file_place_rect(w,i),rx,ry))
                     return (struct desktop_hit){DESKTOP_HIT_PLACE,
                         i < spaces ? i : NV_VOLUME_MAX + i - spaces, id};
             struct files_layout g=desktop_files_layout(w,v->file_view);
@@ -342,110 +377,7 @@ static void desktop_ipv4(char out[24],u32 address) {
         at+=number(out+at,(address>>(24-i*8))&255u,10);
     }
 }
-static void desktop_settings_render(struct nv_canvas *c,struct desktop_clip clip,
-    u32 x,u32 y,u32 w,u32 h,u32 s,const struct desktop_view *v) {
-    desktop_box(c,clip,x,y,w*s,h*s,0xf6f4ef);
-    if (v->settings_confirm) {
-        const char *title=v->settings_confirm==NV_CTL_REBOOT?"Restart this computer?":"Shut down this computer?";
-        desktop_bold_text(c,clip,x+24*s,y+42*s,"ONE LAST CHECK",14,s,0x987650);
-        desktop_bold_text(c,clip,x+24*s,y+87*s,title,strlen(title),s,0x284b47);
-        desktop_label(c,clip,x+24*s,y+128*s,"Open apps will ask you to save before continuing.",(w-48)/6,s,0x75877b);
-        desktop_label(c,clip,x+24*s,y+158*s,"Mounted data volumes will be saved first.",(w-48)/6,s,0x75877b);
-        for (u32 i=0;i<2;++i) {
-            struct desktop_rect r=desktop_settings_rect(w,h,0,SETTINGS_CANCEL+i);
-            account_button(c,clip,x+r.x*s,y+r.y*s,r.w*s,i?"Continue":"Cancel",s,true,v->settings_focus==i,false);
-        }
-        return;
-    }
-    const char *tabs[]={"Appearance","Sound","Network","Security","System"};
-    const char *headings[]={"Shape your space","Sound and focus","Connections","Your session","This machine"};
-    desktop_box(c,clip,x,y,134*s,h*s,0x17383c);
-    desktop_bold_text(c,clip,x+18*s,y+22*s,"NUVORA",6,s,0xd6eee5);
-    desktop_text(c,clip,x+18*s,y+45*s,"Control room",12,s,0x8db4ae);
-    for (u32 i=0;i<SETTINGS_TABS;++i) {
-        struct desktop_rect r=desktop_settings_rect(w,h,0,i);
-        if (v->settings_tab==i) desktop_round(c,clip,x+r.x*s,y+r.y*s,r.w*s,r.h*s,9*s,0x315c58);
-        desktop_text(c,clip,x+24*s,y+(r.y+8)*s,tabs[i],strlen(tabs[i]),s,
-            v->settings_tab==i?0xf0d2a9:0xb3cbc1);
-    }
-    u32 tab=MIN(v->settings_tab,(u32)SETTINGS_TABS-1),dx=x+154*s,available=(w-178)/6;
-    desktop_bold_text(c,clip,dx,y+28*s,headings[tab],strlen(headings[tab]),s,0x284b47);
-    const char *sub[]={"A workspace that feels like yours.","Set the level for your output.",
-        "Your current network, at a glance.","Keep your workspace private.","Live information and power controls."};
-    desktop_label(c,clip,dx,y+62*s,sub[tab],available,s,0x7f8e80);
-    bool admin=v->account && v->account->info.role==NV_ACCOUNT_ADMIN;
-    const char *buttons[6]={0};bool enabled[6]={true,true,true,true,true,true};
-    if (tab==SETTINGS_APPEARANCE || tab==SETTINGS_SECURITY) {
-        desktop_text(c,clip,dx,y+111*s,tab==SETTINGS_APPEARANCE?"Wallpaper":"Lock when idle",tab==SETTINGS_APPEARANCE?9:14,s,0x5e7768);
-        const char *names[2][3]={{"Aurora","Ocean","Dusk"},{"1 min","5 min","15 min"}};
-        for (u32 i=0;i<3;++i) buttons[i]=names[tab==SETTINGS_SECURITY][i];
-        if (tab==SETTINGS_APPEARANCE) {
-            desktop_text(c,clip,dx,y+202*s,"Files / default view",20,s,0x5e7768);
-            buttons[3]="Space cards";buttons[4]="Compact list";
-            buttons[5]=v->show_hidden?"Hidden files: on":"Hidden files: off";
-            desktop_label(c,clip,dx,y+344*s,"Choices follow your account.",available,s,0x7f8e80);
-        } else {
-            buttons[3]="Lock now";buttons[4]="Manage accounts";
-            desktop_label(c,clip,dx,y+320*s,"A password is required to unlock.",available,s,0x7f8e80);
-            desktop_label(c,clip,dx,y+345*s,"System changes require an administrator.",available,s,0x7f8e80);
-        }
-    } else if (tab==SETTINGS_SOUND) {
-        desktop_text(c,clip,dx,y+111*s,v->audio_ready?"Output volume":"No audio output",v->audio_ready?13:15,s,0x5e7768);
-        buttons[0]="Quiet -";buttons[1]=v->volume_percent?"Mute":"Unmute";buttons[2]="Louder +";
-        enabled[0]=enabled[1]=enabled[2]=v->audio_ready;
-        u32 aw=w-178,level=MIN(v->volume_percent,100u);
-        desktop_round(c,clip,dx,y+220*s,aw*s,7*s,3*s,0xd6dfd2);
-        if (level) desktop_round(c,clip,dx,y+220*s,MAX(1u,aw*level/100)*s,7*s,3*s,0x6eaa92);
-        desktop_round(c,clip,dx+((aw-12)*level/100)*s,y+213*s,12*s,21*s,5*s,v->audio_ready?0x2e6861:0xaebdb0);
-        char text[24];number(text,level,10);u32 at=strlen(text);strlcpy(text+at,"%",sizeof(text)-at);
-        desktop_bold_text(c,clip,dx,y+260*s,text,strlen(text),s,0x345b4f);
-        desktop_label(c,clip,dx,y+301*s,v->audio_ready?"Changes apply to playing media immediately.":"Connect a supported HDA output to adjust sound.",available,s,0x7f8e80);
-        desktop_label(c,clip,dx,y+334*s,"Volume is saved with your preferences.",available,s,0x7f8e80);
-    } else if (tab==SETTINGS_NETWORK) {
-        const struct nv_net_info *n=v->network;
-        const char *status=!v->network_present?"No network adapter":n->state==NV_NET_ONLINE?"IPv4 connected":
-            n->state==NV_NET_CONFIGURING?"Requesting an address":n->state==NV_NET_LINK?"Link ready":
-            n->state==NV_NET_DOWN?"Cable / link disconnected":"Driver unavailable";
-        desktop_round(c,clip,dx,y+98*s,(w-178)*s,35*s,9*s,0xe5ebde);
-        desktop_label(c,clip,dx+12*s,y+107*s,status,available-4,s,0x436552);
-        if (v->network_present) {
-            const char *labels[]={"Address","Mask","Router","DNS"};
-            u32 values[]={n->ip,n->mask,n->gateway,n->dns};
-            for (u32 i=0;i<4;++i) {
-                char value[24];desktop_ipv4(value,values[i]);
-                desktop_text(c,clip,dx,y+(150+i*31)*s,labels[i],strlen(labels[i]),s,0x819181);
-                desktop_label(c,clip,dx+88*s,y+(150+i*31)*s,value,available>15?available-15:0,s,0x2d5148);
-            }
-            char identity[48]="Adapter ";u32 at=8;at+=number(identity+at,n->index+1,10);
-            strlcpy(identity+at,n->type==NV_NET_USB_BRIDGE?" / USB":n->type==NV_NET_WIFI?" / Wi-Fi":" / Ethernet",sizeof(identity)-at);
-            desktop_label(c,clip,dx,y+280*s,identity,available,s,0x819181);
-        } else {
-            desktop_label(c,clip,dx,y+157*s,"Connect a supported wired or USB adapter.",available,s,0x819181);
-            desktop_label(c,clip,dx,y+200*s,"Status updates automatically.",available,s,0x819181);
-        }
-        buttons[0]="Next adapter";buttons[1]="Get address";buttons[2]="Refresh";
-        enabled[0]=v->network_present;
-        enabled[1]=admin && v->network_present && n->state>=NV_NET_LINK;
-        if (!admin) desktop_label(c,clip,dx,y+356*s,"Only an administrator can change the connection.",available,s,0x819181);
-    } else {
-        desktop_label(c,clip,dx,y+104*s,"Nuvora Core " NV_VERSION " / x86_64",available,s,0x5e7768);
-        desktop_label(c,clip,dx,y+137*s,v->system_memory?v->system_memory:"Memory information unavailable",available,s,0x5e7768);
-        desktop_label(c,clip,dx,y+167*s,v->system_free?v->system_free:"",available,s,0x819181);
-        char uptime[40];number(uptime,v->uptime_minutes,10);u32 at=strlen(uptime);
-        strlcpy(uptime+at," min up / ",sizeof(uptime)-at);at=strlen(uptime);
-        strlcpy(uptime+at,v->drive?v->drive:"RAM only",sizeof(uptime)-at);
-        desktop_label(c,clip,dx,y+195*s,uptime,available,s,0x819181);
-        buttons[0]="Save volumes";buttons[1]="Restart";buttons[2]="Shut down";
-        enabled[1]=enabled[2]=admin;
-        if (!admin) desktop_label(c,clip,dx,y+356*s,"Ask an administrator to restart or shut down.",available,s,0x819181);
-    }
-    for (u32 i=0;i<desktop_settings_choices(tab);++i) {
-        struct desktop_rect r=desktop_settings_rect(w,h,tab,SETTINGS_ACTION+i);
-        bool selected=tab==SETTINGS_APPEARANCE?(i<3?v->theme==i:i<5?v->file_view==i-3:false):
-            tab==SETTINGS_SECURITY && i<3?v->idle_minutes==(i==0?1u:i==1?5u:15u):false;
-        account_button(c,clip,x+r.x*s,y+r.y*s,r.w*s,buttons[i],s,enabled[i],selected || v->settings_focus==i,false);
-    }
-}
+#include "settings_ui.h"
 
 #include "files_ui.h"
 
@@ -459,10 +391,10 @@ static void desktop_window_render(struct nv_canvas *c, u32 s,
         MIN(x+width-s,repaint.right),MIN(y+height-s,repaint.bottom)};
     bool focus = v->active == id;
     desktop_shadow(c,screen,(i32)x,(i32)y,width,height,s);
-    desktop_round(c,screen,x,y,width,height,9*s,focus ? 0xafc2e5 : 0xb9c5d9);
-    desktop_box(c,clip,x+s,y+12*s,width-2*s,height-13*s,0xfaf9f5);
-    desktop_round(c,screen,x+s,y+s,width-2*s,27*s,8*s,focus ? 0xf2f5fc : 0xe6ebf5);
-    desktop_box(c,clip,x+s,y+12*s,width-2*s,16*s,focus ? 0xf2f5fc : 0xe6ebf5);
+    desktop_round(c,screen,x,y,width,height,14*s,focus ? 0xdce2ed : 0xe5e8ee);
+    desktop_box(c,clip,x+s,y+14*s,width-2*s,height-15*s,UI_BG);
+    desktop_round(c,screen,x+s,y+s,width-2*s,27*s,13*s,UI_WHITE);
+    desktop_box(c,clip,x+s,y+14*s,width-2*s,14*s,UI_WHITE);
     desktop_label(c,clip,x+14*s,y+6*s,desktop_window_name(w,id),desktop_chars(width-102*s,s),s,focus?0x283752:0x748198);
     for (u32 i = 0; i < 3; ++i) {
         u32 bx = x + width - (84 - i*28)*s;
@@ -761,21 +693,21 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_pointer_render(c,screen,s,v);return;
     }
     desktop_background(c,screen,height,v,false);
-    desktop_round_alpha(c,screen,12*s,8*s,(sw-24)*s,30*s,12*s,0x101b32,140);
-    desktop_bold_text(c,screen,27*s,13*s,"Nuvora",6,s,0xe7eeff);
-    desktop_text(c,screen,102*s,14*s,"Workspace",9,s,0xb5c7e6);
+    desktop_round_alpha(c,screen,12*s,8*s,(sw-24)*s,30*s,12*s,UI_WHITE,210);
+    desktop_bold_text(c,screen,27*s,13*s,"Nuvora",6,s,UI_TEXT);
+    desktop_text(c,screen,102*s,14*s,"Workspace",9,s,UI_MUTED);
     char uptime[32]="Up ";number(uptime+3,v->uptime_minutes,10);
     strlcpy(uptime+strlen(uptime)," min",sizeof(uptime)-strlen(uptime));
-    desktop_label(c,screen,(sw-116)*s,14*s,uptime,16,s,0xb5c7e6);
+    desktop_label(c,screen,(sw-116)*s,14*s,uptime,16,s,UI_MUTED);
     if (sw>=800 && v->account) {
         const struct nv_account_info *a=&v->account->info;
         u32 cx=(sw-280)*s,cy=82*s;
-        desktop_round_alpha(c,screen,cx,cy,246*s,139*s,16*s,0x15203b,145);
-        desktop_label(c,screen,cx+20*s,cy+18*s,a->display_name,34,s,0xe7eeff);
-        desktop_text(c,screen,cx+20*s,cy+49*s,a->role==1?"Administrator":"Local account",13,s,0xb3c7e4);
-        desktop_text(c,screen,cx+20*s,cy+82*s,"Win + L to lock",15,s,0xb3c7e4);
+        desktop_round_alpha(c,screen,cx,cy,246*s,139*s,16*s,UI_WHITE,185);
+        desktop_label(c,screen,cx+20*s,cy+18*s,a->display_name,34,s,UI_TEXT);
+        desktop_text(c,screen,cx+20*s,cy+49*s,a->role==1?"Administrator":"Local account",13,s,UI_MUTED);
+        desktop_text(c,screen,cx+20*s,cy+82*s,"Win + L to lock",15,s,UI_MUTED);
         desktop_text(c,screen,cx+20*s,cy+107*s,a->flags&NV_AUTH_PERSISTENT?"Files saved to drive":"Temporary session",
-            a->flags&NV_AUTH_PERSISTENT?24:17,s,0xb3c7e4);
+            a->flags&NV_AUTH_PERSISTENT?24:17,s,UI_MUTED);
     }
     const char *shortcuts[]={"Files","Text Editor","Terminal","Media"};
     for (u32 i=0;i<4;++i) {
@@ -787,7 +719,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_icon(c,screen,icon_x*s,icon_y*s,40*s,i);
         u32 length=strlen(shortcuts[i]);
         desktop_text(c,screen,57*s-desktop_text_width(shortcuts[i],length,s)/2,(top+50)*s,
-                     shortcuts[i],length,s,0xe7eeff);
+                     shortcuts[i],length,s,UI_TEXT);
     }
     for (u32 z=0;z<DESKTOP_WINDOW_COUNT;++z) {
         u32 id=v->order[z];
@@ -814,7 +746,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
     u32 dock_x=desktop_dock_x(sw,v)*s,dock_w=desktop_dock_width(sw,v)*s;
     desktop_shadow(c,screen,dock_x,(sh-52)*s,dock_w,48*s,s);
     desktop_round_alpha(c,screen,dock_x,(sh-52)*s,dock_w,48*s,16*s,0xedf3ff,235);
-    desktop_round(c,screen,dock_x+8*s,(sh-40)*s,70*s,28*s,9*s,v->menu?0x567ad5:0x3b5ca8);
+    desktop_round(c,screen,dock_x+8*s,(sh-40)*s,70*s,28*s,9*s,UI_BLUE);
     desktop_bold_text(c,screen,dock_x+17*s,(sh-35)*s,"Start",5,s,0xf6f9ff);
     desktop_round(c,screen,dock_x+82*s,(sh-40)*s,28*s,28*s,8*s,
         v->overview || v->hover_kind==DESKTOP_HIT_OVERVIEW_BUTTON?0xc5d5f6:0xe3ebfa);

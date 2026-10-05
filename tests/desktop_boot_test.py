@@ -58,19 +58,44 @@ class Monitor:
                 return answer['return']
 
     def key(self, *codes):
-        self.call('send-key', {'keys': [{'type': 'qcode', 'data': c} for c in codes], 'hold-time': 35})
-        time.sleep(.12)
+        self.call('send-key', {'keys': [{'type': 'qcode', 'data': c} for c in codes], 'hold-time': 100})
+        time.sleep(.24)
 
     def hold(self, code, down):
         self.call('input-send-event', {'events': [
             {'type': 'key', 'data': {'down': down, 'key': {'type': 'qcode', 'data': code}}}]})
         time.sleep(.15)
 
-    def start(self, index):
+    def start(self, index, mouse=False):
         self.key('f10')
-        for _ in range(index):
-            self.key('down')
-        self.key('ret')
+        if mouse:
+            # The USB device reports its current button state. Keep the click
+            # held until the busy guest consumes it, rather than sending a
+            # short down/up pulse during a full software repaint.
+            with tempfile.TemporaryDirectory(prefix='nuvora-start-click-') as directory:
+                output=pathlib.Path(directory)
+                width,height,_=self.shot(output,'start')
+                scale=ui_scale(width,height);sw=width//scale;sh=height//scale
+                w=min(348,sw-32);h=min(404,sh-72)
+                x=(sw-w)//2;y=sh-56-h-8
+                marker_x=(x+w-10)*scale;marker_y=(y+20)*scale
+                def opened(pixels):
+                    at=(marker_y*width+marker_x)*3
+                    return int.from_bytes(pixels[at:at+3],'big')==0xf5f8ff
+                deadline=time.monotonic()+15
+                while not opened(self.shot(output,'start')[2]):
+                    if time.monotonic()>=deadline: raise AssertionError('Start menu did not open')
+                target_x=(x+w-28)*scale;target_y=(y+96+index*34+16)*scale
+                self.pointer(width,height,target_x,target_y,True)
+                try:
+                    while opened(self.shot(output,'start-click')[2]):
+                        if time.monotonic()>=deadline: raise AssertionError('Start app click was not consumed')
+                finally:
+                    self.pointer(width,height,target_x,target_y,False)
+        else:
+            for _ in range(index):
+                self.key('down')
+            self.key('ret')
         time.sleep(.8)
 
     def type(self, value):
@@ -289,7 +314,7 @@ def main():
                 monitor.key('ret')
                 time.sleep(.8)
                 media = monitor.shot(output, '04-media')[2]
-                assert color_count(media, 0x19252b) > 20000
+                assert color_count(media, 0xf2f4f8) > 20000
                 monitor.start(4)
                 folio = monitor.shot(output, '05-folio')[2]
                 assert color_count(folio, 0xe1e6e4) > 50000
@@ -308,7 +333,7 @@ def main():
                 monitor.key('alt', 'tab')
                 assert color_count(monitor.shot(output, '05d-switch-mru')[2], 0xe1e6e4) > 50000
                 monitor.key('alt', 'shift', 'tab')
-                assert color_count(monitor.shot(output, '05e-switch-reverse')[2], 0x19252b) > 20000
+                assert color_count(monitor.shot(output, '05e-switch-reverse')[2], 0xf2f4f8) > 20000
                 monitor.key('meta_l', 'tab')
                 overview = monitor.shot(output, '05f-overview')[2]
                 assert color_count(overview, 0x192744) > 50000
@@ -334,19 +359,19 @@ def main():
                     monitor.key('d')
                     time.sleep(.4)
                 monitor.key('alt', 'f9')
-                assert color_count(monitor.shot(output, '10-media-minimized')[2], 0x19252b) < 20000
+                assert color_count(monitor.shot(output, '10-media-minimized')[2], 0xf2f4f8) < 20000
                 monitor.key('f12')
                 monitor.shot(output, '10a-overview-minimized')
                 monitor.key('left')  # The minimized Media precedes the focused Terminal in MRU.
                 monitor.key('ret')
                 restored = monitor.shot(output, '11-media-restored')[2]
-                assert color_count(restored, 0x19252b) > 20000
+                assert color_count(restored, 0xf2f4f8) > 20000
                 monitor.key('meta_l', 'left')
                 left_tiled = monitor.shot(output, '11a-media-tiled-left')[2]
-                assert color_bounds(left_tiled, width, 0x19252b)[2] <= width // 2 + 2
+                assert color_bounds(left_tiled, width, 0xf2f4f8)[2] <= width // 2 + 2
                 monitor.key('meta_l', 'right')
                 right_tiled = monitor.shot(output, '11b-media-tiled-right')[2]
-                assert color_bounds(right_tiled, width, 0x19252b)[0] >= width // 2 - 2
+                assert color_bounds(right_tiled, width, 0xf2f4f8)[0] >= width // 2 - 2
                 monitor.key('meta_l', 'up')
                 assert monitor.shot(output, '11c-media-super-maximized')[2] != restored
                 monitor.key('meta_l', 'down')
@@ -356,42 +381,51 @@ def main():
                 assert maximized != restored
                 monitor.key('alt', 'f10')
                 assert monitor.shot(output, '13-media-unmaximized')[2] == restored
-                original_bounds = color_bounds(restored, width, 0x19252b)
+                original_bounds = color_bounds(restored, width, 0xf2f4f8)
                 monitor.key('meta_l', 'up')
                 monitor.pointer(width, height, width // 3, 20, True)
                 monitor.pointer(width, height, width // 3 + 80, 120, True)
                 monitor.pointer(width, height, width // 3 + 80, 120, False)
                 restored = monitor.shot(output, '13-restore-by-title-drag')[2]
-                free_bounds = color_bounds(restored, width, 0x19252b)
+                free_bounds = color_bounds(restored, width, 0xf2f4f8)
                 assert free_bounds[2] - free_bounds[0] == original_bounds[2] - original_bounds[0]
                 assert free_bounds[3] - free_bounds[1] == original_bounds[3] - original_bounds[1]
-                left, top, right, bottom = color_bounds(restored, width, 0x19252b)
-                title_y = color_bounds(restored, width, 0xf2f5fc)[1] + 12 * scale
+                left, top, right, bottom = color_bounds(restored, width, 0xf2f4f8)
+                title_y = top - 14 * scale
+                # The portrait player nearly fills the work area, so its
+                # restored title can be less than 35 pixels from the top.
+                # Stay outside the top edge's maximize target while allowing
+                # the desktop to clamp the dragged frame itself to y=0.
+                target_y = max(10 * scale, title_y - 35)
                 monitor.pointer(width, height, left + 100, title_y, False)
                 monitor.pointer(width, height, left + 100, title_y, True)
-                monitor.pointer(width, height, left + 50, title_y - 35, True)
-                monitor.pointer(width, height, left + 50, title_y - 35, False)
+                monitor.pointer(width, height, left + 50, target_y, True)
+                monitor.pointer(width, height, left + 50, target_y, False)
                 moved = monitor.shot(output, '13a-media-dragged')[2]
-                moved_bounds = color_bounds(moved, width, 0x19252b)
-                assert moved_bounds[0] < left and moved_bounds[1] < top
+                moved_bounds = color_bounds(moved, width, 0xf2f4f8)
+                assert moved_bounds[0] < left
+                assert moved_bounds[2] - moved_bounds[0] == right - left
+                assert moved_bounds[3] - moved_bounds[1] == bottom - top
+                expected_top = max(28 * scale, top + target_y - title_y)
+                assert abs(moved_bounds[1] - expected_top) <= scale
                 left, top, right, bottom = moved_bounds
                 monitor.pointer(width, height, right + 1, bottom - 10, True)
                 monitor.pointer(width, height, right - 69, bottom - 10, True)
                 monitor.pointer(width, height, right - 69, bottom - 10, False)
                 resized = monitor.shot(output, '13b-media-resized')[2]
-                assert color_bounds(resized, width, 0x19252b)[2] < right - 20
-                left, top, right, bottom = color_bounds(resized, width, 0x19252b)
-                title_y = color_bounds(resized, width, 0xf2f5fc)[1] + 12 * scale
+                assert color_bounds(resized, width, 0xf2f4f8)[2] < right - 20
+                left, top, right, bottom = color_bounds(resized, width, 0xf2f4f8)
+                title_y = top - 14 * scale
                 monitor.pointer(width, height, left + 100, title_y, True)
                 monitor.pointer(width, height, 3, height // 3, True)
                 preview = monitor.shot(output, '13c-drag-snap-preview')[2]
                 assert preview[:3] == bytes.fromhex('91b2f4')
                 monitor.pointer(width, height, 3, height // 3, False)
                 snapped = monitor.shot(output, '13d-drag-snap-committed')[2]
-                assert color_bounds(snapped, width, 0x19252b)[2] <= width // 2 + 2
+                assert color_bounds(snapped, width, 0xf2f4f8)[2] <= width // 2 + 2
                 monitor.key('meta_l', 'down')
                 free = monitor.shot(output, '13e-drag-snap-restored')[2]
-                assert color_bounds(free, width, 0x19252b) == color_bounds(resized, width, 0x19252b)
+                assert color_bounds(free, width, 0xf2f4f8) == color_bounds(resized, width, 0xf2f4f8)
                 monitor.start(0)
                 monitor.start(1)
                 for _ in range(3):

@@ -138,19 +138,22 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     hit=desktop_hit(width,height,&v,(windows[0].x+windows[0].w-43)*s,
                     (windows[0].y+12)*s);
     assert(hit.kind==DESKTOP_HIT_MAXIMIZE);
-    hit=desktop_hit(width,height,&v,(windows[0].x+windows[0].w-130)*s,
-                    (windows[0].y+43)*s);
+    struct desktop_rect button=desktop_file_control_rect(&windows[0],DESKTOP_HIT_FILE_NEW_FOLDER,0);
+    hit=desktop_hit(width,height,&v,(windows[0].x+button.x+button.w/2)*s,
+                    (windows[0].y+button.y+button.h/2)*s);
     assert(hit.kind==DESKTOP_HIT_FILE_NEW_FOLDER);
-    hit=desktop_hit(width,height,&v,(windows[0].x+windows[0].w-60)*s,
-                    (windows[0].y+43)*s);
+    button=desktop_file_control_rect(&windows[0],DESKTOP_HIT_FILE_NEW_TEXT,0);
+    hit=desktop_hit(width,height,&v,(windows[0].x+button.x+button.w/2)*s,
+                    (windows[0].y+button.y+button.h/2)*s);
     assert(hit.kind==DESKTOP_HIT_FILE_NEW_TEXT);
     if (!all_open) {
         struct files_layout g=desktop_files_layout(&windows[0],v.file_view);
         hit=desktop_hit(width,height,&v,(windows[0].x+g.left+8)*s,
                         (windows[0].y+g.top+14)*s);
         assert(hit.kind==DESKTOP_HIT_FILE && hit.index==4);
-        hit=desktop_hit(width,height,&v,(windows[0].x+20)*s,
-                        (windows[0].y+103+36)*s);
+        button=desktop_file_place_rect(&windows[0],1);
+        hit=desktop_hit(width,height,&v,(windows[0].x+button.x+button.w/2)*s,
+                        (windows[0].y+button.y+button.h/2)*s);
         assert(hit.kind==DESKTOP_HIT_PLACE && hit.index==1);
     }
     const char *path=all_open?getenv("NV_WINDOWS_PREVIEW"):getenv("NV_FILES_PREVIEW");
@@ -298,8 +301,8 @@ static void native_render(u32 width,u32 height,u32 format) {
 static void settings_render(u32 width,u32 height,u32 format) {
     u32 s=desktop_scale(width,height),sw=width/s,sh=height/s,n=width*height;
     struct desktop_window windows[DESKTOP_WINDOW_COUNT]={0};
-    windows[DESKTOP_SETTINGS]=(struct desktop_window){.x=20,.y=20,.w=MIN(720u,sw-40),
-        .h=MIN(480u,sh-76),.open=true};
+    windows[DESKTOP_SETTINGS]=(struct desktop_window){.x=20,.y=20,.w=MIN(1000u,sw-40),
+        .h=MIN(610u,sh-76),.open=true};
     u8 order[DESKTOP_WINDOW_COUNT];for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
     struct account_ui account={0};account.info.role=NV_ACCOUNT_ADMIN;
     struct nv_net_info network={.index=2,.state=NV_NET_ONLINE,.type=NV_NET_USB_BRIDGE,
@@ -330,8 +333,10 @@ static void settings_render(u32 width,u32 height,u32 format) {
                 assert(hit.kind==DESKTOP_HIT_SETTINGS && hit.index==SETTINGS_ACTION+i);
             }
             if (tab==SETTINGS_SOUND && !state) for (u32 percent=0;percent<=100;percent+=50) {
+                struct desktop_rect slider=desktop_settings_slider_rect(w->w-2,w->h-29);
                 struct desktop_hit hit=desktop_hit(width,height,&v,
-                    (w->x+155+(w->w-180)*percent/100)*s,(w->y+28+223)*s);
+                    (w->x+1+slider.x+((slider.w-1)*percent+99)/100)*s,
+                    (w->y+28+slider.y+13)*s);
                 assert(hit.kind==DESKTOP_HIT_SETTINGS_VOLUME && hit.index==percent);
             }
         }

@@ -5,6 +5,7 @@ Only private boot/data images are used. A production image must ignore
 nv.test=1; native Ring 3 clients also exercise the kernel permission boundary.
 """
 import argparse
+import hashlib
 import pathlib
 import shutil
 import struct
@@ -17,30 +18,72 @@ from extent_store import layout, roots, BLOCK
 from mkmedia import create as create_media
 
 
-def settings_page(monitor, index):
+def settings_page(monitor, index, output=None, timeout=10):
+    assert 0 <= index < 5
     monitor.start(6)
     for _ in range(4):
         monitor.key('left')
     for _ in range(index):
         monitor.key('right')
+    # QMP acknowledges input injection before the guest consumes its keys or
+    # publishes the next frame. Keep testing keyboard navigation, and wait for
+    # the requested sidebar selection before using that page's controls.
+    with tempfile.TemporaryDirectory(prefix='nuvora-settings-page-') as directory:
+        shots = pathlib.Path(directory) if output is None else output
+        deadline = time.monotonic() + timeout
+        while True:
+            width,height,pixels = monitor.shot(shots,'settings-page')
+            scale=ui_scale(width,height);sw=width//scale;ww=min(1000,sw-40)
+            side=176 if ww-2>=760 else 146
+            x=((sw-ww)//2+1+side-20)*scale
+            selected=[]
+            for page in range(5):
+                y=(20+28+84+page*46+19)*scale
+                at=(y*width+x)*3
+                if int.from_bytes(pixels[at:at+3],'big')==0x1761f5:
+                    selected.append(page)
+            if selected==[index]: return
+            if time.monotonic()>=deadline:
+                raise AssertionError(f'Settings keyboard navigation: expected page {index}, selected {selected}')
+            time.sleep(.1)
+
+
+def settings_slider(width,height):
+    scale=ui_scale(width,height);sw=width//scale;ww=min(1000,sw-40)
+    client=ww-2;side=176 if client>=760 else 146
+    left=side+16;area=client-left-16
+    return scale,(sw-ww)//2+1+left+28,area-57,20+28+179
+
+
+def assert_settings_volume(pixels,width,height,percent):
+    scale,origin,span,y=settings_slider(width,height)
+    knob_x=(origin+span*percent//100)*scale
+    # Read the blue rim above its white center and the pointer cursor.
+    offset=((y-6)*scale*width+knob_x)*3
+    actual=int.from_bytes(pixels[offset:offset+3],'big')
+    assert actual==0x1761f5, f'Volume {percent}% thumb at ({knob_x},{(y-6)*scale}): {actual:06x}'
 
 
 def drag_volume(monitor, width, height, percent, output):
-    scale=ui_scale(width,height);sw=width//scale;ww=min(720,sw-40)
-    origin=(sw-ww)//2+155;span=ww-180;y=(20+28+223)*scale
-    start=(origin+span*20//100+1)*scale
-    target=(origin+span*percent//100+1)*scale
+    scale,origin,span,y=settings_slider(width,height);y*=scale
+    start=(origin+(span*20+99)//100+1)*scale
+    target=(origin+(span*percent+99)//100+1)*scale
     monitor.pointer(width,height,start,y,True)
     monitor.pointer(width,height,target,y,True)
     # A dragged slider must redraw while the button is still held.
-    _,_,pixels=monitor.shot(output,'volume-dragging')
-    knob_x=(origin+(span-12)*percent//100+5)*scale
-    offset=(y*width+knob_x)*3
-    assert int.from_bytes(pixels[offset:offset+3],'big')==0x2e6861
+    deadline=time.monotonic()+10
+    while True:
+        _,_,pixels=monitor.shot(output,'volume-dragging')
+        try:
+            assert_settings_volume(pixels,width,height,percent)
+            break
+        except AssertionError:
+            if time.monotonic()>=deadline: raise
+            time.sleep(.1)
     monitor.pointer(width,height,target,y,False)
 
 
-def saved_file(disk, name):
+def saved_file(disk, name, size_limit=4096):
     """Read a committed COW root while the guest is paused or powered off."""
     with disk.open('rb') as stream:
         first, sectors = partition(stream)
@@ -50,7 +93,7 @@ def saved_file(disk, name):
         for kind, path, size, extents in records[-1][2]:
             if path != name.encode():
                 continue
-            assert kind == 2 and size < 4096
+            assert kind == 2 and size < size_limit
             result = bytearray(size)
             for logical, physical, length in extents:
                 offset = logical * BLOCK
@@ -63,6 +106,29 @@ def saved_file(disk, name):
                 result[offset:offset + amount] = data
             return bytes(result)
     raise AssertionError(f'Saved file missing: {name}')
+
+
+def wait_saved_file(monitor,disk,name,expected,timeout=10):
+    """Wait for the guest's committed COW root to contain the complete bytes."""
+    deadline=time.monotonic()+timeout
+    expected_digest=hashlib.sha256(expected).hexdigest()
+    while True:
+        monitor.call('stop')
+        try:
+            try:
+                actual=saved_file(disk,name,size_limit=max(4096,len(expected)+1))
+            except (AssertionError,OSError,ValueError) as error:
+                detail=str(error)
+            else:
+                if actual==expected: return
+                actual_digest=hashlib.sha256(actual).hexdigest()
+                detail=(f'expected {len(expected)} bytes / SHA256 {expected_digest}; '
+                        f'found {len(actual)} bytes / SHA256 {actual_digest}')
+        finally:
+            monitor.call('cont')
+        if time.monotonic()>=deadline:
+            raise AssertionError(f'File commit did not complete for {name}: {detail}')
+        time.sleep(.1)
 
 
 def main():
@@ -168,10 +234,7 @@ def main():
                 assert desktop_visible(m.shot(output,'09a-restored-preferences')[2],scale)
                 settings_page(m,1)
                 _,_,sound=m.shot(output,'09b-restored-volume')
-                ww=min(720,sw-40);wx=(sw-ww)//2;aw=ww-180
-                knob_x=(wx+1+154+(aw-12)*80//100+5)*scale
-                knob_y=(20+28+223)*scale
-                assert int.from_bytes(sound[(knob_y*width+knob_x)*3:(knob_y*width+knob_x)*3+3],'big')==0x2e6861
+                assert_settings_volume(sound,width,height,80)
                 settings_page(m,4);m.key('tab');m.key('tab');m.key('ret')
                 m.shot(output,'10-shutdown-confirmation');m.key('tab');m.key('ret')
                 assert process.wait(timeout=20)==0
