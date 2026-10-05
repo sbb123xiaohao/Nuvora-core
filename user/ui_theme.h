@@ -36,40 +36,24 @@ static inline void desktop_wallpaper(struct nv_canvas *c,struct desktop_clip cli
 static inline void desktop_icon(struct nv_canvas *c,struct desktop_clip clip,
     u32 x,u32 y,u32 size,u32 id) {
     static const u32 colors[]={0x568ced,0x72b5ad,0x52647f,0xba8aef,0x79a8c9,0x7b8aaf,0x7b8aaf};
-    u32 unit=MAX(1u,size/40),fg=0xf6faff;
+    if (!size) return;
+    u32 fg=0xf6faff,stroke=MAX(1u,size/20);
     desktop_round(c,clip,x,y,size,size,size/4,colors[MIN(id,6u)]);
     if (id==0) {
-        desktop_round(c,clip,x+12*unit,y+18*unit,17*unit,3*unit,unit,0xe2eeff);
-        desktop_round(c,clip,x+18*unit,y+12*unit,3*unit,16*unit,unit,0xe2eeff);
-        desktop_round(c,clip,x+7*unit,y+7*unit,12*unit,12*unit,4*unit,0xffffff);
-        desktop_round(c,clip,x+23*unit,y+12*unit,10*unit,10*unit,4*unit,0xe2eeff);
-        desktop_round(c,clip,x+13*unit,y+25*unit,10*unit,10*unit,4*unit,0xe2eeff);
-    } else if (id==1 || id==4) {
-        desktop_round(c,clip,x+10*unit,y+7*unit,20*unit,27*unit,3*unit,fg);
-        for (u32 row=0;row<3;++row)
-            desktop_round(c,clip,x+14*unit,y+(14+5*row)*unit,(row==2?8:12)*unit,2*unit,unit,0x72a1ae);
+        /* Nuvora's connected spaces, with no opaque image margin or shadow. */
+        ui_line(c,clip,x+size*3/10,y+size*3/10,x+size*7/10,y+size*4/10,stroke,fg);
+        ui_line(c,clip,x+size*7/10,y+size*4/10,x+size*5/10,y+size*7/10,stroke,fg);
+        desktop_round(c,clip,x+size/5,y+size/5,size/4,size/4,size/12,fg);
+        desktop_round(c,clip,x+size*3/5,y+size*3/10,size/5,size/5,size/14,fg);
+        desktop_round(c,clip,x+size*2/5,y+size*3/5,size/4,size/4,size/12,fg);
     } else if (id==2) {
-        desktop_round(c,clip,x+6*unit,y+10*unit,28*unit,22*unit,3*unit,0x202d43);
-        for (u32 row=0;row<7;++row) {
-            u32 offset=row<4?row:6-row;
-            desktop_round(c,clip,x+(11+offset)*unit,y+(16+row)*unit,2*unit,unit,unit,fg);
-        }
-        desktop_round(c,clip,x+21*unit,y+23*unit,7*unit,2*unit,unit,0xa9c6fc);
-    } else if (id==3) {
-        for (u32 row=0;row<18;++row) {
-            u32 extent=row<9?row:17-row;
-            desktop_round(c,clip,x+15*unit,y+(11+row)*unit,(extent+2)*unit,unit,unit,fg);
-        }
-    } else if (id==6) {
-        desktop_round(c,clip,x+9*unit,y+9*unit,22*unit,22*unit,11*unit,fg);
-        desktop_round(c,clip,x+15*unit,y+15*unit,10*unit,10*unit,5*unit,0x7b8aaf);
-        desktop_round(c,clip,x+18*unit,y+5*unit,4*unit,8*unit,unit,fg);
-        desktop_round(c,clip,x+18*unit,y+27*unit,4*unit,8*unit,unit,fg);
-        desktop_round(c,clip,x+5*unit,y+18*unit,8*unit,4*unit,unit,fg);
-        desktop_round(c,clip,x+27*unit,y+18*unit,8*unit,4*unit,unit,fg);
+        ui_line(c,clip,x+size/4,y+size*7/20,x+size*2/5,y+size/2,stroke,fg);
+        ui_line(c,clip,x+size*2/5,y+size/2,x+size/4,y+size*13/20,stroke,fg);
+        ui_line(c,clip,x+size/2,y+size*13/20,x+size*3/4,y+size*13/20,stroke,fg);
     } else {
-        desktop_round(c,clip,x+14*unit,y+7*unit,12*unit,12*unit,6*unit,fg);
-        desktop_round(c,clip,x+9*unit,y+22*unit,22*unit,11*unit,5*unit,fg);
+        u32 icon=id==3?UI_ICON_MUSIC:id==5?UI_ICON_SHIELD:
+                 id==6?UI_ICON_SETTINGS:UI_ICON_DOCUMENT;
+        ui_line_icon(c,clip,x+size/5,y+size/5,size*3/5,icon,fg);
     }
 }
 #endif

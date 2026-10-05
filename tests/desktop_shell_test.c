@@ -25,6 +25,23 @@ static void search(void) {
     desktop_search(&l); assert(!l.count);
     strlcpy(l.query,"password",sizeof(l.query));desktop_search(&l);assert(l.count==1 && l.ids[0]==5);
     l.query[0]=0; desktop_search(&l); assert(l.count==7);
+    desktop_launcher_move(&l,3);assert(l.selected==3);
+    desktop_launcher_move(&l,1);assert(l.selected==4);
+    desktop_launcher_move(&l,-3);assert(l.selected==1);
+    desktop_launcher_move(&l,-1);assert(l.selected==0);
+    desktop_launcher_move(&l,99);assert(l.selected==6);
+    desktop_launcher_move(&l,-99);assert(l.selected==0);
+    l.count=0;desktop_launcher_move(&l,3);assert(l.selected==0);
+}
+static void notices(void) {
+    strlcpy(message,"Mounted drives saved.",sizeof(message));message_tick=100;message_error=true;
+    assert(!note_expire(699) && *message && message_error);
+    assert(note_expire(700) && !*message && !message_error);
+    assert(!note_expire(701));
+    strlcpy(message,"Fresh result",sizeof(message));message_tick=700;
+    assert(!note_expire(1299) && *message);assert(note_expire(1300));
+    strlcpy(message,"Wrap",sizeof(message));message_tick=~(u64)0-199;
+    assert(!note_expire(399) && *message);assert(note_expire(400) && !*message);
 }
 static void switching(void) {
     struct desktop_window w[DESKTOP_WINDOW_COUNT]={0};
@@ -171,7 +188,7 @@ static void spaces_model(void) {
     assert(settings_activate(SETTINGS_ACTION)==-NV_ENODEV);
 }
 int main(void) {
-    search(); switching(); placement(); editor_navigation(); spaces_model();
+    search(); notices(); switching(); placement(); editor_navigation(); spaces_model();
     puts("PASS desktop shell: launcher/MRU/tiling/editor, Spaces filter/sort/grid, legacy/new preferences and settings roles");
     return 0;
 }

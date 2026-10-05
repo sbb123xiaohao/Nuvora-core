@@ -56,7 +56,7 @@ enum { MEDIA_HIT_NONE, MEDIA_HIT_BACK, MEDIA_HIT_ITEM, MEDIA_HIT_PAUSE,
        MEDIA_HIT_VOLUME, MEDIA_HIT_PREVIOUS, MEDIA_HIT_NEXT };
 struct media_hit { u32 kind, index; };
 struct media_geometry {
-    u32 s, body_x, body_w, art_x, art_y, art_size, title_y, title_s, info_y;
+    u32 s, text_s, body_x, body_w, art_x, art_y, art_size, title_y, title_s, info_y;
     u32 timeline_y, control_y, control_size, previous_x, next_x;
     u32 library_x, library_y, library_w, library_rows, row_h;
     u32 volume_x, volume_y, volume_w;
@@ -72,6 +72,8 @@ static struct media_geometry media_layout(u32 width, u32 height,
                                          const struct media_view *v) {
     struct media_geometry g = {0};
     g.s = media_scale(width, height);
+    /* Controls stay comfortably sized; text follows its own hierarchy. */
+    g.text_s = MAX(1u,g.s-1);
     u32 s = g.s, center = width / 2;
     g.body_w = MIN(width, 320 * s); g.body_x = (width - g.body_w) / 2;
     g.row_h = 22 * s;
@@ -92,7 +94,7 @@ static struct media_geometry media_layout(u32 width, u32 height,
     g.previous_x = center > 57 * s ? center - 57 * s : 0;
     g.next_x = center + 35 * s;
     g.timeline_y = g.library_y > 56 * s ? g.library_y - 56 * s : 20 * s;
-    g.title_s = s;
+    g.title_s = g.text_s;
     u32 title_gap = 23 * s + desktop_face(2, g.title_s)->height;
     g.title_y = g.timeline_y > title_gap ? g.timeline_y - title_gap : 48 * s;
     g.info_y = g.timeline_y > 21 * s ? g.timeline_y - 21 * s : 64 * s;
@@ -256,12 +258,12 @@ static void media_render(struct nv_canvas *c, u32 height, const struct media_vie
     if (!c->width || !height) return;
     struct desktop_clip clip = {0, c->y0, c->width, MIN(height, c->y0 + c->rows)};
     struct media_geometry g = media_layout(c->width, height, v);
-    u32 s = g.s, center = c->width / 2;
+    u32 s = g.s, text_s=g.text_s, center = c->width / 2;
     nv_gfx_fill(c, 0, 0, c->width, height, UI_BG);
     desktop_round(c, clip, g.body_x, 0, g.body_w, height, 16 * s, UI_BG);
     media_button(c, clip, g.body_x + 13 * s, 10 * s, 24 * s, UI_ICON_BACK, UI_TEXT, 0xffffff);
     media_center_text(c, clip, center, 15 * s, v->video && v->playing ? "Video" : "Music",
-                      g.body_w / 2, s, UI_TEXT, true);
+                      g.body_w / 2, text_s, UI_TEXT, true);
     if (v->playing) {
         if (v->video) {
             u32 bottom = g.title_y > 8 * s ? g.title_y - 8 * s : 48 * s;
@@ -287,15 +289,15 @@ static void media_render(struct nv_canvas *c, u32 height, const struct media_vie
                           g.body_w > 28 * s ? g.body_w - 28 * s : g.body_w, g.title_s, UI_TEXT, true);
         media_center_text(c, clip, center, g.info_y,
                           v->media_info ? v->media_info : v->video ? "Local video" : "Local audio",
-                          g.body_w > 28 * s ? g.body_w - 28 * s : g.body_w, s, UI_MUTED, false);
+                          g.body_w > 28 * s ? g.body_w - 28 * s : g.body_w, text_s, UI_MUTED, false);
         char clock[20], total[20]; media_clock(clock, sizeof(clock), v->seconds);
         if (v->duration_known) media_clock(total, sizeof(total), v->duration);
         else strlcpy(total, "--:--", sizeof(total));
         u32 timeline_x = g.body_x + 46 * s, timeline_w = g.body_w > 92 * s ? g.body_w - 92 * s : 0;
-        desktop_text(c, clip, g.body_x + 15 * s, g.timeline_y - 5 * s, clock, (u32)strlen(clock), s, UI_MUTED);
-        u32 total_w = desktop_text_width(total, (u32)strlen(total), s);
+        desktop_text(c, clip, g.body_x + 15 * s, g.timeline_y - 5 * text_s, clock, (u32)strlen(clock), text_s, UI_MUTED);
+        u32 total_w = desktop_text_width(total, (u32)strlen(total), text_s);
         desktop_text(c, clip, g.body_x + g.body_w - 15 * s - MIN(total_w, g.body_w / 3),
-                     g.timeline_y - 5 * s, total, (u32)strlen(total), s, UI_MUTED);
+                     g.timeline_y - 5 * text_s, total, (u32)strlen(total), text_s, UI_MUTED);
         desktop_round(c, clip, timeline_x, g.timeline_y, timeline_w, 2 * s, s, 0xdde3ed);
         if (v->duration_known && v->duration && timeline_w) {
             u32 filled = (u32)((u64)timeline_w * MIN(v->seconds, v->duration) / v->duration);
@@ -316,13 +318,13 @@ static void media_render(struct nv_canvas *c, u32 height, const struct media_vie
                           2 * s, s, UI_BLUE);
             char level[8]; number(level, MIN(100u, v->volume_percent), 10);
             u32 n = (u32)strlen(level); strlcpy(level + n, "%", sizeof(level) - n);
-            desktop_text(c, clip, g.volume_x + g.volume_w + 7 * s, g.volume_y - 5 * s,
-                         level, (u32)strlen(level), s, UI_MUTED);
+            desktop_text(c, clip, g.volume_x + g.volume_w + 7 * s, g.volume_y - 5 * text_s,
+                         level, (u32)strlen(level), text_s, UI_MUTED);
         }
     } else {
-        desktop_bold_text(c, clip, g.library_x + 3 * s, 44 * s, "Your library", 12, s + 1, UI_TEXT);
+        desktop_bold_text(c, clip, g.library_x + 3 * s, 44 * s, "Your library", 12, s, UI_TEXT);
         desktop_label(c, clip, g.library_x + 3 * s, 65 * s, v->path ? v->path : "/",
-                      g.library_w / (6 * s), s, UI_MUTED);
+                      g.library_w / (6 * text_s), text_s, UI_MUTED);
     }
     for (u32 row = 0; row < g.library_rows && v->scroll + row < v->count; ++row) {
         u32 i = v->scroll + row, y = g.library_y + row * g.row_h;
@@ -332,19 +334,22 @@ static void media_render(struct nv_canvas *c, u32 height, const struct media_vie
         ui_line_icon(c, clip, g.library_x + 6 * s, y + 6 * s, 11 * s,
                      v->entries[i].kind == NV_DIR ? UI_ICON_FOLDER : UI_ICON_MUSIC,
                      selected ? UI_BLUE : UI_MUTED);
-        desktop_label(c, clip, g.library_x + 24 * s, y + 6 * s, v->entries[i].name,
-                      g.library_w > 38 * s ? (g.library_w - 38 * s) / (6 * s) : 0,
-                      s, selected ? UI_BLUE : UI_TEXT);
+        const char *name=v->entries[i].name;u32 length=strlen(name);
+        while (length && desktop_text_width(name,length,text_s)>
+            (g.library_w>40*s?g.library_w-40*s:0)) --length;
+        desktop_text(c, clip, g.library_x + 24 * s,
+                      y+(g.row_h-desktop_face(0,text_s)->height)/2,name,length,
+                      text_s, selected ? UI_BLUE : UI_TEXT);
         if (selected) ui_line_icon(c, clip, g.library_x + g.library_w - 14 * s,
                                   y + 8 * s, 8 * s, UI_ICON_CHECK, UI_BLUE);
     }
     if (!v->count && !v->playing)
         desktop_text(c, clip, g.library_x + 6 * s, g.library_y + 7 * s,
-                     "No media files here", 19, s, UI_MUTED);
+                     "No media files here", 19, text_s, UI_MUTED);
     const char *message = v->message && *v->message ? v->message :
                           v->playing ? "Space  Play / pause" : "Enter  Open     Backspace  Parent";
     desktop_label(c, clip, g.library_x + 3 * s, height > 11 * s ? height - 11 * s : 0,
-                  message, g.library_w / (6 * s), MAX(1u, s - 1), UI_MUTED);
+                  message, g.library_w / (6 * text_s), text_s, UI_MUTED);
     if (v->pointer) {
         for (u32 i = 0; i < 9; ++i)
             nv_gfx_fill(c, v->pointer_x, v->pointer_y + i * s,

@@ -1,5 +1,46 @@
 # 测试与复现
 
+## 未发布：工作区、图标边界和音乐文字间距
+
+本轮基于最新完整 `27d1c7f`，使用真实原生桌面、应用窗口和设备接口。
+
+- `display_test` 在 16/24/40/80 像素下检查全部七个应用图标：笔画不得
+  越过图标边界，圆角外保持原背景；继续验证 RGBX/BGRX、完整/分块及
+  局部重绘逐像素一致。旧快捷图标区域不再命中隐藏按钮，新 Apps 入口、
+  应用网格和紧凑应用栏的点击区域与绘制一致。
+- `desktop_shell_test` 验证网格方向移动、首尾限制、空搜索结果；生产
+  通知在第 599 tick 保留、第 600 tick 清除，新的通知重新计时，
+  `u64` 时钟回绕仍正确，过期后同时清除错误样式。
+- Music 使用独立文字缩放，歌曲信息、时间、音量和列表缩小，播放按钮
+  保持原尺寸；保留媒体格式、真实列表、控件命中、分块与视频渲染检查。
+- `capture_screenshots.py` 使用真实 F10 和鼠标启动 Apps 中的程序，
+  保存数据卷后拍摄居中通知，并等待客体时钟自动清除；继续核验文件
+  搜索/编辑/持久保存、切歌/暂停/最小化恢复、共享音量、HDA 波形和 DHCP。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64
+python3 tests/capture_screenshots.py
+python3 tests/desktop_boot_test.py --output build/x86_64/desktop-round11
+```
+
+Arch GCC 16.2.1、Python 3.14.7、QEMU 11.1.1 / TCG、OVMF 202608-1
+下，生产/诊断 BIOS/UEFI 构建及 **40 组 UBSan 宿主回归**通过；64 MiB
+UEFI USB 启动通过 **144 项**断言，完整生产会话验证 7 项权限、真实
+自动锁屏、错误密码拒绝、重启/关机与 80% 音量和文件偏好恢复。
+空桌面 Enter 会打开 Apps，会话夹具先关闭该面板再启动 Terminal，
+确保权限检查命令进入实际终端。
+
+完整原生窗口测试通过数字小键盘、搜索隔离、MRU/总览、保存确认、
+拖动/缩放/平铺、实际 MPEG 解码和窗口切换；FFmpeg/ffprobe 7.1.5
+及动态库只读挂入 Arch 容器执行，未用替代程序模拟转码。
+截图脚本通过所有真实文件、通知、播放器、共享音量及 DHCP 检查；
+HDA 双声道峰值均为 **6000**。十张 **1280×800** PNG 使用独立
+解码器逐像素核对原始 PPM，README 直接引用，校验值见
+[截图清单](screenshots/manifest.json)。以上均为模拟 PC 的运行结果。
+
 ## 未发布：蓝白界面、播放器集成与运行截图
 
 基于最新完整 `13e3272`，Files、Music 与 Settings 使用统一浅色蓝白

@@ -7,16 +7,18 @@ supervisor 地址空间，应用运行在 Ring 3；窗口终端是用户态 Loom
 
 ## 日常桌面
 
-桌面提供三种渐变壁纸、圆角窗口、阴影、抗锯齿字体、浮动 Dock、应用搜索、
+桌面提供三种渐变壁纸、圆角窗口、阴影、抗锯齿字体、紧凑应用栏、应用搜索、
 窗口总览、MRU 切换和贴边平铺。Files、Text Editor、Terminal、Music、Folio
 继续作为原生界面/进程工作；界面采用 GOP 软件绘制，壁纸缓存减少重复计算。
-标题栏显示工作区与实际运行时长，不假装提供尚未实现的日历时钟。
+顶部显示工作区、账户与实际运行时长；Apps 或 F10 打开居中应用面板，
+左右键移动一项、上下键按网格跨行。底部提供常用应用和已打开窗口，
+操作通知在应用栏上方显示六秒。图标直接绘制圆角与线条，没有位图边框。
 
 Files 使用白色导航、蓝色线条图标和浅色卡片，支持即时搜索、文件夹优先排序、紧凑
 列表及宽窗口的选中项详情。Ctrl-F 搜索，Ctrl-1/2 切换视图，F8 切换排序；
 默认隐藏点文件，Ctrl-H 切换显示。隐藏和搜索都不改变内核的路径权限。
 
-Start → Settings 有 Appearance、Sound、Network、Security、System 五页。
+Apps → Settings 有 Appearance、Sound、Network、Security、System 五页。
 Sound 调整实际全局输出音量、静音/恢复；无 HDA 输出时按钮禁用。Music
 在播放和暂停期间都同步全局音量。Network 自动更新网卡状态、IPv4、掩码、
 网关和 DNS，宽窗口显示独立详情面板，管理员可请求 DHCP 地址。

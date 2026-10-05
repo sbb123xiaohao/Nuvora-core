@@ -161,6 +161,9 @@ def main():
                     return width,height
 
                 width,height=capture('desktop')
+                monitor.key('f10')
+                capture('apps')
+                monitor.key('esc')
                 monitor.start(1)
                 monitor.key('meta_l', 'right')
                 paragraph = ('Native desktop with files and terminal and a saved document on the private AHCI data volume. '
@@ -196,6 +199,21 @@ def main():
                 monitor.key('alt','f9');monitor.start(0)
                 monitor.key('ctrl','f');monitor.key('esc')
                 capture('files')
+                # A real save action produces the new toast above the shelf;
+                # its lifetime is measured by the guest clock, not a mock UI.
+                monitor.key('f6');monitor.key('alt','f9')
+                capture('notification')
+                scale=ui_scale(width,height);sw=width//scale;sh=height//scale
+                notice_x=((sw+min(480,sw-48))//2-18)*scale;notice_y=(sh-102)*scale
+                notice_at=(notice_y*width+notice_x)*3
+                pixels=monitor.shot(output,'notice-visible')[2]
+                assert int.from_bytes(pixels[notice_at:notice_at+3],'big')==0xffffff
+                deadline=time.monotonic()+20
+                while int.from_bytes(monitor.shot(output,'notice-expiry')[2][notice_at:notice_at+3],'big')==0xffffff:
+                    if time.monotonic()>=deadline:raise AssertionError('Desktop notification did not expire')
+                    time.sleep(.25)
+                print('PASS real desktop notification expires',flush=True)
+                monitor.start(0)
                 # Open through the real volume-qualified Files launch path.
                 monitor.key('ctrl','f');monitor.type('Nightfall');monitor.key('ret');monitor.key('ret')
                 wait_music(monitor,output,width,height,False)

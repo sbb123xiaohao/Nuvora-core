@@ -55,7 +55,6 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
         .audio_ready=true,.volume_percent=72,
         .launcher=&launcher,
         .windows=windows,.order=order,.active=DESKTOP_FILES,
-        .shortcut_selected=0xffffffffu,
         .editor_path="/home/note.txt",.editor_text=sample,.editor_length=strlen(sample),
         .editor_cursor=12,.editor_dirty=true,.editor_input="/home/note.txt",
         .terminal_lines=(const char (*)[128])lines,.terminal_count=3,
@@ -75,14 +74,14 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
         assert(full[0]==0x9173ace4 && full[n+1]==0x27607845);
         assert(tiled[0]==0x9173ace4 && tiled[n+1]==0x27607845);
         struct desktop_hit home_hit=desktop_hit(width,height,&v,45*s,48*s);
-        assert(home_hit.kind==DESKTOP_HIT_SHORTCUT && home_hit.index==0);
+        assert(home_hit.kind==DESKTOP_HIT_NONE);
         home_hit=desktop_hit(width,height,&v,45*s,(46+3*78+20)*s);
-        assert(home_hit.kind==DESKTOP_HIT_SHORTCUT && home_hit.index==3);
+        assert(home_hit.kind==DESKTOP_HIT_NONE);
         home_hit=desktop_hit(width,height,&v,(sw-40)*s,60*s);
         assert(home_hit.kind==DESKTOP_HIT_NONE);
         v.message="Media: audio device unavailable";
         desktop_render(&all,height,&v);
-        assert(full[1+(sh-50)*s*width+17*s]==nv_display_rgb(format,0xb98866));
+        assert(full[1+(sh-102)*s*width+((sw+MIN(480u,sw-48))/2-18)*s]==nv_display_rgb(format,UI_WHITE));
         v.message="";
         desktop_render(&all,height,&v);
         if (format==NV_DISPLAY_BGRX8) {
@@ -129,8 +128,11 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     }
     v.volume_open=false;
     struct desktop_hit hit=desktop_hit(width,height,&v,(desktop_dock_x(sw,&v)+25)*s,height-15*s);
+    assert(hit.kind==DESKTOP_HIT_OVERVIEW_BUTTON);
+    struct desktop_rect apps=desktop_apps_button(sw);
+    hit=desktop_hit(width,height,&v,(apps.x+apps.w/2)*s,(apps.y+apps.h/2)*s);
     assert(hit.kind==DESKTOP_HIT_START);
-    hit=desktop_hit(width,height,&v,(desktop_dock_x(sw,&v)+125)*s,height-15*s);
+    hit=desktop_hit(width,height,&v,(desktop_dock_x(sw,&v)+55)*s,height-15*s);
     assert(hit.kind==DESKTOP_HIT_TASK && hit.index==DESKTOP_FILES);
     hit=desktop_hit(width,height,&v,(windows[0].x+windows[0].w-12)*s,
                     (windows[0].y+12)*s);
@@ -160,8 +162,8 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8)
         preview(path,full+1,width,height);
     v.menu=true;
-    struct desktop_rect menu=desktop_menu_rect(sw,sh);
-    hit=desktop_hit(width,height,&v,(menu.x+40)*s,(menu.y+96+34*2+8)*s);
+    struct desktop_rect cell=desktop_menu_app_rect(sw,sh,2);
+    hit=desktop_hit(width,height,&v,(cell.x+cell.w/2)*s,(cell.y+cell.h/2)*s);
     assert(hit.kind==DESKTOP_HIT_MENU && hit.index==2);
     desktop_render(&all,height,&v);
     if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8 && all_open)
@@ -217,7 +219,7 @@ static void native_render(u32 width,u32 height,u32 format) {
         .pixel_width=161,.pixel_height=99};
     strlcpy(windows[DESKTOP_MEDIA].title,"Media - actual application pixels",64);
     struct desktop_view v={.path="/home",.message="",.drive="1 drive",.windows=windows,
-        .order=order,.active=DESKTOP_MEDIA,.shortcut_selected=~0u,
+        .order=order,.active=DESKTOP_MEDIA,
         .pointer=true,.pointer_x=260*s,.pointer_y=150*s};
     u32 n=width*height;
     u32 *full=guarded(n),*tiled=guarded(n);
@@ -348,7 +350,20 @@ static void settings_render(u32 width,u32 height,u32 format) {
     free(full);free(tiled);
 }
 
+static void icon_bounds(void) {
+    const u32 sizes[]={16,24,40,80};
+    u32 pixels[96*96];struct nv_canvas canvas={pixels,96,0,96,NV_DISPLAY_BGRX8};
+    struct desktop_clip clip={0,0,96,96};
+    for (u32 i=0;i<ARRAY_LEN(sizes);++i) for (u32 id=0;id<ARRAY_LEN(desktop_apps);++id) {
+        for (u32 p=0;p<ARRAY_LEN(pixels);++p) pixels[p]=0x718293;
+        desktop_icon(&canvas,clip,8,8,sizes[i],id);
+        for (u32 y=0;y<96;++y) for (u32 x=0;x<96;++x)
+            if (x<8 || y<8 || x>=8+sizes[i] || y>=8+sizes[i]) assert(pixels[y*96+x]==0x718293);
+        assert(pixels[8*96+8]==0x718293); /* Rounded corners retain the backdrop. */
+    }
+}
 int main(void) {
+    icon_bounds();
     settings_render(640,480,NV_DISPLAY_BGRX8);
     settings_render(1280,800,NV_DISPLAY_BGRX8);
     settings_render(1920,1080,NV_DISPLAY_RGBX8);

@@ -76,8 +76,8 @@ class Monitor:
                 output=pathlib.Path(directory)
                 width,height,_=self.shot(output,'start')
                 scale=ui_scale(width,height);sw=width//scale;sh=height//scale
-                w=min(348,sw-32);h=min(404,sh-72)
-                x=(sw-w)//2;y=sh-56-h-8
+                w=min(560,sw-32);h=min(450,sh-104)
+                x=(sw-w)//2;y=44+(sh-100-h)//2
                 marker_x=(x+w-10)*scale;marker_y=(y+20)*scale
                 def opened(pixels):
                     at=(marker_y*width+marker_x)*3
@@ -85,7 +85,10 @@ class Monitor:
                 deadline=time.monotonic()+15
                 while not opened(self.shot(output,'start')[2]):
                     if time.monotonic()>=deadline: raise AssertionError('Start menu did not open')
-                target_x=(x+w-28)*scale;target_y=(y+96+index*34+16)*scale
+                columns=3 if sw>=580 else 2;rows=(7+columns-1)//columns
+                cell=(w-40-(columns-1)*12)//columns;row=min(88,(h-154)//rows)
+                target_x=(x+20+(index%columns)*(cell+12)+cell//2)*scale
+                target_y=(y+98+(index//columns)*row+(row-4)//2)*scale
                 self.pointer(width,height,target_x,target_y,True)
                 try:
                     while opened(self.shot(output,'start-click')[2]):
@@ -94,7 +97,7 @@ class Monitor:
                     self.pointer(width,height,target_x,target_y,False)
         else:
             for _ in range(index):
-                self.key('down')
+                self.key('right')
             self.key('ret')
         time.sleep(.8)
 
@@ -296,7 +299,7 @@ def main():
                 monitor.type('help\n')
                 help_screen = monitor.shot(output, '03-terminal-help')[2]
                 assert help_screen != terminal
-                monitor.key('meta_l')  # A bare Super release opens Start.
+                monitor.key('meta_l')  # A bare Super release opens Apps.
                 monitor.type('no-such-app')
                 empty = monitor.shot(output, '03a-search-empty')[2]
                 monitor.key('ret')

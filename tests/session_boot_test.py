@@ -191,6 +191,7 @@ def main():
                 assert desktop_visible(home, scale)
                 m.key('esc');m.type('help\n')
                 assert desktop_visible(m.shot(output, '01a-no-console-escape')[2], scale)
+                m.key('esc')  # Enter on the empty workspace can open Apps.
                 m.start(2);m.type('forge probe session-security\n');time.sleep(1)
                 m.shot(output, '02-native-client-permissions');m.type('anchor\n');time.sleep(.5)
                 m.call('stop')

@@ -32,7 +32,7 @@ static const struct desktop_app desktop_apps[] = {
     {"Files", "Spaces and collections", "file folder space disk drive home search"},
     {"Text Editor", "Plain text", "text edit note txt markdown"},
     {"Terminal", "Commands and downloads", "terminal shell command console wget ping"},
-    {"Media", "Music and video", "media music audio video mp3 mp2 flac wav mpeg player"},
+    {"Music", "Music and video", "media music audio video mp3 mp2 flac wav mpeg player"},
     {"Folio", "Documents", "folio document write nvd"},
     {"Accounts", "Users, passwords and sign-in", "account user password login"},
     {"Settings", "Appearance, security and power", "settings appearance wallpaper security lock power restart shutdown"},
@@ -76,9 +76,22 @@ static inline void desktop_search(struct desktop_launcher *l) {
     }
 }
 static inline struct desktop_rect desktop_menu_rect(u32 sw, u32 sh) {
-    (void)sw;
-    u32 w=MIN(348u,sw-32),h=MIN(404u,sh-DESKTOP_BAR_HEIGHT-16);
-    return (struct desktop_rect){(sw-w)/2,sh-DESKTOP_BAR_HEIGHT-h-8,w,h};
+    u32 w=MIN(560u,sw-32),h=MIN(450u,sh-DESKTOP_BAR_HEIGHT-48);
+    return (struct desktop_rect){(sw-w)/2,44+(sh-DESKTOP_BAR_HEIGHT-44-h)/2,w,h};
+}
+static inline u32 desktop_menu_columns(u32 sw) { return sw>=580?3:2; }
+static inline struct desktop_rect desktop_menu_app_rect(u32 sw,u32 sh,u32 index) {
+    struct desktop_rect r=desktop_menu_rect(sw,sh);
+    u32 columns=desktop_menu_columns(sw),rows=(ARRAY_LEN(desktop_apps)+columns-1)/columns;
+    u32 cell=(r.w-40-(columns-1)*12)/columns,row=MIN(88u,(r.h-154)/rows);
+    return (struct desktop_rect){r.x+20+(index%columns)*(cell+12),
+        r.y+98+(index/columns)*row,cell,row-4};
+}
+static inline void desktop_launcher_move(struct desktop_launcher *l,i32 step) {
+    if (l->count) l->selected=(u32)MAX(0,MIN((i32)l->selected+step,(i32)l->count-1));
+}
+static inline struct desktop_rect desktop_apps_button(u32 sw) {
+    return (struct desktop_rect){sw-244,11,114,24};
 }
 static inline void desktop_raise(u8 *order, u32 id) {
     for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) if (order[i]==id) {
