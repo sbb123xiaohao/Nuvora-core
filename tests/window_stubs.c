@@ -2,6 +2,8 @@
  * actual window service has its own boundary and lifecycle fixture. */
 #include <nv/abi.h>
 struct task;
+__attribute__((weak)) void console_session_lock(u32 manager) { (void)manager; }
+__attribute__((weak)) void window_session_lock(void) {}
 __attribute__((weak)) struct task *current;
 __attribute__((weak)) void account_task_release(u32 pid) { (void)pid; }
 __attribute__((weak)) bool account_path_allowed(const struct task *t,const char *path,u32 op) {

@@ -8,8 +8,8 @@ Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动�
 
 ## 运行截图
 
-本轮修复 UDP 进程/会话数据归属、可预测网络标识、DNS 不匹配响应和
-外来 DHCP 拒绝报文。复现、随机接口约束与剩余风险见
+本轮继续修复锁屏后的窗口/终端读取、切换期间输入转发、已有独占显示权
+及后台清屏权限；此前网络安全修复已保留。复现与剩余风险见
 [安全审查](docs/SECURITY-REVIEW.md)。
 
 以下图片来自正式 x86-64 系统在 QEMU/OVMF 中的实际运行：UEFI USB 启动、
@@ -128,7 +128,7 @@ make iso-uefi   # 需要 mtools 和 xorriso
 make media      # 生成 GPT/ESP 启动镜像，不写宿主磁盘
 ```
 
-当前通过 41 组宿主回归，包括随机字节 ABI、网络进程归属与报文校验、原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、共享图标、媒体路径、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
+当前通过 42 组宿主回归，包括锁屏输入/显示撤权、随机字节 ABI、网络进程归属与报文校验、原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、共享图标、媒体路径、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
 
 目前只挂载 Nuvora 自有格式，**不会格式化或写入普通 Windows/Linux 分区**。4Kn 逻辑扇区、USB 存储挂载、笔记本内置 PCI Wi-Fi、USB NCM、VirtIO/SCSI、Secure Boot、多核和 Linux/POSIX 应用兼容尚未实现。完整边界与历史变更见[测试说明](docs/TESTING.md)、[架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)和[更新记录](docs/CHANGELOG.md)。
 

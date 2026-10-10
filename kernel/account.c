@@ -79,10 +79,15 @@ static bool administrator(void) {
 bool account_manager(const struct task *t) {
     return t && t->pid==manager_pid;
 }
+static void lock_session(void) {
+    locked=true;
+    nv_secret_clear(&account_job,sizeof(account_job));
+    console_session_lock(manager_pid);
+    window_session_lock();
+}
 void account_tick(void) {
     if (enabled && !locked && session_uid!=NV_UID_NONE && ticks-last_activity>=idle_timeout) {
-        locked=true;
-        nv_secret_clear(&account_job,sizeof(account_job));
+        lock_session();
     }
 }
 void account_input_activity(void) {
@@ -204,7 +209,7 @@ void account_init(void) {
 void account_task_release(u32 pid) {
     if (pid!=manager_pid) return;
     nv_secret_clear(&account_job,sizeof(account_job));manager_pid=0;
-    if (session_uid!=NV_UID_NONE) locked=true;
+    if (session_uid!=NV_UID_NONE) lock_session();
     task_end_session(pid);
 }
 static void session_start(u32 index) {
@@ -421,9 +426,12 @@ int account_ioctl(u32 op,uptr pointer) {
     if (op==NV_ACCOUNT_CANCEL) { nv_secret_clear(&account_job,sizeof(account_job));return 0; }
     if (op==NV_ACCOUNT_LOCK) {
         if (broken || session_uid==NV_UID_NONE || account_job.active) return -NV_EACCESS;
-        locked=true;return 0;
+        if (!locked) lock_session();
+        return 0;
     }
     if (op==NV_ACCOUNT_LOGOUT) {
+        console_session_lock(manager_pid);
+        window_session_lock();
         /* Both the manager and PID 1 survive session teardown. Recovery Loom
          * may already have handed management to the desktop, so clear both. */
         net_task_release(manager_pid);

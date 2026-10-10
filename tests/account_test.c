@@ -14,6 +14,11 @@ static bool random_available=true;
 static int sync_error,session_ends;
 static u32 network_releases,released_uid;
 static u32 released_pids;
+static u32 console_locks,window_locks,lock_manager,lock_uid;
+void console_session_lock(u32 manager) {
+    ++console_locks;lock_manager=manager;lock_uid=session_uid;
+}
+void window_session_lock(void) { ++window_locks;assert(window_locks==console_locks); }
 static void *io_buffer;
 void panic(const char *s) { fprintf(stderr,"PANIC: %s\n",s);abort(); }
 void console_write(const char *s,usize n) { (void)s;(void)n; }
@@ -95,6 +100,8 @@ int main(void) {
     ticks=NV_AUTH_IDLE_MIN-1;account_tick();assert(!locked);
     account_input_activity();ticks+=NV_AUTH_IDLE_MIN-1;account_tick();assert(!locked);
     ++ticks;account_tick();assert(locked && !account_admin_allowed(current) && !account_session_allowed(current));
+    assert(console_locks==1 && window_locks==1 && lock_manager==1 && lock_uid==1000);
+    account_tick();assert(console_locks==1); /* A locked tick must not flush new login input. */
     assert(!run(NV_ACCOUNT_LOGIN,&admin));
     policy->idle_timeout_ticks=NV_AUTH_IDLE_DEFAULT;assert(!account_ioctl(NV_ACCOUNT_POLICY_SET,(uptr)policy));
     assert(!memcmp(database.records[0].salt,"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10",16));
@@ -131,7 +138,10 @@ int main(void) {
     disabled.flags=0;assert(!call(NV_ACCOUNT_UPDATE,&disabled));session_ends=0;
     struct nv_account_request edit={.uid=1000,.role=0};strlcpy(edit.display_name,"Alice",64);
     assert(call(NV_ACCOUNT_UPDATE,&edit)==-NV_EACCESS); /* Keep the last administrator. */
+    u32 locks=console_locks;
     assert(!call(NV_ACCOUNT_LOCK,NULL));
+    assert(console_locks==locks+1 && window_locks==console_locks && lock_manager==manager_pid && lock_uid==1000);
+    assert(!call(NV_ACCOUNT_LOCK,NULL) && console_locks==locks+1);
     struct task locked_app={.pid=9,.uid=1000};
     assert(!account_interactive_allowed(&locked_app) && account_interactive_allowed(current));
     char key;assert(fs_read(&locked_app,0,&key,1)==-NV_EACCESS);
@@ -142,7 +152,9 @@ int main(void) {
     assert(fs_read(&locked_app,console,&key,1)==-NV_EACCESS);fs_close(&locked_app,console);
     assert(run(NV_ACCOUNT_LOGIN,&bob)==-NV_EACCESS); /* Locked identity cannot switch. */
     assert(!run(NV_ACCOUNT_LOGIN,&admin));
+    locks=console_locks;
     assert(!call(NV_ACCOUNT_LOGOUT,NULL));assert(session_ends==1 && current->uid==NV_UID_NONE);
+    assert(console_locks==locks+1 && window_locks==console_locks && lock_manager==manager_pid && lock_uid==1000);
     assert(fs_open(current,"/home/users/alice",NV_READ)==-NV_EACCESS);
     ticks=0xffffff9cu; /* The first delay straddles the tick counter wrap. */
     for (u32 i=0;i<5;++i) {
@@ -188,8 +200,10 @@ int main(void) {
     assert(call(NV_ACCOUNT_CLAIM,NULL)==-NV_EBUSY && call(NV_ACCOUNT_REMOVE,&edit)==-NV_EACCESS);
     actor(0,1000);assert(account_ioctl(NV_ACCOUNT_INFO,1)==-NV_EFAULT);
     u32 ended=session_ends;
+    locks=console_locks;
     account_task_release(1);
     assert(!manager_pid && locked && session_ends==(int)ended+1 && !account_session_allowed(current));
+    assert(console_locks==locks+1 && window_locks==console_locks && !lock_manager && lock_uid==1000);
     assert(!call(NV_ACCOUNT_CLAIM,NULL) && locked);
     assert(!run(NV_ACCOUNT_LOGIN,&admin));
     /* An ambiguous disk commit cannot claim success, and reboot reloads it. */

@@ -162,6 +162,8 @@ extern bool fb_window_mapped; /* vm_kernel_init mapped the firmware framebuffer 
 void console_init(const struct boot_info *);
 void console_fb_enable(bool);
 void console_clear(void);
+int console_clear_for(struct task *);
+void console_session_lock(u32);
 void console_putc(char);
 void console_write(const char *, usize);
 void kprintf(const char *, ...);
@@ -183,6 +185,7 @@ bool pointer_boot_report(const u8 *, u32, struct nv_pointer_event *);
 int display_ioctl(u32, uptr);
 int window_ioctl(u32, uptr);
 void window_task_release(u32);
+void window_session_lock(void);
 int window_stdio_write(struct task *, const void *, u32);
 int window_stdio_read(struct task *, void *, u32);
 int window_stdio_clear(struct task *);

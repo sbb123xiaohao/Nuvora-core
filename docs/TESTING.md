@@ -1,5 +1,49 @@
 # 测试与复现
 
+## 未发布：锁屏输入与显示权限
+
+基线为 GitHub 与本地一致的完整 `50463ca`。基线实际窗口 stdin/poll、
+原始键盘/指针、文本/像素提交和账户撤权断言失败；基线清屏系统调用
+分支逐字提取到夹具后也未拒绝锁定操作。锁屏输入转发在添加保护前
+断言失败，修复后通过。详细条件见 [安全审查](SECURITY-REVIEW.md)。
+
+- `window_test` 检查锁屏时 poll、继承终端的普通/零长度读取拒绝且不改
+  响应/消费输入；转发入口拒绝新的锁屏输入。锁定丢弃旧按键/指针，
+  同时保留帧、serial/generation 和关闭/配置/焦点状态及处理顺序。
+- 新 `console_security_test` 运行实际控制台与指针实现，使用带前后哨兵
+  的帧缓冲；检查已有所有者的原始键盘/指针、重复领取、文本/像素提交
+  与清屏拒绝。验证撤销普通应用所有权、旧队列清理、可信图形/恢复
+  登录接收新输入和锁屏期间的资源释放，另以 ASan/UBSan 运行。
+- `account_test` 检查自动/手动锁定、管理器退出和注销调用两种清理，
+  注销发生在身份切换前；自动锁定和重复手动锁定不重复清除新输入。
+- `session_boot_test.py --memory 64` 启动生产内核（忽略 `nv.test=1`），
+  新增真实 Ring 3 父子进程终端：准备记录落盘后等待真实一分钟锁屏，
+  父进程四项锁定拒绝、三项解锁恢复和一项子进程结果，共八项；子进程
+  独立检查继承 stdin、零长度 stdin、清屏三项拒绝。完整结果再次落盘，
+  不依赖只看登录页像素。保留错误密码、偏好恢复、重启和关机检查。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64
+python3 tests/account_boot_test.py --output build/x86_64/accounts-round15
+python3 tests/account_console_boot_test.py --output build/x86_64/account-console-round15
+python3 tests/capture_screenshots.py
+```
+
+最终构建、**42 组 UBSan 宿主回归**、**149 项** UEFI 原生/兼容断言和
+上述生产 Ring 3 锁屏父子进程验证通过。账户切换、BIOS 登录/电源、
+生产偏好恢复及重启/关机继续通过。十一张实际 PNG 经独立 Pillow
+解码，与原始 QMP PPM 逐像素一致，内核/ESP/固件/音频哈希匹配，
+HDA 双声道峰值均为 **6000**；README 引用本轮截图。
+
+本轮结果摘要见 [锁屏安全验证](verification/0.15.0/security-input-summary.log)。
+UEFI 诊断与生产锁屏使用 64 MiB；图形账户与截图使用 256 MiB。
+BIOS 文本测试检查掩码 OOBE、保存后登录、错误密码、重启和 ACPI 关机；
+独占显示撤权的像素/恢复输入检查由实际内核代码宿主夹具验证，未声称
+生产恢复模式中的恶意独占应用已完成整机实测。仍属于 QEMU 模拟 PC。
+
 ## 未发布：网络安全审查
 
 基于 GitHub 和本地一致的完整 `cd10516`。使用基线实际网络/客户端代码

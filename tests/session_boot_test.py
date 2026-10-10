@@ -214,6 +214,8 @@ def main():
                 m.shot(output, '04-security-one-minute');m.key('esc')
                 source='UEFI ISO' if args.iso else 'USB boot with nv.test=1 ignored'
                 print(f'PASS production {source}: graphical authentication and native client authority checks', flush=True)
+                m.start(2);m.type('forge probe lock-input\n')
+                wait_saved_file(m,disk,'/home/users/tester/lock-input-security.txt',b'LOCK INPUT READY\n',timeout=20)
                 deadline=time.monotonic()+180
                 while True:
                     frame=m.shot(output,'05-idle-lock')[2]
@@ -226,6 +228,9 @@ def main():
                 m.key('ctrl','a');m.type(password);m.key('ret');account_wait(m,output,'06-unlocked',locked=True)
                 assert desktop_visible(m.shot(output,'06a-resumed')[2],scale)
                 print('PASS real idle lock, app/launcher barrier, wrong-password rejection and resume', flush=True)
+                wait_saved_file(m,disk,'/home/users/tester/lock-input-security.txt',
+                                b'LOCK INPUT SECURITY RESULT: 8 passed, 0 failed\n',timeout=20)
+                print('PASS real Ring 3 locked input: 8 parent assertions, including 3 inherited-child checks; window/stdin/clear denied then resumed',flush=True)
                 settings_page(m,4);m.key('tab');m.key('ret')
                 m.shot(output,'07-restart-confirmation');m.key('ret')
                 assert serial.read_text(errors='replace').count('Ring 3: /apps/session')==1

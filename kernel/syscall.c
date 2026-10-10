@@ -434,14 +434,7 @@ struct frame *syscall_dispatch(struct frame *f) {
             break;
         }
         if (a == NV_CTL_CLEAR) {
-            result = window_stdio_clear(current);
-            if (result != -NV_ENODEV) break;
-            if (console_owned(0) == false) {
-                result = -NV_EBUSY;
-                break;
-            }
-            console_clear();
-            result = 0;
+            result = console_clear_for(current);
             break;
         }
         if (!account_admin_allowed(current)) {

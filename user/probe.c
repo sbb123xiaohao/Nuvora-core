@@ -639,10 +639,66 @@ static int session_security_tests(void) {
     r=emit(fd,result,strlen(result));close_file(fd);
     return failed || r!=(int)strlen(result)?1:0;
 }
+static bool await_lock_state(bool want_locked) {
+    u64 deadline=clock_ticks()+30000;
+    do {
+        struct nv_account_info account;
+        if (!account_call(NV_ACCOUNT_INFO,&account) &&
+            !!(account.flags&NV_AUTH_LOCKED)==want_locked) return true;
+        nap(10);
+    } while (clock_ticks()<deadline);
+    return false;
+}
+static int lock_input_child(void) {
+    if (!await_lock_state(true)) return 1;
+    u8 ch=0xa9;
+    bool ok=take(0,&ch,1)==-NV_EACCESS && ch==0xa9;
+    ok=(take(0,&ch,0)==-NV_EACCESS) && ok;
+    ok=(control(NV_CTL_CLEAR,0)==-NV_EACCESS) && ok;
+    return await_lock_state(false) && ok?0:1;
+}
+static int lock_input_tests(void) {
+    struct nv_window_create w={.width=640,.height=350};
+    strlcpy(w.title,"Lock input probe",sizeof(w.title));
+    if (nv_window_create(&w)<0) return 1;
+    struct nv_window_id id={w.id};
+    if (nv_window_call(NV_WINDOW_BIND_STDIO,&id)<0) return 1;
+    int child=spawn("/apps/probe","lock-input-child");
+    if (child<0) return 1;
+    char path[NV_PATH_MAX];default_home_file(path,"lock-input-security.txt");
+    const char *ready="LOCK INPUT READY\n";
+    int fd=open_file(path,NV_WRITE|NV_CREATE|NV_TRUNC);
+    if (fd<0) return 1;
+    int r=emit(fd,ready,strlen(ready));close_file(fd);
+    if (r!=(int)strlen(ready) || control(NV_CTL_SYNC,0)<0 || !await_lock_state(true)) return 1;
+    struct nv_window_event e,before;memset(&e,0xa9,sizeof(e));e.id=w.id;before=e;
+    check(nv_window_call(NV_WINDOW_POLL,&e)==-NV_EACCESS && !memcmp(&e,&before,sizeof(e)),
+          "locked window poll denied without touching output");
+    u8 ch=0xa9;
+    check(take(0,&ch,1)==-NV_EACCESS && ch==0xa9,"locked window stdin denied without touching output");
+    check(take(0,&ch,0)==-NV_EACCESS,"locked zero-length window stdin denied");
+    check(control(NV_CTL_CLEAR,0)==-NV_EACCESS,"locked terminal clear denied");
+    if (!await_lock_state(false)) return 1;
+    check(nv_window_poll(w.id,&e)>=0,"window poll resumes after authentication");
+    check(take(0,&ch,0)==0,"window stdin resumes after authentication");
+    check(control(NV_CTL_CLEAR,0)==0,"terminal clear resumes after authentication");
+    check(wait_task(child)==0,"inherited terminal child passed all three locked input checks");
+    char result[96]="LOCK INPUT SECURITY RESULT: ";
+    u32 end=strlen(result);end+=number(result+end,passed,10);
+    end+=strlcpy(result+end," passed, ",sizeof(result)-end);
+    end+=number(result+end,failed,10);strlcpy(result+end," failed\n",sizeof(result)-end);
+    fd=open_file(path,NV_WRITE|NV_CREATE|NV_TRUNC);
+    if (fd<0) return 1;
+    r=emit(fd,result,strlen(result));close_file(fd);
+    int sync=control(NV_CTL_SYNC,0);nv_window_destroy(w.id);
+    return failed || r!=(int)strlen(result) || sync<0?1:0;
+}
 int user_main(const char *args) {
     if (app_help("probe", args))
         return 0;
     if (!strcmp(args,"session-security")) return session_security_tests();
+    if (!strcmp(args,"lock-input")) return lock_input_tests();
+    if (!strcmp(args,"lock-input-child")) return lock_input_child();
     if (!strcmp(args,"udp-isolation") || !strcmp(args,"udp-conflict") ||
         !strcmp(args,"udp-release") || !strcmp(args,"udp-old-port")) return udp_security_tests(args);
     println("Nuvora Core integration probe (running in Ring 3)");

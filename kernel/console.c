@@ -593,7 +593,7 @@ int console_getc(void) {
     return -1;
 }
 int console_key(u32 pid) {
-    return screen_owner == pid ? raw_key() : -NV_EACCESS;
+    return screen_owner == pid && account_interactive_allowed(current) ? raw_key() : -NV_EACCESS;
 }
 bool console_owned(u32 pid) {
     return screen_owner == pid;
@@ -637,6 +637,22 @@ void console_release(u32 pid) {
     cursor();
     serial_text("\033[0m\033[?25h\033[?7h\033[?1049l");
 }
+void console_session_lock(u32 manager) {
+    /* An application cannot retain the recovery login display. The trusted
+     * graphical manager keeps its display so it can render authentication. */
+    if (screen_owner && screen_owner != manager) console_release(screen_owner);
+    input_head = input_tail = 0;
+    memset(input, 0, sizeof(input));
+    pointer_reset();
+}
+int console_clear_for(struct task *t) {
+    if (!account_interactive_allowed(t)) return -NV_EACCESS;
+    int result = window_stdio_clear(t);
+    if (result != -NV_ENODEV) return result;
+    if (!console_owned(0)) return -NV_EBUSY;
+    console_clear();
+    return 0;
+}
 int console_surface(u32 pid, u32 op, const struct nv_surface *screen_ptr) {
     if (graphics_owner)
         return op == NV_SCREEN_ACQUIRE ? -NV_EBUSY : -NV_EACCESS;
@@ -664,6 +680,7 @@ int console_surface(u32 pid, u32 op, const struct nv_surface *screen_ptr) {
         console_release(pid);
         return 0;
     }
+    if (!account_interactive_allowed(current)) return -NV_EACCESS;
     if (screen_ptr->cursor > 2000)
         return -NV_EINVAL;
     /* Restrict characters to the terminal's supported ASCII repertoire; bit 7
@@ -731,6 +748,7 @@ int console_display_info(struct nv_display_info *out) {
 }
 int console_display_acquire(u32 pid) {
     if (!fb_ready) return -NV_ENODEV;
+    if (!account_interactive_allowed(current)) return -NV_EACCESS;
     if (screen_owner == pid)
         return graphics_owner ? 0 : -NV_EBUSY;
     int r = console_surface(pid, NV_SCREEN_ACQUIRE, NULL);
@@ -754,7 +772,8 @@ int input_ioctl(u32 op, uptr pointer) {
         memcpy((void *)(uptr)pointer, &info, sizeof(info));
         return 0;
     }
-    if (screen_owner != current->pid || !graphics_owner) return -NV_EACCESS;
+    if (screen_owner != current->pid || !graphics_owner ||
+        !account_interactive_allowed(current)) return -NV_EACCESS;
     struct nv_pointer_event event;
     if (!pointer_next(&event)) return 0;
     memcpy((void *)(uptr)pointer, &event, sizeof(event));
@@ -762,7 +781,8 @@ int input_ioctl(u32 op, uptr pointer) {
 }
 int console_display_present(u32 pid, const struct nv_display_present *r) {
     if (!fb_ready) return -NV_ENODEV;
-    if (screen_owner != pid || !graphics_owner) return -NV_EACCESS;
+    if (screen_owner != pid || !graphics_owner ||
+        !account_interactive_allowed(current)) return -NV_EACCESS;
     if (!r->width || !r->height || r->x >= fb_width || r->y >= fb_height ||
         r->width > fb_width - r->x || r->height > fb_height - r->y ||
         (u64)r->width * r->height * 4 > NV_DISPLAY_MAX_COPY ||

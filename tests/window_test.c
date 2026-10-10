@@ -15,6 +15,7 @@ static u32 allocations, fail_after = ~0u;
 static bool console_owned(u32 pid) { return pid == 2; }
 static bool interactive=true;
 static bool account_interactive_allowed(const struct task *t) { (void)t;return interactive; }
+static bool account_session_allowed(const struct task *t) { (void)t;return interactive; }
 static void *kmalloc(usize n) { return malloc(n); }
 static void kfree(void *p) { free(p); }
 static uptr page_alloc(void) {
@@ -51,7 +52,7 @@ static void frame(u32 id, u32 serial, u32 width, u32 height, u32 value) {
     assert(io(NV_WINDOW_UPLOAD64,&p,sizeof(p))==0);
     struct nv_window_id c={id}; assert(io(NV_WINDOW_COMMIT,&c,sizeof(c))==0);
 }
-int main(void) {
+int main(int argc,char **argv) {
     user=mmap(NULL,2*NV_DISPLAY_MAX_COPY,PROT_READ|PROT_WRITE,
         MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert(user!=MAP_FAILED && (uptr)user>0xffffffffull);
@@ -148,9 +149,43 @@ int main(void) {
     assert(window_stdio_read(&tasks[2],&ch,1)==1 && ch=='y');
     cfg.flags=NV_WINDOW_VISIBLE; assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
     assert(io(NV_WINDOW_SEND,&e,sizeof(e))==-NV_EACCESS);
+    cfg.flags=NV_WINDOW_VISIBLE|NV_WINDOW_FOCUSED;
+    assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    e.key='z'|NV_KEY_DIRECT;assert(io(NV_WINDOW_SEND,&e,sizeof(e))==0);
+    interactive=false;
+    if (argc==1 || !strcmp(argv[1],"locked-send")) {
+        u32 queued=tw->queued;
+        assert(io(NV_WINDOW_SEND,&e,sizeof(e))==-NV_EACCESS && tw->queued==queued);
+    }
+    if (argc==1 || !strcmp(argv[1],"locked-stdio")) {
+        ch=0xa9;u32 queued=tw->queued;
+        assert(window_stdio_read(&tasks[2],&ch,1)==-NV_EACCESS && ch==0xa9 && tw->queued==queued);
+        assert(window_stdio_read(&tasks[2],&ch,0)==-NV_EACCESS && tw->queued==queued);
+    }
+    if (argc==1 || !strcmp(argv[1],"locked-window")) {
+        use(1);q.id=terminal;u32 queued=tw->queued;struct nv_window_event before=q;
+        assert(io(NV_WINDOW_POLL,&q,sizeof(q))==-NV_EACCESS && tw->queued==queued);
+        assert(!memcmp(user,&before,sizeof(before)));
+    }
+    interactive=true;use(0);
+    assert(window_stdio_read(&tasks[2],&ch,1)==1 && ch=='z');
+    assert(io(NV_WINDOW_SEND,&e,sizeof(e))==0);
+    e=(struct nv_window_event){.id=terminal,.type=NV_WINDOW_EVENT_POINTER,.x=12,.y=20};
+    assert(io(NV_WINDOW_SEND,&e,sizeof(e))==0);
+    tw->close_pending=tw->configure_pending=tw->focus_pending=true;
+    u32 generation=tw->generation,serial=tw->serial;
+    window_session_lock();
+    assert(!tw->queued && !tw->head && !tw->tail && tw->generation==generation && tw->serial==serial);
+    for (u32 i=0;i<sizeof(tw->events);++i) assert(!((u8 *)tw->events)[i]);
+    assert(tw->close_pending && tw->configure_pending && tw->focus_pending);
+    use(1);q.id=terminal;assert(io(NV_WINDOW_POLL,&q,sizeof(q))==1);
+    assert(((struct nv_window_event *)user)->type==NV_WINDOW_EVENT_CLOSE);
+    assert(io(NV_WINDOW_POLL,&q,sizeof(q))==1 && ((struct nv_window_event *)user)->type==NV_WINDOW_EVENT_CONFIGURE);
+    assert(io(NV_WINDOW_POLL,&q,sizeof(q))==1 && ((struct nv_window_event *)user)->type==NV_WINDOW_EVENT_FOCUS);
+    assert(io(NV_WINDOW_POLL,&q,sizeof(q))==0);
     window_task_release(2); assert(!allocations && !window_server && !window_find(terminal));
     use(1); assert(io(NV_WINDOW_POLL,&q,sizeof(q))==-NV_ENODEV);
     munmap(user,2*NV_DISPLAY_MAX_COPY);
-    puts("window: complete-frame publication, fragmented pages, stale snapshots/configures, allocation rollback, access control, input ordering, inherited terminal stdio and cleanup passed");
+    puts("window: complete-frame publication, fragmented pages, stale snapshots/configures, allocation rollback, access control, locked input, input flushing with lifecycle retention, inherited terminal stdio and cleanup passed");
     return 0;
 }

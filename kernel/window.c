@@ -21,6 +21,16 @@ struct native_window {
 static struct native_window native_windows[NV_WINDOW_MAX];
 static u32 window_server, next_window_id = 1;
 
+void window_session_lock(void) {
+    /* Drop input from the old interaction, but retain window lifecycle state
+     * and private frames so applications can resume after authentication. */
+    for (u32 i = 0; i < NV_WINDOW_MAX; ++i) {
+        struct native_window *w = &native_windows[i];
+        w->head = w->tail = w->queued = 0;
+        memset(w->events, 0, sizeof(w->events));
+    }
+}
+
 static void buffer_free(struct window_buffer *b) {
     for (u32 i = 0; i < b->count; ++i) page_free(b->pages[i]);
     kfree(b->pages);
@@ -125,6 +135,7 @@ int window_stdio_write(struct task *t, const void *bytes, u32 length) {
 int window_stdio_read(struct task *t, void *bytes, u32 length) {
     struct native_window *w = stdio_window(t);
     if (!w) return -NV_ENODEV;
+    if (!account_interactive_allowed(t)) return -NV_EACCESS;
     if (!length) return 0;
     if (w->close_pending) return -NV_EIO;
     while (w->queued) {
@@ -287,10 +298,14 @@ int window_ioctl(u32 op, uptr pointer) {
         return 0;
     }
     if (op == NV_WINDOW_SEND) {
+        /* The desktop may observe the timer's lock on its next frame. Do not
+         * queue fresh authentication input to an old focused application. */
+        if (!account_session_allowed(current)) return -NV_EACCESS;
         struct nv_window_event io; memcpy(&io, user, sizeof(io));
         return window_queue(w, &io);
     }
     if (op == NV_WINDOW_POLL) {
+        if (!account_interactive_allowed(current)) return -NV_EACCESS;
         struct nv_window_event io;
         int result = window_event(w, &io);
         memcpy(user, &io, sizeof(io)); return result;
