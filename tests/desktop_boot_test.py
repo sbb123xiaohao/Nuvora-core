@@ -154,6 +154,22 @@ def has_video_frame(pixels):
     return bright > 5000
 
 
+def video_pause_control(pixels, width, height):
+    """Locate the actual playing circle below the decoded video viewport."""
+    left, _, right, bottom = color_bounds(pixels, width, 0x10213b)
+    x = (left + right + 1) // 2
+    runs, start = [], None
+    for y in range(bottom + 1, height + 1):
+        blue = y < height and pixels[(y * width + x) * 3:(y * width + x) * 3 + 3] == b'\x17\x61\xf5'
+        if blue and start is None:
+            start = y
+        elif not blue and start is not None:
+            runs.append((y - start, start)); start = None
+    length, top = max(runs)
+    assert length >= 20, 'Playing video transport was not published'
+    return x, top + length // 2
+
+
 def ui_scale(width, height):
     return 4 if width >= 3840 and height >= 2000 else 3 if width >= 2880 and height >= 1620 else 2 if width >= 1600 and height >= 900 else 1
 
@@ -461,9 +477,17 @@ def main():
                         break
                     if time.monotonic() > deadline:
                         raise AssertionError('Media did not publish a decoded MPEG frame')
+                pause_x, pause_y = video_pause_control(playback, width, height)
+                pause_at = (pause_y * width + pause_x) * 3
                 monitor.key('spc')
-                time.sleep(.5)
-                playback = monitor.shot(output, '14-video')[2]
+                deadline = time.monotonic() + 10
+                while True:
+                    playback = monitor.shot(output, '14-video')[2]
+                    if playback[pause_at:pause_at + 3] == b'\xff\xff\xff':
+                        break
+                    if time.monotonic() > deadline:
+                        raise AssertionError('Video did not publish its paused play icon')
+                    time.sleep(.1)
                 assert has_video_frame(playback)
                 time.sleep(.7)
                 assert monitor.shot(output, '14a-video-paused')[2] == playback

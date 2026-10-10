@@ -197,11 +197,8 @@ static void media_cover(struct nv_canvas *c, struct desktop_clip clip,
         u32 *out = c->pixels + (usize)(py - c->y0) * c->width;
         for (u32 px = left; px < right; ++px) {
             u32 lx = px - x, nx = lx * 1024 / side;
-            i32 dx = lx < radius ? (i32)radius - (i32)lx :
-                     lx >= side - radius ? (i32)lx - (i32)(side - radius - 1) : 0;
-            i32 dy = ly < radius ? (i32)radius - (i32)ly :
-                     ly >= side - radius ? (i32)ly - (i32)(side - radius - 1) : 0;
-            if (dx && dy && (u32)(dx * dx + dy * dy) > radius * radius) continue;
+            u32 alpha=desktop_round_coverage(lx,ly,side,side,radius);
+            if (!alpha) continue;
             u32 rgb = ny < 760 ? desktop_blend(0x759ab9, 0x102e68, ny * 230 / 760) :
                       desktop_blend(0x122344, 0x254f77, (ny - 760) * 255 / 264);
             i32 mx = (i32)nx - 790, my = (i32)ny - 205;
@@ -216,7 +213,8 @@ static void media_cover(struct nv_canvas *c, struct desktop_clip clip,
             } else if (ny > 775 && ((nx + ny / 9 + seed) % 113 < 50) && ny % 23 < 2)
                 rgb = desktop_blend(0x6486ab, rgb, 90);
             if (ny >= 746 && ny <= 760) rgb = 0x315780;
-            out[px] = nv_display_rgb(c->format, rgb);
+            u32 color=nv_display_rgb(c->format,rgb);
+            out[px] = alpha==255?color:desktop_blend(color,out[px],alpha);
         }
     }
 }
@@ -282,7 +280,7 @@ static void media_render(struct nv_canvas *c, u32 height, const struct media_vie
                 desktop_round(c, clip, g.body_x + g.body_w - peek, g.art_y + 8 * s, peek,
                               g.art_size > 16 * s ? g.art_size - 16 * s : 0, 10 * s, 0xab96ed);
             }
-            desktop_shadow(c, clip, g.art_x, g.art_y, g.art_size, g.art_size, s);
+            desktop_shadow(c, clip, g.art_x, g.art_y, g.art_size, g.art_size, MAX(1u,g.art_size/16),s);
             media_cover(c, clip, g.art_x, g.art_y, g.art_size, 17);
         }
         media_center_text(c, clip, center, g.title_y, v->title ? v->title : "Local media",

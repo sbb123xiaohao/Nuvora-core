@@ -362,7 +362,70 @@ static void icon_bounds(void) {
         assert(pixels[8*96+8]==0x718293); /* Rounded corners retain the backdrop. */
     }
 }
+static void rounded_window_edges(void) {
+    static const u32 modes[][2]={{1280,800},{1600,900},{2880,1800},{3840,2160}};
+    for (u32 format=NV_DISPLAY_BGRX8;format<=NV_DISPLAY_RGBX8;++format)
+    for (u32 s=1;s<=4;++s) for (u32 state=0;state<4;++state) {
+        u32 width=260*s,height=220*s,n=width*height;
+        u32 *full=guarded(n),*behind=guarded(n),*tiled=guarded(n),*damaged=guarded(n);
+        u32 green=0x328754,red=0xbe214a,background=nv_display_rgb(format,0x75a8bc);
+        for (u32 i=0;i<n;++i) full[i+1]=behind[i+1]=damaged[i+1]=background;
+        struct desktop_window windows[DESKTOP_WINDOW_COUNT]={0};
+        windows[DESKTOP_FILES]=(struct desktop_window){.x=20,.y=12,.w=200,.h=180,
+            .open=true,.client=1,.pixels=&green,.pixel_width=1,.pixel_height=1};
+        windows[DESKTOP_TERMINAL]=(struct desktop_window){.x=60,.y=64,.w=120,.h=96,
+            .open=true,.client=state==1?0:2,.pixels=&red,.pixel_width=1,.pixel_height=1,
+            .maximized=state==2,.tiled=state==3};
+        u8 order[DESKTOP_WINDOW_COUNT];for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
+        struct desktop_view v={.windows=windows,.order=order,.active=DESKTOP_TERMINAL,
+            .terminal_input="rounded overlap"};
+        struct desktop_clip all={0,0,width,height};
+        struct nv_canvas canvas={full+1,width,0,height,format};
+        struct nv_canvas backdrop={behind+1,width,0,height,format};
+        desktop_window_render(&canvas,s,&v,DESKTOP_FILES,all);
+        desktop_window_render(&backdrop,s,&v,DESKTOP_FILES,all);
+        if (state<2) desktop_shadow(&backdrop,all,60*s,64*s,120*s,96*s,14*s,s);
+        desktop_window_render(&canvas,s,&v,DESKTOP_TERMINAL,all);
+        /* Every transparent corner retains the actual lower client + shadow.
+         * Maximized/tiled frames instead cover every rectangular corner. */
+        for (u32 corner=0;corner<4;++corner) {
+            u32 x=60*s+(corner&1?120*s-1:0),y=64*s+(corner&2?96*s-1:0);
+            assert((full[1+y*width+x]==behind[1+y*width+x])==(state<2));
+            struct desktop_hit hit=desktop_hit(modes[s-1][0],modes[s-1][1],&v,x,y);
+            assert(hit.window==(state<2?DESKTOP_FILES:DESKTOP_TERMINAL));
+        }
+        struct desktop_hit inside=desktop_hit(modes[s-1][0],modes[s-1][1],&v,75*s,79*s);
+        assert(inside.window==DESKTOP_TERMINAL);
+        if (state!=1) assert(full[1+(100*s)*width+90*s]==nv_display_rgb(format,red));
+        for (u32 y=0;y<height;) {
+            u32 rows=MIN(y%17+1,height-y),count=width*rows;
+            u32 *allocation=guarded(count);
+            for (u32 i=0;i<count;++i) allocation[i+1]=background;
+            struct nv_canvas tile={allocation+1,width,y,rows,format};
+            desktop_window_render(&tile,s,&v,DESKTOP_FILES,all);
+            desktop_window_render(&tile,s,&v,DESKTOP_TERMINAL,all);
+            assert(allocation[0]==0x9173ace4 && allocation[count+1]==0x27607845);
+            memcpy(tiled+1+(usize)y*width,allocation+1,(usize)count*sizeof(u32));free(allocation);
+            struct nv_canvas damage={damaged+1,width,0,height,format};
+            for (u32 x=0;x<width;) {
+                u32 span=MIN(x%29+1,width-x);
+                struct desktop_clip clip={x,y,x+span,y+rows};
+                desktop_window_render(&damage,s,&v,DESKTOP_FILES,clip);
+                desktop_window_render(&damage,s,&v,DESKTOP_TERMINAL,clip);x+=span;
+            }
+            y+=rows;
+        }
+        assert(!memcmp(full+1,tiled+1,(usize)n*sizeof(u32)));
+        assert(!memcmp(full+1,damaged+1,(usize)n*sizeof(u32)));
+        u32 *buffers[]={full,behind,tiled,damaged};
+        for (u32 i=0;i<ARRAY_LEN(buffers);++i) {
+            assert(buffers[i][0]==0x9173ace4 && buffers[i][n+1]==0x27607845);
+            free(buffers[i]);
+        }
+    }
+}
 int main(void) {
+    rounded_window_edges();
     icon_bounds();
     settings_render(640,480,NV_DISPLAY_BGRX8);
     settings_render(1280,800,NV_DISPLAY_BGRX8);

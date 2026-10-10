@@ -78,6 +78,9 @@ static u32 desktop_scale(u32 width, u32 height) {
            width >= 2880 && height >= 1620 ? 3 :
            width >= 1600 && height >= 900 ? 2 : 1;
 }
+static u32 desktop_window_radius(const struct desktop_window *w) {
+    return w->maximized || w->tiled?0:MIN(14u,MIN(w->w,w->h)/2);
+}
 static u32 desktop_pointer_axis(u32 current, i32 value, u32 extent, bool absolute) {
     if (!extent) return 0;
     if (absolute) return (u32)((u64)(u32)MAX(0, MIN(value, 32767)) * (extent - 1) / 32767u);
@@ -269,6 +272,8 @@ static struct desktop_hit desktop_hit(u32 width, u32 height,
         if (!w->open || w->minimized || (i32)x < w->x || (i32)y < w->y ||
             (i32)x >= w->x + (i32)w->w || (i32)y >= w->y + (i32)w->h) continue;
         u32 rx = x - (u32)w->x, ry = y - (u32)w->y;
+        if (!desktop_round_coverage(px-(u32)w->x*s,py-(u32)w->y*s,w->w*s,w->h*s,
+            desktop_window_radius(w)*s)) continue;
         if (!w->maximized) {
             u32 edges=(rx<4?1u:rx>=w->w-4?2u:0u) | (ry<4?4u:ry>=w->h-4?8u:0u);
             if (edges) return (struct desktop_hit){DESKTOP_HIT_RESIZE,edges,id};
@@ -377,7 +382,7 @@ static void desktop_ipv4(char out[24],u32 address) {
 
 #include "files_ui.h"
 
-static void desktop_window_render(struct nv_canvas *c, u32 s,
+static void desktop_window_content(struct nv_canvas *c, u32 s,
                                   const struct desktop_view *v, u32 id,
                                   struct desktop_clip repaint) {
     const struct desktop_window *w = &v->windows[id];
@@ -386,10 +391,9 @@ static void desktop_window_render(struct nv_canvas *c, u32 s,
     struct desktop_clip clip = {MAX(x+s,repaint.left),MAX(y+s,repaint.top),
         MIN(x+width-s,repaint.right),MIN(y+height-s,repaint.bottom)};
     bool focus = v->active == id;
-    desktop_shadow(c,screen,(i32)x,(i32)y,width,height,s);
-    desktop_round(c,screen,x,y,width,height,14*s,focus ? 0xdce2ed : 0xe5e8ee);
+    desktop_box(c,screen,x,y,width,height,focus ? 0xdce2ed : 0xe5e8ee);
     desktop_box(c,clip,x+s,y+14*s,width-2*s,height-15*s,UI_BG);
-    desktop_round(c,screen,x+s,y+s,width-2*s,27*s,13*s,UI_WHITE);
+    desktop_round(c,screen,x+s,y+s,width-2*s,27*s,desktop_window_radius(w)?13*s:0,UI_WHITE);
     desktop_box(c,clip,x+s,y+14*s,width-2*s,14*s,UI_WHITE);
     desktop_label(c,clip,x+14*s,y+6*s,desktop_window_name(w,id),desktop_chars(width-102*s,s),s,focus?0x283752:0x748198);
     for (u32 i = 0; i < 3; ++i) {
@@ -438,8 +442,8 @@ static void desktop_window_render(struct nv_canvas *c, u32 s,
             }
         } else desktop_text(c,clip,left+16*s,top+16*s,"Opening...",10,s,0xd9e2e2);
         if (!w->maximized) for (u32 i=0;i<3;++i) {
-            desktop_box(c,clip,x+width-(4+i*3)*s,y+height-3*s,s,s,0x7a939a);
-            desktop_box(c,clip,x+width-3*s,y+height-(4+i*3)*s,s,s,0x7a939a);
+            desktop_box(c,clip,x+width-(7+i*3)*s,y+height-6*s,s,s,0x7a939a);
+            desktop_box(c,clip,x+width-6*s,y+height-(7+i*3)*s,s,s,0x7a939a);
         }
         return;
     }
@@ -451,9 +455,9 @@ static void desktop_window_render(struct nv_canvas *c, u32 s,
         desktop_files_render(c,clip,x,y,s,v);
         if (v->file_mode != DESKTOP_FILE_NORMAL) {
             u32 dx=x+25*s,dy=y+MAX(40u,w->h/2-48)*s,dw=width-50*s;
-            desktop_box(c,clip,dx+3*s,dy+4*s,dw,96*s,0x80929a);
-            desktop_box(c,clip,dx,dy,dw,96*s,0xf9f7f2);
-            desktop_box(c,clip,dx,dy,dw,4*s,0x31647a);
+            desktop_shadow(c,clip,dx,dy,dw,96*s,12*s,s);
+            desktop_round(c,clip,dx,dy,dw,96*s,12*s,UI_WHITE);
+            desktop_round(c,clip,dx+12*s,dy+7*s,dw-24*s,3*s,s,UI_BLUE);
             const char *title=v->file_mode==DESKTOP_FILE_FOLDER?"New folder":
                 v->file_mode==DESKTOP_FILE_RENAME?"Rename item":"Delete item?";
             desktop_text(c,clip,dx+12*s,dy+14*s,title,strlen(title),s,0x263d48);
@@ -461,13 +465,13 @@ static void desktop_window_render(struct nv_canvas *c, u32 s,
                 desktop_label(c,clip,dx+12*s,dy+39*s,v->file_target,
                               desktop_chars(dw-28*s,s),s,0x3b5360);
             else {
-                desktop_box(c,clip,dx+10*s,dy+35*s,dw-20*s,25*s,0xffffff);
+                desktop_round(c,clip,dx+10*s,dy+35*s,dw-20*s,25*s,6*s,UI_BG);
                 desktop_label(c,clip,dx+15*s,dy+44*s,v->file_input,
                               desktop_chars(dw-30*s,s),s,0x263d48);
             }
-            desktop_box(c,clip,dx+12*s,dy+64*s,82*s,24*s,
-                        v->file_mode==DESKTOP_FILE_DELETE?0xa14b40:0x31647a);
-            desktop_box(c,clip,dx+100*s,dy+64*s,75*s,24*s,0xe4e9e8);
+            desktop_round(c,clip,dx+12*s,dy+64*s,82*s,24*s,6*s,
+                        v->file_mode==DESKTOP_FILE_DELETE?0xa14b40:UI_BLUE);
+            desktop_round(c,clip,dx+100*s,dy+64*s,75*s,24*s,6*s,UI_BG);
             const char *verb=v->file_mode==DESKTOP_FILE_FOLDER?"Create":
                 v->file_mode==DESKTOP_FILE_RENAME?"Rename":"Delete";
             desktop_text(c,clip,dx+21*s,dy+72*s,verb,strlen(verb),s,0xffffff);
@@ -506,24 +510,24 @@ static void desktop_window_render(struct nv_canvas *c, u32 s,
         desktop_text(c,clip,x+99*s,y+height-18*s,"Ctrl-S Save  Ctrl-N New",23,s,0x5e7077);
         if (v->editor_mode != DESKTOP_EDIT_NORMAL) {
             u32 dx=x+25*s, dy=y+MAX(66u,w->h/2-38)*s, dw=width-50*s;
-            desktop_box(c,clip,dx+3*s,dy+4*s,dw,82*s,0x80929a);
-            desktop_box(c,clip,dx,dy,dw,82*s,0xf9f7f2);
-            desktop_box(c,clip,dx,dy,dw,4*s,0x31647a);
+            desktop_shadow(c,clip,dx,dy,dw,82*s,12*s,s);
+            desktop_round(c,clip,dx,dy,dw,82*s,12*s,UI_WHITE);
+            desktop_round(c,clip,dx+12*s,dy+7*s,dw-24*s,3*s,s,UI_BLUE);
             if (v->editor_mode == DESKTOP_EDIT_PATH) {
                 desktop_text(c,clip,dx+12*s,dy+13*s,"Save document as",16,s,0x263d48);
-                desktop_box(c,clip,dx+10*s,dy+35*s,dw-20*s,23*s,0xffffff);
+                desktop_round(c,clip,dx+10*s,dy+35*s,dw-20*s,23*s,6*s,UI_BG);
                 desktop_label(c,clip,dx+15*s,dy+43*s,v->editor_input,
                               desktop_chars(dw-30*s,s),s,0x263d48);
-                desktop_box(c,clip,dx+12*s,dy+61*s,62*s,17*s,0x31647a);
-                desktop_box(c,clip,dx+80*s,dy+61*s,64*s,17*s,0xe4e9e8);
+                desktop_round(c,clip,dx+12*s,dy+61*s,62*s,17*s,5*s,UI_BLUE);
+                desktop_round(c,clip,dx+80*s,dy+61*s,64*s,17*s,5*s,UI_BG);
                 desktop_text(c,clip,dx+24*s,dy+66*s,"Save",4,s,0xffffff);
                 desktop_text(c,clip,dx+91*s,dy+66*s,"Cancel",6,s,0x304953);
             } else {
                 desktop_text(c,clip,dx+12*s,dy+13*s,"Unsaved changes",15,s,0x263d48);
                 desktop_text(c,clip,dx+12*s,dy+29*s,"Save before closing?",20,s,0x425b66);
-                desktop_box(c,clip,dx+12*s,dy+42*s,62*s,28*s,0x31647a);
-                desktop_box(c,clip,dx+80*s,dy+42*s,69*s,28*s,0xe4e9e8);
-                desktop_box(c,clip,dx+155*s,dy+42*s,64*s,28*s,0xe4e9e8);
+                desktop_round(c,clip,dx+12*s,dy+42*s,62*s,28*s,6*s,UI_BLUE);
+                desktop_round(c,clip,dx+80*s,dy+42*s,69*s,28*s,6*s,UI_BG);
+                desktop_round(c,clip,dx+155*s,dy+42*s,64*s,28*s,6*s,UI_BG);
                 desktop_text(c,clip,dx+24*s,dy+52*s,"Save",4,s,0xffffff);
                 desktop_text(c,clip,dx+91*s,dy+52*s,"Discard",7,s,0x304953);
                 desktop_text(c,clip,dx+164*s,dy+52*s,"Cancel",6,s,0x304953);
@@ -547,7 +551,40 @@ static void desktop_window_render(struct nv_canvas *c, u32 s,
         if (focus) desktop_box(c,clip,x+27*s+(input_length-input_start)*6*s,
                                y+height-27*s,s,10*s,0x8ac5c3);
     }
-    if (!w->maximized) desktop_box(c,clip,x+width-8*s,y+height-8*s,6*s,6*s,0x8ca1a8);
+    if (!w->maximized) ui_line_icon(c,clip,x+width-14*s,y+height-14*s,8*s,UI_ICON_MORE,UI_MUTED);
+}
+
+/* Only corner pixels need a backdrop, not a second full window buffer.
+ * Desktop scaling is bounded to four; keep this off the 32 KiB user stack. */
+enum { DESKTOP_CORNER_SIDE=14*4 };
+static u32 desktop_corner_backdrop[4][DESKTOP_CORNER_SIDE*DESKTOP_CORNER_SIDE];
+static void desktop_window_corners(struct nv_canvas *c,struct desktop_clip clip,
+    u32 x,u32 y,u32 width,u32 height,u32 radius,bool restore) {
+    if (!radius) return;
+    for (u32 corner=0;corner<4;++corner) {
+        u32 ox=x+(corner&1?width-radius:0),oy=y+(corner&2?height-radius:0);
+        u32 left=MAX(ox,clip.left),right=MIN(MIN(ox+radius,c->width),clip.right);
+        u32 top=MAX(MAX(oy,clip.top),c->y0),bottom=MIN(MIN(oy+radius,clip.bottom),c->y0+c->rows);
+        for (u32 py=top;py<bottom;++py) for (u32 px=left;px<right;++px) {
+            u32 alpha=desktop_round_coverage(px-x,py-y,width,height,radius);
+            if (alpha==255) continue;
+            u32 at=(py-oy)*radius+px-ox;
+            u32 *pixel=c->pixels+(usize)(py-c->y0)*c->width+px;
+            if (!restore) desktop_corner_backdrop[corner][at]=*pixel;
+            else *pixel=alpha?desktop_blend(*pixel,desktop_corner_backdrop[corner][at],alpha):
+                desktop_corner_backdrop[corner][at];
+        }
+    }
+}
+static void desktop_window_render(struct nv_canvas *c,u32 s,
+    const struct desktop_view *v,u32 id,struct desktop_clip repaint) {
+    const struct desktop_window *w=&v->windows[id];
+    u32 x=(u32)w->x*s,y=(u32)w->y*s,width=w->w*s,height=w->h*s;
+    u32 radius=desktop_window_radius(w)*s;
+    if (radius) desktop_shadow(c,repaint,x,y,width,height,radius,s);
+    desktop_window_corners(c,repaint,x,y,width,height,radius,false);
+    desktop_window_content(c,s,v,id,repaint);
+    desktop_window_corners(c,repaint,x,y,width,height,radius,true);
 }
 
 /* Sample the existing compositor a scanline at a time. These are real window
@@ -682,7 +719,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_background(c,screen,height,v,true);
         desktop_bold_text(c,screen,28*s,20*s,"Nuvora",6,s,0xe5edff);
         desktop_text(c,screen,28*s,45*s,"Your personal workspace",23,s,0xa5b7d7);
-        desktop_shadow(c,screen,r.x*s,r.y*s,r.w*s,r.h*s,s);
+        desktop_shadow(c,screen,r.x*s,r.y*s,r.w*s,r.h*s,14*s,s);
         account_ui_render(c,screen,r.x*s,r.y*s,r.w,r.h,s,a);
         desktop_text(c,screen,24*s,(sh-29)*s,a->info.flags&NV_AUTH_LOCKED?
             "Session locked":"Local sign-in",a->info.flags&NV_AUTH_LOCKED?14:13,s,0x9fb6bf);
@@ -726,7 +763,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
     if (!v->overview && !v->menu && *v->message && (!v->windows[DESKTOP_FILES].open ||
                         v->windows[DESKTOP_FILES].minimized)) {
         u32 width=MIN(480u,sw-48),x=(sw-width)/2,y=sh-116;
-        desktop_shadow(c,screen,x*s,y*s,width*s,44*s,s);
+        desktop_shadow(c,screen,x*s,y*s,width*s,44*s,14*s,s);
         desktop_round(c,screen,x*s,y*s,width*s,44*s,14*s,UI_WHITE);
         desktop_round(c,screen,(x+12)*s,(y+10)*s,24*s,24*s,8*s,
             v->message_error?0xffecee:UI_BLUE_PALE);
@@ -737,7 +774,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_text(c,screen,(x+46)*s,(y+13)*s,v->message,count,s,UI_TEXT);
     }
     u32 dock_x=desktop_dock_x(sw,v)*s,dock_w=desktop_dock_width(sw,v)*s;
-    desktop_shadow(c,screen,dock_x,(sh-52)*s,dock_w,48*s,s);
+    desktop_shadow(c,screen,dock_x,(sh-52)*s,dock_w,48*s,16*s,s);
     desktop_round_alpha(c,screen,dock_x,(sh-52)*s,dock_w,48*s,16*s,0xedf3ff,235);
     desktop_round(c,screen,dock_x+10*s,(sh-40)*s,28*s,28*s,8*s,
         v->overview || v->hover_kind==DESKTOP_HIT_OVERVIEW_BUTTON?0xc5d5f6:0xe3ebfa);
@@ -769,7 +806,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         const struct desktop_launcher *l=v->launcher;
         struct desktop_rect r=desktop_menu_rect(sw,sh);
         u32 top=r.y*s,x=r.x*s;
-        desktop_shadow(c,screen,x,top,r.w*s,r.h*s,s);
+        desktop_shadow(c,screen,x,top,r.w*s,r.h*s,16*s,s);
         desktop_round(c,screen,x,top,r.w*s,r.h*s,16*s,0xf5f8ff);
         desktop_bold_text(c,screen,x+20*s,top+16*s,"Your apps",9,s,UI_TEXT);
         desktop_text(c,screen,x+(r.w-126)*s,top+16*s,"Esc to close",12,s,UI_MUTED);
@@ -816,7 +853,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
     }
     if (v->volume_open && sw >= 640) {
         u32 x=(sw-193)*s,y=(sh-127)*s;
-        desktop_shadow(c,screen,x,y,175*s,87*s,s);
+        desktop_shadow(c,screen,x,y,175*s,87*s,14*s,s);
         desktop_round(c,screen,x,y,175*s,87*s,14*s,UI_WHITE);
         desktop_text(c,screen,x+15*s,y+14*s,"Output volume",13,s,UI_TEXT);
         desktop_round(c,screen,(sw-174)*s,(sh-73)*s,156*s,4*s,2*s,UI_BORDER);

@@ -143,10 +143,62 @@ static void off_edge(void) {
                         release_pixels(&first);release_pixels(&again);
                     }
 }
+/* Compare the optimized exposed shadow against complete rounded layers.
+ * Opaque cards hide the core; their cutouts must retain every shadow layer. */
+static void card_scene(struct nv_canvas *c,struct desktop_clip clip,u32 scale,bool reference) {
+    static const i32 rectangles[][5]={
+        {-17,-9,67,51,14},{30,22,73,57,16},{102,71,58,43,12},{3,98,31,27,40}
+    };
+    for (u32 card=0;card<ARRAY_LEN(rectangles);++card) {
+        i32 x=rectangles[card][0]*(i32)scale,y=rectangles[card][1]*(i32)scale;
+        u32 w=rectangles[card][2]*scale,h=rectangles[card][3]*scale;
+        u32 radius=MIN((u32)rectangles[card][4]*scale,MIN(w,h)/2);
+        if (reference) for (i32 i=6;i>=1;--i)
+            desktop_round_alpha(c,clip,x-i*(i32)scale,y+(3-i)*(i32)scale,
+                w+2*i*scale,h+2*i*scale,radius+i*scale,0x52647f,6);
+        else desktop_shadow(c,clip,x,y,w,h,radius,scale);
+        desktop_round(c,clip,x,y,w,h,radius,card&1?UI_BLUE:UI_WHITE);
+    }
+}
+static void rounded_shadows(u32 format,u32 scale) {
+    u32 width=137*scale,height=119*scale,count=width*height;
+    u32 background=pixel_word(format,0xadc5db);
+    struct guarded_pixels actual=allocate_pixels(count,background);
+    struct guarded_pixels reference=allocate_pixels(count,background);
+    struct guarded_pixels tiled=allocate_pixels(count,background);
+    struct guarded_pixels damage=allocate_pixels(count,background);
+    struct nv_canvas a={actual.pixels,width,0,height,format};
+    struct nv_canvas b={reference.pixels,width,0,height,format};
+    struct nv_canvas d={damage.pixels,width,0,height,format};
+    struct desktop_clip all={0,0,width,height};
+    card_scene(&a,all,scale,false);card_scene(&b,all,scale,true);
+    assert(!memcmp(actual.pixels,reference.pixels,(usize)count*sizeof(u32)));
+    static const u32 spans[]={1,11,3,23,7};
+    for (u32 y=0,part=0;y<height;++part) {
+        u32 rows=MIN(spans[part%ARRAY_LEN(spans)],height-y);
+        struct guarded_pixels tile=allocate_pixels(width*rows,background);
+        struct nv_canvas c={tile.pixels,width,y,rows,format};
+        card_scene(&c,all,scale,false);
+        memcpy(tiled.pixels+(usize)y*width,tile.pixels,(usize)width*rows*sizeof(u32));
+        release_pixels(&tile);
+        for (u32 x=0,column=0;x<width;++column) {
+            u32 columns=MIN(spans[column%ARRAY_LEN(spans)],width-x);
+            struct desktop_clip crop={x,y,x+columns,y+rows};
+            card_scene(&d,crop,scale,false);x+=columns;
+        }
+        y+=rows;
+    }
+    assert(!memcmp(actual.pixels,tiled.pixels,(usize)count*sizeof(u32)));
+    assert(!memcmp(actual.pixels,damage.pixels,(usize)count*sizeof(u32)));
+    release_pixels(&actual);release_pixels(&reference);
+    release_pixels(&tiled);release_pixels(&damage);
+}
 int main(void) {
     exact_colors();off_edge();
     for (u32 format=NV_DISPLAY_BGRX8;format<=NV_DISPLAY_RGBX8;++format)
-        for (u32 scale=1;scale<=4;++scale) tiled_and_clipped(format,scale);
-    puts("PASS native controls: line icons, exact RGBX/BGRX colors, arbitrary tiles/clips and guarded edge bounds");
+        for (u32 scale=1;scale<=4;++scale) {
+            tiled_and_clipped(format,scale);rounded_shadows(format,scale);
+        }
+    puts("PASS native controls: line icons, rounded shadows vs complete layers, RGBX/BGRX, scales 1-4, arbitrary tiles/clips and guarded bounds");
     return 0;
 }

@@ -2,72 +2,72 @@
   "capture": "QMP screendump; lossless P6 to RGB PNG",
   "boot": "production UEFI USB; q35; 256 MiB; AHCI; USB keyboard/tablet; e1000e; HDA",
   "qemu": "QEMU emulator version 11.1.1",
-  "kernel_sha256": "61cb3d58b0ad4847f3427401f27b8d6ccd27d04ea48982a41080491d2cecea16",
-  "esp_sha256": "e9273a652ec6eab61426fe27a4f29dcb0fa3d1ad82a4bdd554868dd366f4334f",
+  "kernel_sha256": "07bee964d40a1cb02429f507a579963f60273399cf8253d26277a49d5e13c4e5",
+  "esp_sha256": "1286e213bf5416b50d67ec2f7533a1945e5b019a9e91587e7ff4117914044190",
   "firmware_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
   "screenshots": [
     {
       "file": "desktop.png",
       "width": 1280,
       "height": 800,
-      "sha256": "adb064f74754ad707213fca9a0faecbda9f13db1a999ae296cc3f79b82562d57"
+      "sha256": "c67ef31949beba546f1416bc483b4f1f11eea3231e1dcc52a5cc12b5a73a313a"
     },
     {
       "file": "apps.png",
       "width": 1280,
       "height": 800,
-      "sha256": "adb50330598fe2426ee131f67e16dd4aff7112e948cf93ada1d46664edb1a5ed"
+      "sha256": "747785caa2bc7e7f24ddfb9a2aa46ba0cc11defecb5e249a524a8d24dbb50efe"
     },
     {
       "file": "files.png",
       "width": 1280,
       "height": 800,
-      "sha256": "d09eac9d6d15628f45c8545375a8d882aa6facf91fea3942e8d9ce48d041569c"
+      "sha256": "f5a2d40cfac01e9574c6cfd93a207e4616426e7a893484f30e1bb6c6e2498f40"
     },
     {
       "file": "notification.png",
       "width": 1280,
       "height": 800,
-      "sha256": "121958fffcdddbba0e6f98e713395560c66fe52baaead33a6efd2c012af08d2a"
+      "sha256": "1d7922eefbe5aeefdc14abfae54b48e3f5749ed4f6c2160be6a894cd90c42f97"
     },
     {
       "file": "files-terminal.png",
       "width": 1280,
       "height": 800,
-      "sha256": "a8212ad4e7b6051efc0e8d87e690f2fa59602861bbe82ee1d127c1b51b3473f2"
+      "sha256": "883c19a475e487fcd7a028b21f2b9e173aac91ce5c2c20abb8c584f486df6280"
     },
     {
       "file": "files-editor.png",
       "width": 1280,
       "height": 800,
-      "sha256": "53ab627dfe24d6fe7ec2a3a1c0787651fcc09b168def21bd2f911097639a8477"
+      "sha256": "e1371cd1d484b5e5b9a5260facc23f0ae85161af813da7833dd8e391a412f57f"
     },
     {
       "file": "settings.png",
       "width": 1280,
       "height": 800,
-      "sha256": "574277a2dc3c39eea18c4fdde6873130190e8b535f3450c001f903a1b1684ff8"
+      "sha256": "595a5d935862645640e29071334a7ee20d0a1783eead55268a3ba062ec5075c5"
     },
     {
       "file": "settings-sound.png",
       "width": 1280,
       "height": 800,
-      "sha256": "c6ec6425321d26584da4f34a05a9f648e7ec8079de7e8d1769ab3c854f534608"
+      "sha256": "31e3690355b08dfa61180bfcf4743d226a11b12376026d1dec31ff570d503f8d"
     },
     {
       "file": "settings-network.png",
       "width": 1280,
       "height": 800,
-      "sha256": "1f723ae77fe50e90688965e9cae0d5778bcd006cd096877b80e2baf1512e72bd"
+      "sha256": "c9493a47ff198108b6b8b4008c44d79b40af48c813a0405d70193807af98fdb3"
     },
     {
       "file": "music.png",
       "width": 1280,
       "height": 800,
-      "sha256": "64377139f0e71b733609e697073d1a847c65763857a722e41ba246401c9801f3"
+      "sha256": "a8923c92677f4fea212ee2ce81fecfda24bcc8a6190782f520ebd24e46dcc870"
     }
   ],
-  "audio_capture_sha256": "ab7173cf3aad25f8d2c71e5de0718c41e8e7e09de92ede7abbd3a0e2957e1bef",
+  "audio_capture_sha256": "4edab76975d2a78a2b2aa012c3d664d8c14e09f5285fa82da9d9b0e617aa9569",
   "audio_peaks": [
     6000,
     6000

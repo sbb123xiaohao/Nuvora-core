@@ -14,6 +14,18 @@ static inline u32 desktop_blend(u32 foreground,u32 background,u32 alpha) {
 }
 /* Signed bounds allow clipped shadows at the edge of the screen. The same
  * coverage calculation is used for full frames and arbitrary damage tiles. */
+static inline u32 desktop_round_coverage(u32 px,u32 py,u32 w,u32 h,u32 radius) {
+    if (px>=w || py>=h) return 0;
+    radius=MIN(radius,MIN(w,h)/2);
+    if (!radius) return 255;
+    i64 cx=px<radius?2*(i64)px+1-2*radius:
+        px>=w-radius?2*(i64)(px-(w-radius))+1:0;
+    i64 cy=py<radius?2*(i64)py+1-2*radius:
+        py>=h-radius?2*(i64)(py-(h-radius))+1:0;
+    if (!cx || !cy) return 255;
+    i64 coverage=(i64)radius*radius*4-cx*cx-cy*cy+2*radius;
+    return coverage<=0?0:(u32)(MIN(coverage,(i64)4*radius)*255/(4*radius));
+}
 static inline void desktop_round_alpha(struct nv_canvas *c,struct desktop_clip clip,
     i32 x,i32 y,u32 w,u32 h,u32 radius,u32 rgb,u32 opacity) {
     if (!w || !h || !opacity) return;
@@ -22,20 +34,11 @@ static inline void desktop_round_alpha(struct nv_canvas *c,struct desktop_clip c
     i32 top=MAX(MAX(y,(i32)c->y0),(i32)clip.top);
     i32 bottom=MIN(MIN((i64)y+h,(i64)c->y0+c->rows),(i64)clip.bottom);
     u32 color=nv_display_rgb(c->format,rgb);
-    i64 rr=(i64)radius*radius*4;
     for (i32 py=top;py<bottom;++py) {
         u32 *out=c->pixels+(usize)(py-(i32)c->y0)*c->width;
-        i32 dy=py-y,cy=dy<(i32)radius?2*dy+1-2*(i32)radius:
-            dy>=(i32)(h-radius)?2*(dy-(i32)(h-radius))+1:0;
         for (i32 px=left;px<right;++px) {
-            i32 dx=px-x,cx=dx<(i32)radius?2*dx+1-2*(i32)radius:
-                dx>=(i32)(w-radius)?2*(dx-(i32)(w-radius))+1:0;
-            u32 alpha=opacity;
-            if (radius && cx && cy) {
-                i64 coverage=rr-(i64)cx*cx-(i64)cy*cy+2*radius;
-                if (coverage<=0) continue;
-                alpha=(u32)(MIN(coverage,(i64)4*radius)*opacity/(4*radius));
-            }
+            u32 alpha=desktop_round_coverage((u32)(px-x),(u32)(py-y),w,h,radius)*opacity/255;
+            if (!alpha) continue;
             out[px]=alpha==255?color:desktop_blend(color,out[px],alpha);
         }
     }
@@ -45,18 +48,36 @@ static inline void desktop_round(struct nv_canvas *c,struct desktop_clip clip,
     desktop_round_alpha(c,clip,x,y,w,h,radius,rgb,255);
 }
 static inline void desktop_shadow(struct nv_canvas *c,struct desktop_clip clip,
-    i32 x,i32 y,u32 w,u32 h,u32 scale) {
-    /* The card covers its interior. Paint only the four exposed bands;
-     * large windows should not blend six discarded full-size shadows. */
-    u32 left=(u32)MAX(0,x),top=(u32)MAX(0,y),right=(u32)MAX(0,(i64)x+w),bottom=(u32)MAX(0,(i64)y+h);
-    struct desktop_clip bands[]={
-        {clip.left,clip.top,clip.right,MIN(clip.bottom,top)},
-        {clip.left,MAX(clip.top,bottom),clip.right,clip.bottom},
-        {clip.left,MAX(clip.top,top),MIN(clip.right,left),MIN(clip.bottom,bottom)},
-        {MAX(clip.left,right),MAX(clip.top,top),clip.right,MIN(clip.bottom,bottom)}};
-    for (u32 part=0;part<4;++part) for (i32 i=6;i>=1;--i)
-        desktop_round_alpha(c,bands[part],x-i*(i32)scale,y+(3-i)*(i32)scale,
-            w+2*i*scale,h+2*i*scale,(10+i)*scale,0x050b18,9);
+    i32 x,i32 y,u32 w,u32 h,u32 radius,u32 scale) {
+    if (!w || !h || !scale) return;
+    radius=MIN(radius,MIN(w,h)/2);
+    i32 left=MAX(MAX((i64)x-6*scale,0),(i64)clip.left);
+    i32 right=MIN(MIN((i64)x+w+6*scale,(i64)c->width),(i64)clip.right);
+    i32 top=MAX(MAX((i64)y-3*scale,(i64)c->y0),(i64)clip.top);
+    i32 bottom=MIN(MIN((i64)y+h+9*scale,(i64)c->y0+c->rows),(i64)clip.bottom);
+    u32 color=nv_display_rgb(c->format,0x52647f);
+    for (i32 py=top;py<bottom;++py) {
+        /* Visit exposed bands AND rounded cutouts; skip the covered core.
+         * A rectangular exclusion left straight seams at every card corner. */
+        bool within=py>=y && (i64)py<(i64)y+h;
+        u32 inset=within && (py<y+(i64)radius || (i64)py>=(i64)y+h-radius)?radius:0;
+        i32 core_left=within?MAX(left,MIN((i64)x+inset,(i64)right)):right;
+        i32 core_right=within?MAX(left,MIN((i64)x+w-inset,(i64)right)):right;
+        u32 *out=c->pixels+(usize)(py-(i32)c->y0)*c->width;
+        for (i32 px=left;px<right;++px) {
+            if (px>=core_left && px<core_right) { px=core_right-1;continue; }
+            if (px>=x && py>=y && desktop_round_coverage(px-x,py-y,w,h,radius)==255) continue;
+            u32 value=out[px];
+            for (i32 i=6;i>=1;--i) {
+                i64 dx=(i64)px-x+i*scale,dy=(i64)py-y-(3-i)*(i64)scale;
+                if (dx<0 || dy<0) continue;
+                u32 alpha=desktop_round_coverage((u32)dx,(u32)dy,w+2*i*scale,h+2*i*scale,
+                    radius+i*scale)*6/255;
+                if (alpha) value=desktop_blend(color,value,alpha);
+            }
+            out[px]=value;
+        }
+    }
 }
 static inline void desktop_box(struct nv_canvas *c, struct desktop_clip clip,
                         u32 x, u32 y, u32 w, u32 h, u32 rgb) {
