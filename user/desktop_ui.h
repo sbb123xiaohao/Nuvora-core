@@ -116,7 +116,8 @@ enum { DESKTOP_HIT_NONE, DESKTOP_HIT_START, DESKTOP_HIT_MENU,
        DESKTOP_HIT_SWITCH, DESKTOP_HIT_SEARCH, DESKTOP_HIT_ACCOUNT,
        DESKTOP_HIT_LOCK, DESKTOP_HIT_LOGOUT, DESKTOP_HIT_SETTINGS,
        DESKTOP_HIT_FILE_SEARCH, DESKTOP_HIT_FILE_VIEW, DESKTOP_HIT_FILE_SORT,
-       DESKTOP_HIT_FILE_HIDDEN, DESKTOP_HIT_FILE_PARENT, DESKTOP_HIT_SETTINGS_VOLUME };
+       DESKTOP_HIT_FILE_HIDDEN, DESKTOP_HIT_FILE_PARENT, DESKTOP_HIT_SETTINGS_VOLUME,
+       DESKTOP_HIT_VOLUME_PANEL };
 struct desktop_hit { u32 kind, index, window; };
 static struct desktop_rect desktop_file_place_rect(const struct desktop_window *w,u32 index) {
     struct files_layout g=desktop_files_layout(w,0);
@@ -202,6 +203,16 @@ static u32 desktop_dock_width(u32 sw,const struct desktop_view *v) {
 static u32 desktop_dock_x(u32 sw,const struct desktop_view *v) {
     return (sw-desktop_dock_width(sw,v))/2;
 }
+static struct desktop_rect desktop_volume_rect(u32 sw,u32 sh,const struct desktop_view *v) {
+    u32 right=desktop_dock_x(sw,v)+desktop_dock_width(sw,v);
+    return (struct desktop_rect){right-175,sh-147,175,87};
+}
+static struct desktop_rect desktop_volume_slider(struct desktop_rect panel) {
+    return (struct desktop_rect){panel.x+19,panel.y+38,panel.w-38,32};
+}
+static u32 desktop_volume_level(struct desktop_rect slider,u32 x) {
+    return x<=slider.x?0:MIN(100u,(x-slider.x)*100/(slider.w-1));
+}
 static struct desktop_hit desktop_hit(u32 width, u32 height,
                                       const struct desktop_view *v, u32 px, u32 py) {
     u32 s = desktop_scale(width, height), sh = height/s, sw=width/s;
@@ -247,11 +258,13 @@ static struct desktop_hit desktop_hit(u32 width, u32 height,
         return (struct desktop_hit){DESKTOP_HIT_NONE,0,DESKTOP_WINDOW_COUNT};
     }
     if (v->volume_open && sw >= 640) {
-        if (x >= sw-174 && x < sw-18 && y >= sh-89 && y < sh-57)
-            return (struct desktop_hit){DESKTOP_HIT_VOLUME_SLIDER,
-                MIN(100u,(x-(sw-174))*100/155),0};
-        if (x >= sw-193 && y >= sh-127 && y < sh-DESKTOP_BAR_HEIGHT)
-            return (struct desktop_hit){DESKTOP_HIT_VOLUME,0,0};
+        struct desktop_rect panel=desktop_volume_rect(sw,sh,v),slider=desktop_volume_slider(panel);
+        if (desktop_inside(panel,x,y) && desktop_round_coverage(px-panel.x*s,py-panel.y*s,
+            panel.w*s,panel.h*s,14*s)) {
+            if (v->audio_ready && desktop_inside(slider,x,y))
+                return (struct desktop_hit){DESKTOP_HIT_VOLUME_SLIDER,desktop_volume_level(slider,x),0};
+            return (struct desktop_hit){DESKTOP_HIT_VOLUME_PANEL,0,DESKTOP_WINDOW_COUNT};
+        }
     }
     if (v->menu) {
         struct desktop_rect r=desktop_menu_rect(sw,sh);
@@ -593,7 +606,7 @@ static void desktop_window_render(struct nv_canvas *c,u32 s,
 static u32 desktop_preview_row[8192];
 static void desktop_preview(struct nv_canvas *c, struct desktop_clip clip, u32 s,
                              const struct desktop_view *v, u32 id,
-                             struct desktop_rect rect) {
+                             struct desktop_rect rect,u32 backdrop) {
     const struct desktop_window *w=&v->windows[id];
     if (!w->w || !w->h || !rect.w || !rect.h) return;
     u32 width=w->w*s,height=w->h*s,tw=rect.w*s,th=rect.h*s;
@@ -612,7 +625,7 @@ static void desktop_preview(struct nv_canvas *c, struct desktop_clip clip, u32 s
         u32 source_y=(u32)((u64)(py-y)*height/th);
         struct nv_canvas row={desktop_preview_row,width,source_y,1,c->format};
         struct desktop_clip row_clip={0,source_y,width,source_y+1};
-        for (u32 px=0;px<width;++px) desktop_preview_row[px]=nv_display_rgb(c->format,0x142b35);
+        for (u32 px=0;px<width;++px) desktop_preview_row[px]=nv_display_rgb(c->format,backdrop);
         desktop_window_render(&row,s,&sample,id,row_clip);
         u32 *dst=c->pixels+(py-c->y0)*c->width;
         for (u32 px=left;px<right;++px)
@@ -648,7 +661,7 @@ static void desktop_overview_render(struct nv_canvas *c, struct desktop_clip cli
         desktop_label(c,clip,(r.x+10)*s,(r.y+7)*s,desktop_window_name(w,id),(r.w-20)/6,s,0xf4f2eb);
         struct desktop_rect image={r.x+8,r.y+28,r.w-16,r.h-36};
         desktop_box(c,clip,image.x*s,image.y*s,image.w*s,image.h*s,0x142b35);
-        desktop_preview(c,clip,s,v,id,image);
+        desktop_preview(c,clip,s,v,id,image,0x142b35);
         if (w->minimized) {
             desktop_box(c,clip,(r.x+9)*s,(r.y+r.h-23)*s,61*s,14*s,0x244755);
             desktop_text(c,clip,(r.x+11)*s,(r.y+r.h-23)*s,"Minimized",9,s,0xe3ebe6);
@@ -681,7 +694,7 @@ static void desktop_switch_render(struct nv_canvas *c, struct desktop_clip clip,
     u32 id=state->ids[state->selected];
     struct desktop_rect image={r.x+198,r.y+42,r.w-212,r.h-84};
     desktop_box(c,clip,image.x*s,image.y*s,image.w*s,image.h*s,0x192744);
-    desktop_preview(c,clip,s,v,id,image);
+    desktop_preview(c,clip,s,v,id,image,0x192744);
     desktop_text(c,clip,(r.x+12)*s,(r.y+r.h-23)*s,"Release Alt to switch   Esc: cancel",35,s,0x58717a);
 }
 static void desktop_pointer_render(struct nv_canvas *c,struct desktop_clip screen,u32 s,
@@ -852,16 +865,16 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_label(c,screen,(sw-tw)*s/2+12*s,(sh-80)*s,name,(tw-24)/6,s,0x334667);
     }
     if (v->volume_open && sw >= 640) {
-        u32 x=(sw-193)*s,y=(sh-127)*s;
-        desktop_shadow(c,screen,x,y,175*s,87*s,14*s,s);
-        desktop_round(c,screen,x,y,175*s,87*s,14*s,UI_WHITE);
+        struct desktop_rect panel=desktop_volume_rect(sw,sh,v),slider=desktop_volume_slider(panel);
+        u32 x=panel.x*s,y=panel.y*s;
+        desktop_shadow(c,screen,x,y,panel.w*s,panel.h*s,14*s,s);
+        desktop_round(c,screen,x,y,panel.w*s,panel.h*s,14*s,UI_WHITE);
         desktop_text(c,screen,x+15*s,y+14*s,"Output volume",13,s,UI_TEXT);
-        desktop_round(c,screen,(sw-174)*s,(sh-73)*s,156*s,4*s,2*s,UI_BORDER);
+        desktop_round(c,screen,slider.x*s,y+54*s,slider.w*s,4*s,2*s,UI_BORDER);
         if (v->audio_ready) {
-            desktop_box(c,screen,(sw-174)*s,(sh-73)*s,
-                        v->volume_percent*156/100*s,4*s,UI_BLUE);
-            desktop_round(c,screen,(sw-174+v->volume_percent*148/100)*s,
-                        (sh-77)*s,8*s,12*s,4*s,UI_BLUE);
+            desktop_box(c,screen,slider.x*s,y+54*s,v->volume_percent*slider.w/100*s,4*s,UI_BLUE);
+            desktop_round(c,screen,(slider.x+v->volume_percent*(slider.w-8)/100)*s,
+                        y+50*s,8*s,12*s,4*s,UI_BLUE);
         } else desktop_text(c,screen,x+15*s,y+48*s,"No HDA output",13,s,UI_MUTED);
     }
     if (v->hover_kind==DESKTOP_HIT_OVERVIEW_BUTTON && !v->overview && !v->menu &&

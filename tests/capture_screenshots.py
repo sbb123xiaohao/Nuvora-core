@@ -98,6 +98,42 @@ def write_png(path, width, height, pixels):
                      chunk(b'IDAT', zlib.compress(rows, 9)) + chunk(b'IEND', b''))
 
 
+def volume_popup_check(monitor,output,width,height,capture):
+    """Exercise the shelf's actual popup, including rounded hit boundaries."""
+    scale=ui_scale(width,height);sw=width//scale;sh=height//scale
+    # Four launch buttons are present before any application window is open.
+    dock_width=48+4*56+70+8;right=(sw-dock_width)//2+dock_width
+    x,y=right-175,sh-147;slider_x=x+19;slider_w=137
+    def color(pixels,lx,ly):
+        at=((ly*scale)*width+lx*scale)*3
+        return int.from_bytes(pixels[at:at+3],'big')
+    def wait(predicate):
+        deadline=time.monotonic()+10
+        while True:
+            pixels=monitor.shot(output,'volume-state')[2]
+            if predicate(pixels):return pixels
+            if time.monotonic()>=deadline:raise AssertionError('Volume popup did not publish the requested state')
+            time.sleep(.1)
+    monitor.pointer(width,height,(right-35)*scale,(sh-26)*scale,True)
+    wait(lambda p:color(p,x+145,y+28)==0xffffff)
+    monitor.pointer(width,height,(right-35)*scale,(sh-26)*scale,False)
+    capture('volume')
+    monitor.pointer(width,height,(x+25)*scale,(y+20)*scale,True)
+    monitor.pointer(width,height,(x+25)*scale,(y+20)*scale,False)
+    wait(lambda p:color(p,x+145,y+28)==0xffffff)
+    monitor.pointer(width,height,(slider_x+slider_w//2)*scale,(y+54)*scale,True)
+    wait(lambda p:color(p,slider_x+slider_w//4,y+55)==0x1761f5 and
+         color(p,slider_x+slider_w*3//4,y+55)==0xe7eaf0)
+    # Drag beyond the track to verify saturation, then restore full HDA volume.
+    monitor.pointer(width,height,(slider_x+slider_w+4)*scale,(y+54)*scale,True)
+    wait(lambda p:color(p,slider_x+slider_w*3//4,y+55)==0x1761f5)
+    monitor.pointer(width,height,(slider_x+slider_w+4)*scale,(y+54)*scale,False)
+    monitor.pointer(width,height,(x+1)*scale,(y+1)*scale,True)
+    wait(lambda p:color(p,x+145,y+28)!=0xffffff)
+    monitor.pointer(width,height,(x+1)*scale,(y+1)*scale,False)
+    print('PASS shelf volume popup: title retained, live slider drag/saturation and transparent-corner dismissal',flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=pathlib.Path, default=qemu.BUILD / 'screenshots')
@@ -164,6 +200,7 @@ def main():
                 monitor.key('f10')
                 capture('apps')
                 monitor.key('esc')
+                volume_popup_check(monitor,output,width,height,capture)
                 monitor.start(1)
                 monitor.key('meta_l', 'right')
                 paragraph = ('Native desktop with files and terminal and a saved document on the private AHCI data volume. '

@@ -21,6 +21,10 @@ Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动�
 
 ![Nuvora 应用面板](docs/screenshots/apps.png)
 
+应用栏音量浮层：点击标题保持打开，滑块支持实际音量拖动；圆角外点击关闭。
+
+![Nuvora 音量浮层](docs/screenshots/volume.png)
+
 保存数据卷后的圆角通知，六秒后自动消失：
 
 ![Nuvora 操作通知](docs/screenshots/notification.png)
@@ -56,7 +60,7 @@ Text Editor 编辑并保存到数据卷，Files 显示已保存的文档：
 
 构建后运行 `python3 tests/capture_screenshots.py` 可重新拍摄；脚本使用
 临时启动介质和数据盘，并核验编辑器、文件搜索打开、播放器切歌/暂停/恢复、
-HDA 双声道波形、共享音量、通知自动消失和 DHCP 操作。十张截图均来自客体实际运行。
+HDA 双声道波形、共享音量、音量浮层命中与拖动、通知自动消失和 DHCP 操作。十一张截图均来自客体实际运行。
 截图和构建镜像的校验值见[截图清单](docs/screenshots/manifest.json)。
 
 ## 实体机启动

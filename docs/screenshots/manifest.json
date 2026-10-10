@@ -2,8 +2,8 @@
   "capture": "QMP screendump; lossless P6 to RGB PNG",
   "boot": "production UEFI USB; q35; 256 MiB; AHCI; USB keyboard/tablet; e1000e; HDA",
   "qemu": "QEMU emulator version 11.1.1",
-  "kernel_sha256": "07bee964d40a1cb02429f507a579963f60273399cf8253d26277a49d5e13c4e5",
-  "esp_sha256": "1286e213bf5416b50d67ec2f7533a1945e5b019a9e91587e7ff4117914044190",
+  "kernel_sha256": "d706f25b4341d8a7c0c2b2c0ae5d865d8777360d573ccb8284cec561a150eccf",
+  "esp_sha256": "e840f7f693d3b45e34c0b2b65050d0fed385cafbb451bf53d78b353f1feeccc1",
   "firmware_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
   "screenshots": [
     {
@@ -19,22 +19,28 @@
       "sha256": "747785caa2bc7e7f24ddfb9a2aa46ba0cc11defecb5e249a524a8d24dbb50efe"
     },
     {
+      "file": "volume.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "e6b9f7f24ddc39534221b181d84d8f0ac0382618dffae67b322e0d5abc4bdd91"
+    },
+    {
       "file": "files.png",
       "width": 1280,
       "height": 800,
-      "sha256": "f5a2d40cfac01e9574c6cfd93a207e4616426e7a893484f30e1bb6c6e2498f40"
+      "sha256": "71b814fd4f0df36329ef4b7a43ee9f785bfbff4a076fa751a5a04dff30b02751"
     },
     {
       "file": "notification.png",
       "width": 1280,
       "height": 800,
-      "sha256": "1d7922eefbe5aeefdc14abfae54b48e3f5749ed4f6c2160be6a894cd90c42f97"
+      "sha256": "520365e9eea08ba22e1bfd4af332b90b37b242a3e9312a838d1faba9826cc273"
     },
     {
       "file": "files-terminal.png",
       "width": 1280,
       "height": 800,
-      "sha256": "883c19a475e487fcd7a028b21f2b9e173aac91ce5c2c20abb8c584f486df6280"
+      "sha256": "94065a4c6bda71598443dba120c5416a2af8b835ce9404344cd960338eadd236"
     },
     {
       "file": "files-editor.png",
@@ -64,10 +70,10 @@
       "file": "music.png",
       "width": 1280,
       "height": 800,
-      "sha256": "a8923c92677f4fea212ee2ce81fecfda24bcc8a6190782f520ebd24e46dcc870"
+      "sha256": "64d023e8487bb9747b8bcf098150436d932c1bf069a52f526c405f5547393a01"
     }
   ],
-  "audio_capture_sha256": "4edab76975d2a78a2b2aa012c3d664d8c14e09f5285fa82da9d9b0e617aa9569",
+  "audio_capture_sha256": "354f0802747cfbb934f7025854a2872756262ce7e789a15f9b28609fcdb06c30",
   "audio_peaks": [
     6000,
     6000

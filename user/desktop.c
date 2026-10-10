@@ -1270,7 +1270,7 @@ int user_main(const char *args) {
                         i32 relative=(i32)x-w->x-1-(i32)slider.x;
                         u32 span=MAX(1u,slider.w-1);
                         level=relative<=0?0:(u32)relative>=span?100:(u32)relative*100/span;
-                    } else level=x<=sw-174?0:x>=sw-19?100:(x-(sw-174))*100/155;
+                    } else level=desktop_volume_level(desktop_volume_slider(desktop_volume_rect(sw,sh,&hover_view)),x);
                     if (level!=volume_percent) {
                         r=nv_audio_set_volume(level);
                         if (r<0) { note_error("Volume",r);r=0; }
@@ -1347,6 +1347,7 @@ int user_main(const char *args) {
                         drag_kind=DESKTOP_HIT_VOLUME_SLIDER;
                     }
                 }
+                else if (hit.kind==DESKTOP_HIT_VOLUME_PANEL) { /* Keep the visible panel open. */ }
                 else if (hit.kind==DESKTOP_HIT_START) {
                     set_menu(!menu);
                 }

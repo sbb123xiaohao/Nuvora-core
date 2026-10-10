@@ -1,5 +1,48 @@
 # 测试与复现
 
+## 未发布：视频圆角、缩略图背景与音量浮层
+
+本轮基于 GitHub 与本地一致的最新完整 `b18fb15`。先复现满框视频
+覆盖四角及 Alt+Tab 缩略图异色方角，原实现的像素断言失败，修复后通过。
+
+- `media_test` 增加五种窗口尺寸 × 五种视频场景 × 两种像素格式，
+  共 **50 组**检查：满框、横/竖留边、变化色、未解码，从 780×900
+  到 80×240。实际预览与一次圆角合成的参考像素一致，独立且带
+  哨兵的 31 行分块与整帧相等；变化色检查采样没有因透明角落偏移。
+  绘制不修改播放/暂停状态，原 MP3、MPEG-1/MP2 解码回归继续运行。
+- `display_test` 比较缩略图与相同背景下的真实窗口渲染：Alt+Tab
+  和总览两种背景、RGBX/BGRX、1–4 倍缩放及独立分块逐像素相等，
+  透明圆角保持各自的实际背景。
+- 音量布局随 4/7/最大数量的应用栏按钮变化；回归检查四个透明角落
+  及右侧面板外命中真实后方客户区，标题和无 HDA 状态消耗面板事件，
+  每个滑块位置对应正确百分比，拖动范围之外饱和到 0/100。
+- `capture_screenshots.py` 使用真实 USB 鼠标打开音量浮层，检查标题
+  点击后保留、实际音量拖动、端点饱和及透明角落关闭，恢复 100%
+  输出后继续原有文件、通知、Music、HDA 波形及设置流程。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/session_boot_test.py --memory 64
+python3 tests/desktop_boot_test.py --output build/x86_64/desktop-round13
+python3 tests/capture_screenshots.py
+```
+
+Arch GCC 16.2.1、Python 3.14.7、QEMU 11.1.1 / TCG、OVMF 202608-1
+下，生产/诊断 BIOS/UEFI 构建和 **40 组 UBSan 宿主回归**通过。
+64 MiB UEFI USB 启动通过 **144 项**断言；完整生产会话验证原生权限、
+自动锁屏、错误密码拒绝、重启/关机及文件偏好和 80% 音量恢复。
+完整窗口测试通过拖动/缩放、最大化/恢复、平铺、MRU/总览及实际
+MPEG 解码、暂停与切换；使用只读挂载的真实 FFmpeg/ffprobe 7.1.5。
+
+截图流程通过真实音量浮层、文件保存/搜索、通知自动消失、Music
+切歌/暂停/恢复、共享音量及 DHCP 检查，HDA 双声道峰值均为 **6000**。
+十一张 **1280×800** PNG 均以独立 Pillow 解码，与原始 PPM 的 RGB
+逐像素相等；PNG、生产内核、ESP 和音频哈希与清单一致。人工核对
+Files、Music 视频、Alt+Tab、Sound 和音量浮层；README 引用本轮图片，
+校验值见[截图清单](screenshots/manifest.json)。以上为模拟 PC 的运行验证。
+
 ## 未发布：四角裁剪与连续阴影
 
 本轮基于 GitHub 与本地一致的最新完整 `81fe7d4`。

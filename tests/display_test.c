@@ -119,8 +119,9 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     desktop_render_clip(&repair,height,&v,new_cursor);
     assert(!memcmp(full+1,tiled+1,(usize)n*sizeof(u32)));
     v.volume_open=true; v.volume_percent=37;
+    struct desktop_rect volume_slider=desktop_volume_slider(desktop_volume_rect(sw,sh,&v));
     struct desktop_hit volume_hit=desktop_hit(width,height,&v,
-        (sw-100)*s,(sh-62)*s);
+        (volume_slider.x+volume_slider.w/2)*s,(volume_slider.y+volume_slider.h/2)*s);
     if (sw>=640) assert(volume_hit.kind==DESKTOP_HIT_VOLUME_SLIDER);
     if (width==1280 && height==800 && !all_open && format==NV_DISPLAY_BGRX8) {
         desktop_render(&all,height,&v);
@@ -424,7 +425,85 @@ static void rounded_window_edges(void) {
         }
     }
 }
+static void switcher_preview_corners(void) {
+    static const u32 backdrops[]={0x192744,0x142b35};
+    for (u32 format=NV_DISPLAY_BGRX8;format<=NV_DISPLAY_RGBX8;++format)
+    for (u32 s=1;s<=4;++s) for (u32 bg=0;bg<ARRAY_LEN(backdrops);++bg) {
+        u32 width=160*s,height=128*s,count=width*height,red=0xbe214a;
+        u32 *actual=guarded(count),*expected=guarded(count),*tiled=guarded(count);
+        u32 backdrop=nv_display_rgb(format,backdrops[bg]);
+        for (u32 i=0;i<count;++i) actual[i+1]=expected[i+1]=backdrop;
+        struct desktop_window windows[DESKTOP_WINDOW_COUNT]={0};
+        windows[DESKTOP_TERMINAL]=(struct desktop_window){.x=0,.y=0,.w=120,.h=96,
+            .open=true,.client=3,.pixels=&red,.pixel_width=1,.pixel_height=1};
+        struct desktop_view v={.windows=windows,.active=DESKTOP_TERMINAL};
+        struct desktop_clip clip={0,0,width,height};
+        struct desktop_rect image={10,10,120,96};
+        struct nv_canvas canvas={actual+1,width,0,height,format};
+        desktop_preview(&canvas,clip,s,&v,DESKTOP_TERMINAL,image,backdrops[bg]);
+        assert(actual[1+10*s*width+10*s]==backdrop);
+        /* At 1:1 size the preview must match the same window rendered over
+         * its destination's backdrop, including all fractional corner edges. */
+        windows[DESKTOP_TERMINAL].x=windows[DESKTOP_TERMINAL].y=10;
+        struct nv_canvas reference={expected+1,width,0,height,format};
+        struct desktop_clip inside={10*s,10*s,130*s,106*s};
+        desktop_window_render(&reference,s,&v,DESKTOP_TERMINAL,inside);
+        assert(!memcmp(actual+1,expected+1,(usize)count*sizeof(u32)));
+        for (u32 y=0;y<height;y+=13) {
+            u32 rows=MIN(13u,height-y),words=width*rows;
+            u32 *piece=guarded(words);
+            for (u32 i=0;i<words;++i) piece[i+1]=backdrop;
+            struct nv_canvas tile={piece+1,width,y,rows,format};
+            desktop_preview(&tile,clip,s,&v,DESKTOP_TERMINAL,image,backdrops[bg]);
+            memcpy(tiled+1+(usize)y*width,piece+1,(usize)words*sizeof(u32));
+            assert(piece[0]==0x9173ace4 && piece[words+1]==0x27607845);free(piece);
+        }
+        assert(!memcmp(actual+1,tiled+1,(usize)count*sizeof(u32)));
+        u32 *buffers[]={actual,expected,tiled};
+        for (u32 i=0;i<ARRAY_LEN(buffers);++i) {
+            assert(buffers[i][0]==0x9173ace4 && buffers[i][count+1]==0x27607845);free(buffers[i]);
+        }
+    }
+}
+static void volume_popup_hits(void) {
+    static const u32 modes[][2]={{1280,800},{1600,900},{2880,1800},{3840,2160}};
+    for (u32 i=0;i<ARRAY_LEN(modes);++i) for (u32 tasks=0;tasks<3;++tasks) {
+        u32 width=modes[i][0],height=modes[i][1],s=desktop_scale(width,height);
+        u32 sw=width/s,sh=height/s;
+        struct desktop_window windows[DESKTOP_WINDOW_COUNT]={0};
+        u8 order[DESKTOP_WINDOW_COUNT];for (u32 j=0;j<DESKTOP_WINDOW_COUNT;++j) order[j]=(u8)j;
+        for (u32 j=4;j<DESKTOP_WINDOW_COUNT;++j) windows[j].open=tasks==2 || (tasks==1 && j<7);
+        struct desktop_view v={.windows=windows,.order=order,.volume_open=true,.audio_ready=true};
+        struct desktop_rect panel=desktop_volume_rect(sw,sh,&v),slider=desktop_volume_slider(panel);
+        assert(panel.x+panel.w==desktop_dock_x(sw,&v)+desktop_dock_width(sw,&v));
+        assert(panel.y+panel.h==sh-60 && slider.x+slider.w<panel.x+panel.w);
+        /* Place a real lower client under all panel corners and its right edge. */
+        for (u32 j=4;j<DESKTOP_WINDOW_COUNT;++j) windows[j].minimized=true;
+        windows[DESKTOP_TERMINAL]=(struct desktop_window){.x=(i32)panel.x-20,
+            .y=(i32)panel.y-40,.w=panel.w+40,.h=panel.h+60,.open=true,.client=3};
+        for (u32 corner=0;corner<4;++corner) {
+            u32 x=panel.x*s+(corner&1?panel.w*s-1:0),y=panel.y*s+(corner&2?panel.h*s-1:0);
+            struct desktop_hit hit=desktop_hit(width,height,&v,x,y);
+            assert(hit.kind==DESKTOP_HIT_CLIENT && hit.window==DESKTOP_TERMINAL);
+        }
+        struct desktop_hit hit=desktop_hit(width,height,&v,(panel.x+panel.w+1)*s,(panel.y+10)*s);
+        assert(hit.kind==DESKTOP_HIT_CLIENT && hit.window==DESKTOP_TERMINAL);
+        hit=desktop_hit(width,height,&v,(panel.x+25)*s,(panel.y+20)*s);
+        assert(hit.kind==DESKTOP_HIT_VOLUME_PANEL);
+        for (u32 x=0;x<slider.w;++x) {
+            hit=desktop_hit(width,height,&v,(slider.x+x)*s,(slider.y+16)*s);
+            assert(hit.kind==DESKTOP_HIT_VOLUME_SLIDER && hit.index==x*100/(slider.w-1));
+        }
+        assert(desktop_volume_level(slider,0)==0);
+        assert(desktop_volume_level(slider,slider.x+slider.w+20)==100);
+        v.audio_ready=false;
+        hit=desktop_hit(width,height,&v,(slider.x+slider.w/2)*s,(slider.y+16)*s);
+        assert(hit.kind==DESKTOP_HIT_VOLUME_PANEL);
+    }
+}
 int main(void) {
+    volume_popup_hits();
+    switcher_preview_corners();
     rounded_window_edges();
     icon_bounds();
     settings_render(640,480,NV_DISPLAY_BGRX8);

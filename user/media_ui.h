@@ -162,25 +162,37 @@ static u32 media_rgb(i32 y, i32 cb, i32 cr) {
            (u32)MIN(255, MAX(0, b));
 }
 static void media_picture(struct nv_canvas *c, u32 top, u32 bottom, u32 margin,
-                          const plm_frame_t *frame) {
-    if (!frame || !frame->width || !frame->height || c->width <= 2 * margin || bottom <= top) return;
+                          u32 radius, const plm_frame_t *frame) {
+    if (c->width <= 2 * margin || bottom <= top) return;
     u32 area_w = c->width - 2 * margin, area_h = bottom - top;
-    u32 w = MIN(area_w, (u32)((u64)area_h * frame->width / frame->height));
-    u32 h = MIN(area_h, (u32)((u64)w * frame->height / frame->width));
-    u32 left = (c->width - w) / 2; top += (area_h - h) / 2;
-    if (!w || !h) return;
-    u32 xwhole = frame->width / w, xpart = frame->width % w;
-    for (u32 py = MAX(top, c->y0); py < MIN(top + h, c->y0 + c->rows); ++py) {
-        u32 sy = (u32)((u64)(py - top) * frame->height / h);
-        u32 *dst = c->pixels + (py - c->y0) * c->width + left;
-        u32 luma_row = sy * frame->y.width, chroma_row = (sy / 2) * frame->cb.width;
+    bool has_frame = frame && frame->width && frame->height;
+    u32 w = has_frame ? MIN(area_w, (u32)((u64)area_h * frame->width / frame->height)) : 0;
+    u32 h = w ? MIN(area_h, (u32)((u64)w * frame->height / frame->width)) : 0;
+    u32 left = (c->width - w) / 2, picture_top = top + (area_h - h) / 2;
+    u32 xwhole = w ? frame->width / w : 0, xpart = w ? frame->width % w : 0;
+    u32 background = nv_display_rgb(c->format, 0x10213b);
+    /* Compose picture and letterboxes through one mask, so fitted frames cannot
+     * paint square corners or apply the edge coverage a second time. */
+    for (u32 py = MAX(top, c->y0); py < MIN(bottom, c->y0 + c->rows); ++py) {
+        bool picture_row = h && py >= picture_top && py - picture_top < h;
+        u32 sy = picture_row ? (u32)((u64)(py - picture_top) * frame->height / h) : 0;
+        u32 luma_row = picture_row ? sy * frame->y.width : 0;
+        u32 chroma_row = picture_row ? (sy / 2) * frame->cb.width : 0;
+        u32 *dst = c->pixels + (usize)(py - c->y0) * c->width;
         u32 sx = 0, remainder = 0;
-        for (u32 px = 0; px < w; ++px) {
-            u32 chroma = chroma_row + sx / 2;
-            dst[px] = nv_display_rgb(c->format, media_rgb(frame->y.data[luma_row + sx],
-                                       frame->cb.data[chroma], frame->cr.data[chroma]));
-            sx += xwhole; remainder += xpart;
-            if (remainder >= w) { ++sx; remainder -= w; }
+        for (u32 px = margin; px < c->width - margin; ++px) {
+            u32 alpha = desktop_round_coverage(px - margin, py - top, area_w, area_h, radius);
+            u32 color = background;
+            if (picture_row && px >= left && px - left < w) {
+                if (alpha) {
+                    u32 chroma = chroma_row + sx / 2;
+                    color = nv_display_rgb(c->format, media_rgb(frame->y.data[luma_row + sx],
+                                            frame->cb.data[chroma], frame->cr.data[chroma]));
+                }
+                sx += xwhole; remainder += xpart;
+                if (remainder >= w) { ++sx; remainder -= w; }
+            }
+            if (alpha) dst[px] = alpha == 255 ? color : desktop_blend(color, dst[px], alpha);
         }
     }
 }
@@ -265,10 +277,7 @@ static void media_render(struct nv_canvas *c, u32 height, const struct media_vie
     if (v->playing) {
         if (v->video) {
             u32 bottom = g.title_y > 8 * s ? g.title_y - 8 * s : 48 * s;
-            desktop_round(c, clip, 12 * s, 38 * s,
-                          c->width > 24 * s ? c->width - 24 * s : 0,
-                          bottom > 38 * s ? bottom - 38 * s : 0, 8 * s, 0x10213b);
-            media_picture(c, 38 * s, bottom, 12 * s, v->frame);
+            media_picture(c, 38 * s, bottom, 12 * s, 8 * s, v->frame);
         } else {
             if (v->previous < v->count && v->previous != v->current && g.art_size) {
                 u32 peek = MIN(34 * s, g.body_w / 8);
