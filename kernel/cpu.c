@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include <nv/crypto.h>
 
 static struct nv_cpu_info identity;
 static const i32 fp_zero;
@@ -120,11 +121,18 @@ bool cpu_random(void *output,u32 bytes) {
     }
     return true;
 }
+#ifndef NV_CPU_RANDOM_SOURCE
+#define NV_CPU_RANDOM_SOURCE cpu_random
+#endif
 int cpu_ioctl(u32 op, uptr user_ptr) {
-    (void)op;
-    (void)user_ptr;
-    /* No CPU control operations yet (NV_HARDWARE/NV_HW_CPU already covers
-     * read-only query). Reserved for future work, e.g. ROADMAP.md #8
-     * (per-CPU-capability XSAVE/AVX enablement). */
-    return -NV_ENOSYS;
+    if (op != NV_CPU_RANDOM) return -NV_ENOSYS;
+    if (!user_range(current->pd, user_ptr, sizeof(struct nv_random), true)) return -NV_EFAULT;
+    struct nv_random io = {0};
+    memcpy(&io.length, (const void *)user_ptr, sizeof(io.length));
+    if (!io.length || io.length > sizeof(io.data)) return -NV_EINVAL;
+    bool ready = NV_CPU_RANDOM_SOURCE(io.data, io.length);
+    if (!ready) nv_secret_clear(io.data, sizeof(io.data));
+    memcpy((void *)user_ptr, &io, sizeof(io));
+    nv_secret_clear(&io, sizeof(io));
+    return ready ? 0 : -NV_ENODEV;
 }

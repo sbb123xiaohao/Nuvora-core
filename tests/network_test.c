@@ -1,7 +1,9 @@
 /* End-to-end Ethernet/IPv4/DHCP/UDP frames against the kernel implementation.
  * Only the physical NIC and privileged system-call address check are mocked. */
+#define _GNU_SOURCE
 #include <assert.h>
 #include <stdio.h>
+#include <sys/mman.h>
 #include <nv/abi.h>
 #include <nv/string.h>
 #define NV_KERNEL_H
@@ -16,6 +18,18 @@ static u32 sent_length, transmissions, send_attempts;
 static bool send_blocked;
 static void *user_buffer;
 static usize user_size;
+static bool random_available = true;
+static u32 random_calls, random_word = 0x6b8d21f4;
+bool cpu_random(void *out, u32 bytes) {
+    ++random_calls;
+    if (!random_available) return false;
+    u8 *p = out;
+    for (u32 i = 0; i < bytes; ++i) {
+        if (!(i % 4)) random_word += 0x9e3779b9u;
+        p[i] = (u8)(random_word >> (i % 4 * 8));
+    }
+    return true;
+}
 static void pci_visit(void (*cb)(u32, u32, u32)) {
     cb(0x00002000, (0x15f3u << 16) | 0x8086, 0x02000000);
     cb(0x00002800, (0x2723u << 16) | 0x8086, 0x02800000);
@@ -194,8 +208,9 @@ static void exercise_udp_broadcast_receive(void) {
     const u32 destinations[] = {0xc0a801ff, 0xc0a8ffff};
     for (u32 i = 0; i < ARRAY_LEN(masks); ++i) {
         broadcast_configuration(masks[i], 0);
-        deliver_udp_destination(destinations[i]);
         struct nv_net_udp io = {.index = active, .local_port = 40000};
+        assert(call_net(NV_NET_UDP_RECV, &io, sizeof(io)) == -NV_EAGAIN);
+        deliver_udp_destination(destinations[i]);
         assert(call_net(NV_NET_UDP_RECV, &io, sizeof(io)) == 3);
         assert(io.address == 0xc0a80101 && io.port == 7000 &&
                !memcmp(io.data, "lan", 3));
@@ -209,6 +224,8 @@ static void exercise_udp_broadcast_receive(void) {
     deliver_udp_destination(0xc0a80165);
     assert(!inbox_full);
     broadcast_configuration(0xffffffffu, 0);
+    struct nv_net_udp narrow = {.index = active, .local_port = 40000};
+    assert(call_net(NV_NET_UDP_RECV, &narrow, sizeof(narrow)) == -NV_EAGAIN);
     deliver_udp_destination(0xc0a80165);
     assert(!inbox_full);
     deliver_udp_destination(0xc0a80164); /* /32's own address remains unicast. */
@@ -284,6 +301,8 @@ static void exercise_configuration_reset(void) {
         put32(arp + 14, config.gateway);
         input_arp(arp, sizeof(arp));
         const u8 payload[] = {'o', 'l', 'd'};
+        struct nv_net_udp listen = {.index = active, .local_port = 40000};
+        assert(call_net(NV_NET_UDP_RECV, &listen, sizeof(listen)) == -NV_EAGAIN);
         deliver(payload, sizeof(payload), config.gateway, 7000, 40000);
         assert(inbox_full && inbox.length == sizeof(payload));
         struct nv_net_ping ping = {.index = active, .address = config.gateway,
@@ -354,6 +373,140 @@ static struct nv_net_tcp establish_tcp_fixture(u32 peer_sequence) {
     assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == 1);
     assert(stream.next_rx == peer_sequence + 1);
     return io;
+}
+static void exercise_udp_ownership(void) {
+    broadcast_configuration(0xffffff00u, 0);
+    task_object.pid = 3;
+    struct nv_net_udp io = {.index = active, .local_port = 40000};
+    assert(call_net(NV_NET_UDP_RECV, &io, sizeof(io)) == -NV_EAGAIN);
+    deliver_udp_destination(adapters[active].ip);
+    assert(inbox_full);
+    task_object.pid = 4;
+    struct nv_net_udp other = {.index = active, .local_port = 40000};
+    assert(call_net(NV_NET_UDP_RECV, &other, sizeof(other)) == -NV_EBUSY);
+    assert(inbox_full && !other.length);
+    other.local_port = 0;
+    assert(call_net(NV_NET_UDP_RECV, &other, sizeof(other)) == -NV_EAGAIN);
+    assert(inbox_full);
+    other = (struct nv_net_udp){.index = active, .local_port = 40000,
+        .address = 0xffffffffu, .port = 7000, .length = 1, .data = {'x'}};
+    assert(call_net(NV_NET_UDP_SEND, &other, sizeof(other)) == -NV_EBUSY);
+    task_object.pid = 3;
+    assert(call_net(NV_NET_UDP_RECV, &io, sizeof(io)) == 3 && !memcmp(io.data, "lan", 3));
+    deliver_udp_destination(adapters[active].ip);
+    assert(inbox_full);
+    net_task_release(3); /* Logout/exec/exit releases unread data with its owner. */
+    assert(!inbox_full);
+    task_object.pid = 4;
+    other = (struct nv_net_udp){.index = active, .local_port = 40000};
+    assert(call_net(NV_NET_UDP_RECV, &other, sizeof(other)) == -NV_EAGAIN);
+    assert(!other.length);
+    deliver_udp_destination(adapters[active].ip);
+    assert(call_net(NV_NET_UDP_RECV, &other, sizeof(other)) == 3);
+    other.local_port = 40001;
+    assert(call_net(NV_NET_UDP_RECV, &other, sizeof(other)) == -NV_EAGAIN);
+    deliver_udp_destination(adapters[active].ip); /* Old port is no longer owned. */
+    assert(!inbox_full);
+    net_task_release(4);
+    other.index=NV_NET_MAX;
+    assert(call_net(NV_NET_UDP_RECV,&other,sizeof(other))==-NV_ENODEV);
+    other.index=active;other.local_port=65536;
+    assert(call_net(NV_NET_UDP_RECV,&other,sizeof(other))==-NV_EINVAL);
+    for (u32 i=0;i<NV_TASK_MAX;++i) {
+        task_object.pid=100+i;other.local_port=40000+i;
+        assert(call_net(NV_NET_UDP_RECV,&other,sizeof(other))==-NV_EAGAIN);
+    }
+    task_object.pid=100+NV_TASK_MAX;other.local_port=45000;
+    assert(call_net(NV_NET_UDP_RECV,&other,sizeof(other))==-NV_ENOSPC);
+    for (u32 i=0;i<NV_TASK_MAX;++i) net_task_release(100+i);
+    task_object.pid = 3;
+    puts("PASS UDP ownership: port exclusion, wildcard isolation, owner teardown and port reuse without stale data");
+}
+static void exercise_dhcp_server(void) {
+    struct nv_net_static config = {.index = active};
+    assert(!call_net(NV_NET_DHCP, &config, sizeof(config)));
+    u8 message[300];
+    fixture_message(message, 2, 0xc0a80164);
+    deliver(message, sizeof(message), 0xc0a80101, 67, 68);
+    assert(lease_state == 2);
+    u32 before = transmissions;
+    fixture_message(message, 6, 0);
+    put32(message + 245, 0xc0a80102);
+    deliver(message, sizeof(message), 0xc0a80102, 67, 68);
+    /* deliver() transmits one fixture frame; a rejected NAK adds no reply. */
+    assert(lease_state == 2 && transmissions == before + 1 && server == 0xc0a80101);
+    message[243] = 0; /* Missing server identifier cannot reset our request. */
+    message[244] = 0; message[245] = 255;
+    deliver(message, sizeof(message), 0xc0a80102, 67, 68);
+    assert(lease_state == 2 && transmissions == before + 2);
+    fixture_message(message, 5, offered);
+    put32(message + 245, 0xc0a80102);
+    deliver(message, sizeof(message), 0xc0a80102, 67, 68);
+    assert(lease_state == 2 && !adapters[active].ip);
+    fixture_message(message, 6, 0);
+    deliver(message, sizeof(message), server, 67, 68);
+    assert(lease_state == 1 && transmissions == before + 5);
+    puts("PASS DHCP server: foreign/missing-server NAK and ACK ignored; chosen-server NAK restarts discovery");
+}
+static void exercise_network_entropy(void) {
+    struct nv_net_tcp io = open_tcp_fixture();
+    assert(random_calls);
+    u32 sequence = stream.acked_tx, port = stream.local_port;
+    net_task_release(task_object.pid);
+    io = open_tcp_fixture(); /* Same tick and peer must use new entropy. */
+    assert(stream.acked_tx != sequence && stream.local_port != port);
+    assert(stream.local_port >= 49152);
+    net_task_release(task_object.pid);
+    struct nv_net_static config = {.index = active};
+    assert(!call_net(NV_NET_DHCP, &config, sizeof(config)));
+    u32 xid = dhcp_xid;
+    assert(!call_net(NV_NET_DHCP, &config, sizeof(config)) && dhcp_xid != xid);
+    broadcast_configuration(0xffffff00u, 0);
+    struct nv_net_info previous = adapters[active];
+    u32 before = transmissions;
+    random_available = false;
+    assert(call_net(NV_NET_DHCP, &config, sizeof(config)) == -NV_ENODEV);
+    assert(!memcmp(&previous, &adapters[active], sizeof(previous)) && transmissions == before);
+    io = (struct nv_net_tcp){.index = active, .address = 0xcb007101u, .port = 80};
+    assert(call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) == -NV_ENODEV);
+    assert(stream.state == TCP_IDLE && transmissions == before);
+    random_available = true;
+    io = open_tcp_fixture();
+    u32 calls = random_calls;
+    assert(!call_net(NV_NET_TCP_OPEN, &io, sizeof(io)) && random_calls == calls);
+    ticks += 100; net_poll();
+    assert(random_calls == calls); /* Retries preserve the original SYN identity. */
+    net_task_release(task_object.pid);
+    puts("PASS network entropy: fresh TCP sequence/port and DHCP XID; entropy failure has no traffic/state side effects; retry identity stable");
+}
+static void exercise_packet_bounds(void) {
+    broadcast_configuration(0xffffff00u,0);
+    u8 *guard=mmap(NULL,8192,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(guard!=MAP_FAILED && !mprotect(guard+4096,4096,PROT_NONE));
+    u32 seed=0x35ac2197;
+    for (u32 run=0;run<6000;++run) {
+        u32 n=run%1515;u8 *p=guard+4096-n;
+        for (u32 i=0;i<n;++i) { seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;p[i]=(u8)seed; }
+        if (n>=14) { memcpy(p,adapters[active].mac,6);put16(p+12,run%2?0x0800:0x0806); }
+        if (n>=34 && run%2) {
+            p[14]=0x45;put16(p+16,(u16)(n-14));p[20]=p[21]=0;
+            p[23]=run%3?17:6;put32(p+26,0xc0a80101);put32(p+30,adapters[active].ip);
+            p[24]=p[25]=0;put16(p+24,checksum(p+14,20));
+        }
+        receive(p,n);
+    }
+    for (u32 run=0;run<6000;++run) {
+        u32 n=run%1025;u8 *p=guard+4096-n;
+        for (u32 i=0;i<n;++i) { seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;p[i]=(u8)seed; }
+        lease_state=2;offered=0xc0a80164;server=0xc0a80101;
+        if (n>=240) {
+            p[0]=2;p[1]=1;p[2]=6;put32(p+4,dhcp_xid);
+            memcpy(p+28,adapters[active].mac,6);put32(p+236,0x63825363);
+        }
+        dhcp_receive(p,n);
+    }
+    reset_protocol_state();munmap(guard,8192);
+    puts("PASS network packet bounds: 12000 guard-page Ethernet/IPv4 and DHCP inputs, including short headers and malformed options");
 }
 static void exercise_tcp_ack_backpressure(void) {
     struct nv_net_tcp io = establish_tcp_fixture(5000);
@@ -681,6 +834,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[1], "udp-broadcast")) exercise_udp_broadcast_send();
         else if (!strcmp(argv[1], "udp-broadcast-receive")) exercise_udp_broadcast_receive();
         else if (!strcmp(argv[1], "dhcp-mask")) exercise_dhcp_mask();
+        else if (!strcmp(argv[1], "udp-owner")) exercise_udp_ownership();
+        else if (!strcmp(argv[1], "dhcp-server")) exercise_dhcp_server();
+        else if (!strcmp(argv[1], "entropy")) exercise_network_entropy();
+        else if (!strcmp(argv[1], "packet-bounds")) exercise_packet_bounds();
         else {
             assert(!strcmp(argv[1], "reconfigure"));
             exercise_configuration_reset();
@@ -711,6 +868,8 @@ int main(int argc, char **argv) {
     assert(peer_ip == 0xc0a80101 && !memcmp(peer_mac, router, 6));
     exercise_tcp_icmp();
     u8 payload[] = {'h', 'e', 'l', 'l', 'o'};
+    struct nv_net_udp listen = {.index = active, .local_port = 40000};
+    assert(call_net(NV_NET_UDP_RECV, &listen, sizeof(listen)) == -NV_EAGAIN);
     deliver(payload, sizeof(payload), 0xc0a80101, 7000, 40000);
     assert(inbox_full && inbox.length == 5 && inbox.port == 7000 &&
            inbox.local_port == 40000 && !memcmp(inbox.data, "hello", 5));
@@ -751,5 +910,9 @@ int main(int argc, char **argv) {
     exercise_udp_broadcast_send();
     exercise_udp_broadcast_receive();
     exercise_dhcp_mask();
+    exercise_udp_ownership();
+    exercise_dhcp_server();
+    exercise_network_entropy();
+    exercise_packet_bounds();
     puts("PASS network: PCI/USB, DHCP, UDP, ICMP and TCP frames, checksum, link loss");
 }

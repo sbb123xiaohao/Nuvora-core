@@ -12,6 +12,8 @@ volatile u64 ticks;
 bool test_mode;
 static bool random_available=true;
 static int sync_error,session_ends;
+static u32 network_releases,released_uid;
+static u32 released_pids;
 static void *io_buffer;
 void panic(const char *s) { fprintf(stderr,"PANIC: %s\n",s);abort(); }
 void console_write(const char *s,usize n) { (void)s;(void)n; }
@@ -34,6 +36,10 @@ bool cpu_random(void *out,u32 n) {
     static u8 sequence;u8 *p=out;while (n--) *p++=++sequence;return true;
 }
 void task_end_session(u32 except) { assert(except==1 || except==2);++session_ends; }
+void net_task_release(u32 pid) {
+    assert((pid==manager_pid || pid==1) && current->pid==manager_pid);
+    released_pids|=1u<<pid;released_uid=current->uid;++network_releases;
+}
 static int call(u32 op,const void *data) {
     if (data) memcpy(io_buffer,data,sizeof(struct nv_account_request));
     return account_ioctl(op,data?(u32)(uptr)io_buffer:0);
@@ -104,7 +110,23 @@ int main(void) {
     struct nv_account_request bob=credentials("bob","another long password");assert(!run(NV_ACCOUNT_ADD,&bob));
     assert(database.count==2 && memcmp(database.records[0].salt,database.records[1].salt,16));
     struct nv_account_request disabled={.uid=1001,.flags=1};strlcpy(disabled.display_name,"Bob",64);
-    assert(!call(NV_ACCOUNT_UPDATE,&disabled));assert(!call(NV_ACCOUNT_LOGOUT,NULL));
+    assert(!call(NV_ACCOUNT_UPDATE,&disabled));
+    u32 released=network_releases;
+    assert(!call(NV_ACCOUNT_LOGOUT,NULL));
+    assert(network_releases==released+1 && released_uid==1000 && current->pid==1 &&
+        current->uid==NV_UID_NONE); /* Same recovery PID, different future identity. */
+    /* A desktop can take over from recovery Loom, while PID 1 survives.
+     * Logging out must clear both survivors, not only the current manager. */
+    tasks[1]=(struct task){.pid=2,.parent=1,.uid=NV_UID_NONE,.state=NV_READY};
+    tasks[1].program_node=make_node(fs_lookup(0,"/apps"),"desktop",NV_FILE,true);
+    assert(tasks[1].program_node>=0);actor(1,NV_UID_NONE);
+    assert(!call(NV_ACCOUNT_CLAIM,NULL) && manager_pid==2);
+    assert(!run(NV_ACCOUNT_LOGIN,&admin));
+    released=network_releases;released_pids=0;
+    assert(!call(NV_ACCOUNT_LOGOUT,NULL));
+    assert(network_releases==released+2 && released_pids==((1u<<1)|(1u<<2)) &&
+        released_uid==1000 && current->uid==NV_UID_NONE && tasks[0].uid==NV_UID_NONE);
+    account_task_release(2);actor(0,NV_UID_NONE);assert(!call(NV_ACCOUNT_CLAIM,NULL));
     assert(run(NV_ACCOUNT_LOGIN,&bob)==-NV_EACCESS);assert(!run(NV_ACCOUNT_LOGIN,&admin));
     disabled.flags=0;assert(!call(NV_ACCOUNT_UPDATE,&disabled));session_ends=0;
     struct nv_account_request edit={.uid=1000,.role=0};strlcpy(edit.display_name,"Alice",64);

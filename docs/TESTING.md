@@ -1,5 +1,53 @@
 # 测试与复现
 
+## 未发布：网络安全审查
+
+基于 GitHub 和本地一致的完整 `cd10516`。使用基线实际网络/客户端代码
+复现 UDP 越权读取、外来 DHCP NAK、未使用熵的连接标识以及 DNS 错误
+问题/答案；四类原断言失败，修复后通过。范围与剩余风险见
+[安全审查](SECURITY-REVIEW.md)。
+
+- `network_test` 验证同端口争用、通配读取隔离、进程释放、端口切换、
+  表耗尽、活跃接口校验；同时检查新 TCP/DHCP 熵、失败无发包/配置
+  副作用和重传身份不变。构造外来/缺失服务器 NAK 与外来 ACK，
+  确保请求保留，选定服务器 NAK 才重启发现。
+- `random_test` 使用实际 CPU ioctl 检查 1–64 全部长度、只读/截断/非法
+  响应、未用尾部、部分随机源失败清除；新增五项 Ring 3 随机 ABI 断言。
+- `account_test` 验证注销时在改变 UID 前清除管理进程和 PID 1 的网络
+  状态，包括恢复控制台向桌面交接管理权后；覆盖只依赖进程退出清理
+  或只清理当前管理进程会遗漏的用户切换。
+- `net_tools_test` 运行实际 DNS resolver，先给错误问题、答案归属、TC、
+  opcode、问题数量/类型/类，再给正确响应，验证错误地址没有被采用。
+  检查压缩名称、大小写、两种 CNAME 顺序、自指/前向指针、点标签和
+  每个截断；10,000 份 DNS 与 12,000 份 Ethernet/IPv4/DHCP 随机输入
+  紧贴不可读保护页，另用 ASan/UBSan 检查。
+- `pc_network_boot_test.py` 在三个 NIC 模型运行真实父子进程 UDP 归属
+  断言；容器内 DNS 服务器先返回不匹配且指向 192.0.2.66 的报文，
+  随后返回正确地址，要求原生 `wget` 完整下载本地 HTTP 数据。无需公网。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/pc_network_boot_test.py
+python3 tests/session_boot_test.py --memory 64
+python3 tests/capture_screenshots.py
+```
+
+最终生产/诊断 BIOS/UEFI 构建、**41 组 UBSan 宿主回归**与 **149 项**
+64 MiB UEFI 断言通过。e1000、e1000e、USB Ethernet 各通过六项真实
+Ring 3 UDP 隔离检查、DHCP/ping、断线恢复/热插拔和两份各 **262144 字节**
+的完整 HTTP 下载，其中域名下载先收到指向错误地址的 DNS 报文。
+生产会话通过原生权限、自动锁屏、错误密码拒绝、重启/关机和偏好恢复。
+十一张 **1280×800** PNG 经独立 Pillow 解码，与原始 QMP PPM 的 RGB
+逐像素相等；内核、ESP、固件、音频和图片哈希与清单一致，HDA 双声道
+峰值均为 **6000**。README 引用已更新的实际运行截图。
+
+构建与原生运行环境为 Arch GCC 16.2.1、Python 3.14.7、QEMU 11.1.1 / TCG、
+OVMF 202608-1；保护页报文另外使用宿主 Debian GCC 14.2.0 的 ASan/UBSan。
+摘要见[安全验证记录](verification/0.15.0/security-network-summary.log)，
+以上是模拟 PC 验证，不代表实体机或全系统安全认证。
+
 ## 未发布：视频圆角、缩略图背景与音量浮层
 
 本轮基于 GitHub 与本地一致的最新完整 `b18fb15`。先复现满框视频

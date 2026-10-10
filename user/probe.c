@@ -572,6 +572,40 @@ static void restored_growth_tests(void) {
     check(after.heap_used == before.heap_used && after.free_pages == before.free_pages,
           "removing the grown file returns its metadata and data page");
 }
+static int udp_security_tests(const char *args) {
+    u32 index=NV_NET_MAX;
+    for (u32 i=0;i<NV_NET_MAX;++i) {
+        struct nv_net_info info={.index=i};
+        if (devctl(NV_SUB_NET,NV_NET_INFO,&info)>0 && info.reserved[0] &&
+            info.state==NV_NET_ONLINE) { index=i;break; }
+    }
+    if (index==NV_NET_MAX) return 1;
+    struct nv_net_udp io={.index=index,.local_port=47001};
+    if (!strcmp(args,"udp-conflict")) {
+        if (devctl(NV_SUB_NET,NV_NET_UDP_RECV,&io)!=-NV_EBUSY) return 1;
+        io.local_port=0;
+        if (devctl(NV_SUB_NET,NV_NET_UDP_RECV,&io)!=-NV_EAGAIN) return 1;
+        io.local_port=47001;io.address=0xffffffffu;io.port=7000;io.length=1;io.data[0]='x';
+        return devctl(NV_SUB_NET,NV_NET_UDP_SEND,&io)==-NV_EBUSY?0:1;
+    }
+    if (!strcmp(args,"udp-release")) io.local_port=47002;
+    if (!strcmp(args,"udp-release") || !strcmp(args,"udp-old-port"))
+        return devctl(NV_SUB_NET,NV_NET_UDP_RECV,&io)==-NV_EAGAIN?0:1;
+    check(devctl(NV_SUB_NET,NV_NET_UDP_RECV,&io)==-NV_EAGAIN,"UDP receive claims caller's port");
+    int child=spawn("/apps/probe","udp-conflict");
+    check(child>0 && wait_task(child)==0,"UDP child cannot steal parent's port, wildcard inbox or sender identity");
+    io.index=NV_NET_MAX;
+    check(devctl(NV_SUB_NET,NV_NET_UDP_RECV,&io)==-NV_ENODEV,"UDP receive validates active interface");
+    io.index=index;
+    child=spawn("/apps/probe","udp-release");
+    check(child>0 && wait_task(child)==0,"UDP second child owns a separate port until exit");
+    io.local_port=47002;
+    check(devctl(NV_SUB_NET,NV_NET_UDP_RECV,&io)==-NV_EAGAIN,"UDP exited child releases its port");
+    child=spawn("/apps/probe","udp-old-port");
+    check(child>0 && wait_task(child)==0,"UDP changing port releases the caller's old port");
+    print("UDP SECURITY RESULT: ");print_u32(passed);print(" passed, ");print_u32(failed);println(" failed");
+    return failed?1:0;
+}
 static int session_security_tests(void) {
     struct nv_account_info account={0};
     check(account_call(NV_ACCOUNT_INFO,&account)==0 && account.uid!=NV_UID_NONE &&
@@ -609,6 +643,8 @@ int user_main(const char *args) {
     if (app_help("probe", args))
         return 0;
     if (!strcmp(args,"session-security")) return session_security_tests();
+    if (!strcmp(args,"udp-isolation") || !strcmp(args,"udp-conflict") ||
+        !strcmp(args,"udp-release") || !strcmp(args,"udp-old-port")) return udp_security_tests(args);
     println("Nuvora Core integration probe (running in Ring 3)");
     if (!strcmp(args, "devctl")) {
         devctl_tests();

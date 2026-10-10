@@ -76,6 +76,11 @@ enum nv_subsystem {
     NV_SUB_WINDOW = 7,
     NV_SUB_ACCOUNT = 8
 };
+/* Bounded hardware-backed random bytes; no predictable fallback. */
+enum { NV_CPU_RANDOM = 1 };
+#define NV_RANDOM_MAX 64u
+struct nv_random { u32 length; u8 data[NV_RANDOM_MAX]; };
+_Static_assert(sizeof(struct nv_random) == 68, "random bytes ABI");
 /* Local account service. Only the trusted desktop / initial console can own
  * this service. Hashes and salts never cross the ABI; status queries and
  * account enumeration return public profile data only. */

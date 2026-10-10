@@ -128,7 +128,11 @@ DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不
 
 `NV_DEVCTL` 的 `NV_SUB_NET` 面向驱动与小型用户程序，地址字段以网络字节序的
 32 位整数表示 IPv4。`NV_NET_INFO` 查看接口，`NV_NET_DHCP` 或
-`NV_NET_STATIC` 配置地址。`NV_NET_UDP_SEND/RECV` 提供已有单包 UDP 接口；
+`NV_NET_STATIC` 配置地址。`NV_NET_UDP_SEND/RECV` 提供单包 UDP 接口：
+SEND 或非零端口 RECV 领取当前进程的一个端口；冲突返回 `-NV_EBUSY`，
+更换端口释放旧端口和旧包。RECV 的 `local_port=0` 只轮询本进程，
+`index` 必须是当前接口；等待外来包前应先领取端口。退出或 exec 清除
+归属和未读包；注销也清除管理进程及 PID 1 的网络状态。目前全系统仍只有一个 UDP 待收包。
 新 `NV_NET_PING` 用 `struct nv_net_ping` 主动发 echo，并在后续调用返回
 `1` 时带回 TTL 与回复字节数。`NV_NET_TCP_OPEN/SEND/RECV/CLOSE` 使用
 `struct nv_net_tcp`，最多复制 `NV_NET_DATA_MAX`（1024）字节：OPEN 返回
@@ -137,6 +141,9 @@ DMA 页，播放完再返回写入字节数。空设备返回 `-NV_ENODEV`；不
 进程退出或 exec 时会清理；目前系统只允许一个活动 TCP 连接。
 
 Loom 的 `ping` 和 `wget` 使用这些调用；域名解析由应用使用 DNS/UDP 完成。
+`NV_SUB_CPU / NV_CPU_RANDOM` 的 `struct nv_random` 请求 1–64 个随机字节，
+完整响应必须可写，未用尾部清零；硬件熵不足返回 `-NV_ENODEV` 并清除
+全部随机数据。TCP、DHCP 和 DNS 使用此随机源，不回退到时钟。
 这是轮询、有限窗口的实验接口，尚无 TLS、IPv6、POSIX socket 或通用
 网络服务。具体设备与联机验证边界见 [NETWORK.md](NETWORK.md)。
 

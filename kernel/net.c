@@ -12,6 +12,10 @@ static u8 lease_state; /* 0 idle; 1 discover; 2 request */
 static u32 offered, server;
 static struct nv_net_udp inbox;
 static bool inbox_full, polling;
+static u32 inbox_owner;
+/* The existing single-packet ABI has one current receive port per process.
+ * A port must be claimed by SEND/RECV before a packet can enter the inbox. */
+static struct { u32 pid, port; } udp_ports[NV_TASK_MAX];
 static u8 frame[1514];
 static u8 peer_mac[6];
 static u32 peer_ip;
@@ -31,10 +35,35 @@ static struct {
     bool eof, ack_pending;
 } stream;
 
+static void udp_clear_inbox(void) {
+    memset(&inbox, 0, sizeof(inbox));
+    inbox_full = false; inbox_owner = 0;
+}
+static u32 udp_owner(u32 port) {
+    for (u32 i = 0; i < ARRAY_LEN(udp_ports); ++i)
+        if (udp_ports[i].pid && udp_ports[i].port == port) return udp_ports[i].pid;
+    return 0;
+}
+static int udp_bind(u32 port) {
+    u32 owner = udp_owner(port), vacant = ARRAY_LEN(udp_ports);
+    if (owner && owner != current->pid) return -NV_EBUSY;
+    for (u32 i = 0; i < ARRAY_LEN(udp_ports); ++i) {
+        if (udp_ports[i].pid == current->pid) {
+            if (inbox_owner == current->pid && inbox.local_port != port) udp_clear_inbox();
+            udp_ports[i].port = port; return 0;
+        }
+        if (!udp_ports[i].pid) vacant = i;
+    }
+    if (vacant == ARRAY_LEN(udp_ports)) return -NV_ENOSPC;
+    udp_ports[vacant].pid = current->pid; udp_ports[vacant].port = port;
+    return 0;
+}
+
 /* Traffic and neighbour state belong to the current interface and IPv4
  * configuration. Never return a packet or finish a probe from the old one. */
 static void reset_protocol_state(void) {
-    lease_state = 0; peer_ip = 0; inbox_full = false;
+    lease_state = 0; peer_ip = 0; udp_clear_inbox();
+    memset(udp_ports, 0, sizeof(udp_ports));
     echo_probe.pending = false; stream.state = TCP_IDLE; stream.ack_pending = false;
 }
 static u16 be16(const u8 *p) { return ((u16)p[0] << 8) | p[1]; }
@@ -443,7 +472,7 @@ static void dhcp_receive(const u8 *p, u32 size) {
         n->state = NV_NET_ONLINE; lease_state = 0;
         kprintf("[net] DHCP address %u.%u.%u.%u\n", (offered >> 24) & 255,
                 (offered >> 16) & 255, (offered >> 8) & 255, offered & 255);
-    } else if (lease_state == 2 && message_type == 6) {
+    } else if (lease_state == 2 && message_type == 6 && from == server) {
         lease_state = 1; dhcp_send(false);
     }
 }
@@ -484,11 +513,12 @@ static void input_ipv4(const u8 *p, u32 size) {
         u32 length = be16(data + 4) - 8;
         if (be16(data + 2) == 68 && be16(data) == 67)
             dhcp_receive(data + 8, length);
-        else if (n->ip && length <= NV_NET_DATA_MAX && !inbox_full) {
+        else if (n->ip && length <= NV_NET_DATA_MAX && !inbox_full &&
+                 udp_owner(be16(data + 2))) {
             inbox = (struct nv_net_udp){.index = active, .address = src,
                     .port = be16(data), .local_port = be16(data + 2), .length = length};
             memcpy(inbox.data, data + 8, length);
-            inbox_full = true;
+            inbox_owner = udp_owner(inbox.local_port); inbox_full = true;
         }
     } else if (p[9] == 6 && n->ip) {
         tcp_input(data, bytes, src, dest);
@@ -546,6 +576,9 @@ void net_poll(void) {
     polling = false;
 }
 void net_task_release(u32 pid) {
+    if (inbox_owner == pid) udp_clear_inbox();
+    for (u32 i = 0; i < ARRAY_LEN(udp_ports); ++i)
+        if (udp_ports[i].pid == pid) udp_ports[i].pid = udp_ports[i].port = 0;
     if (stream.state != TCP_IDLE && stream.owner == pid) {
         stream.state = TCP_IDLE; stream.ack_pending = false;
     }
@@ -568,14 +601,18 @@ int net_ioctl(u32 op, uptr pointer) {
             if (io.index != active || active >= count || !io.address ||
                 !io.port || io.port > 65535 ||
                 adapters[active].state != NV_NET_ONLINE || !is_active()) return -NV_ENODEV;
+            u32 entropy[2];
+            /* No predictable uptime/MAC/address fallback for wire identities.
+             * Failure leaves the current network state and TX ring untouched. */
+            if (!cpu_random(entropy, sizeof(entropy))) return -NV_ENODEV;
             memset(&stream, 0, sizeof(stream));
             stream.owner = current->pid;
             stream.index = active;
             stream.address = io.address;
             stream.source_ip = adapters[active].ip;
             stream.remote_port = (u16)io.port;
-            stream.local_port = (u16)(49152u + (ticks % 16000u));
-            stream.next_tx = 0x4e560000u ^ ticks ^ io.address ^ ((u32)stream.local_port << 16);
+            stream.local_port = (u16)(49152u + (entropy[1] & 0x3fffu));
+            stream.next_tx = entropy[0];
             stream.acked_tx = stream.next_tx;
             ++stream.next_tx; /* SYN consumes one sequence number. */
             stream.last_send = ticks - 100;
@@ -697,10 +734,12 @@ int net_ioctl(u32 op, uptr pointer) {
         if (config.index != active || !is_active()) return -NV_ENODEV;
         struct nv_net_info *n = &adapters[active];
         if (op == NV_NET_DHCP) {
+            u32 xid;
+            if (!cpu_random(&xid, sizeof(xid))) return -NV_ENODEV;
             reset_protocol_state();
             n->ip = n->mask = n->gateway = n->dns = 0;
             n->state = NV_NET_CONFIGURING;
-            dhcp_xid = 0x4e560000u ^ ticks ^ (u32)n->mac[5] << 8 ^ n->product;
+            dhcp_xid = xid;
             lease_state = 1; dhcp_send(false);
         } else {
             if (!config.ip || !ipv4_mask_valid(config.mask) ||
@@ -719,9 +758,14 @@ int net_ioctl(u32 op, uptr pointer) {
         struct nv_net_udp *io = (void *)(uptr)pointer;
         if (op == NV_NET_UDP_RECV) {
             u32 filter = io->local_port;
-            if (!inbox_full || (filter && inbox.local_port != filter)) return -NV_EAGAIN;
-            memcpy(io, &inbox, sizeof(inbox)); inbox_full = false;
-            return (int)inbox.length;
+            if (io->index != active || active >= count) return -NV_ENODEV;
+            if (filter > 65535) return -NV_EINVAL;
+            if (filter) { int r = udp_bind(filter); if (r < 0) return r; }
+            if (!inbox_full || inbox_owner != current->pid ||
+                (filter && inbox.local_port != filter)) return -NV_EAGAIN;
+            u32 length = inbox.length;
+            memcpy(io, &inbox, sizeof(inbox)); udp_clear_inbox();
+            return (int)length;
         }
         struct nv_net_udp item;
         memcpy(&item, io, sizeof(item));
@@ -729,6 +773,8 @@ int net_ioctl(u32 op, uptr pointer) {
             adapters[active].state != NV_NET_ONLINE || !is_active()) return -NV_ENODEV;
         if (!item.port || !item.local_port || item.port > 65535 || item.local_port > 65535 ||
             !item.address || item.length > NV_NET_DATA_MAX) return -NV_EINVAL;
+        int bound = udp_bind(item.local_port);
+        if (bound < 0) return bound;
         if (ipv4_broadcast(&adapters[active], item.address))
             return udp_raw(broadcast, adapters[active].ip, item.address,
                            (u16)item.local_port, (u16)item.port, item.data, item.length);

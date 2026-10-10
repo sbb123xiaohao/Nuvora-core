@@ -14,6 +14,19 @@ static void devctl_tests(void) {
               devctl(NV_SUB_NET, NV_NET_INFO, NULL) == -NV_EFAULT &&
               devctl(NV_SUB_NET, 0, NULL) == -NV_EINVAL,
           "CPU reservation and network request validation");
+    check(devctl(NV_SUB_CPU,NV_CPU_RANDOM,NULL)==-NV_EFAULT,"random bytes reject null response");
+    check(devctl(NV_SUB_CPU,NV_CPU_RANDOM,(void *)(uptr)(NV_USER_END-4))==-NV_EFAULT,
+          "random bytes validate complete response range");
+    struct nv_random random={0};
+    check(devctl(NV_SUB_CPU,NV_CPU_RANDOM,&random)==-NV_EINVAL,"random bytes reject zero length");
+    random.length=NV_RANDOM_MAX+1;
+    check(devctl(NV_SUB_CPU,NV_CPU_RANDOM,&random)==-NV_EINVAL,"random bytes reject oversized length");
+    memset(&random,0xb9,sizeof(random));random.length=4;
+    int random_result=devctl(NV_SUB_CPU,NV_CPU_RANDOM,&random);
+    bool random_tail=true;
+    for (u32 i=random_result==0?4u:0u;i<NV_RANDOM_MAX;++i) random_tail&=random.data[i]==0;
+    check((random_result==0 || random_result==-NV_ENODEV) && random.length==4 && random_tail,
+          "hardware-backed random bytes clear unused or failed output");
     struct nv_net_info network = {.index = NV_NET_MAX};
     check(devctl(NV_SUB_NET, NV_NET_INFO, &network) == -NV_EINVAL,
           "network enumeration bounds are enforced");

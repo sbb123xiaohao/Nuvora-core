@@ -424,6 +424,10 @@ int account_ioctl(u32 op,uptr pointer) {
         locked=true;return 0;
     }
     if (op==NV_ACCOUNT_LOGOUT) {
+        /* Both the manager and PID 1 survive session teardown. Recovery Loom
+         * may already have handed management to the desktop, so clear both. */
+        net_task_release(manager_pid);
+        if (manager_pid!=1) net_task_release(1);
         task_end_session(manager_pid);nv_secret_clear(&account_job,sizeof(account_job));
         current->uid=session_uid=NV_UID_NONE;locked=false;
         for (u32 i=0;i<NV_TASK_MAX;++i) if (tasks[i].pid==1) tasks[i].uid=NV_UID_NONE;

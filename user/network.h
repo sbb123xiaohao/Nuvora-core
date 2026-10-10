@@ -238,6 +238,8 @@ static int network_command(int n, char **v) {
         struct nv_net_udp packet = {0};
         if (parse_u32(v[2], &packet.local_port) < 0 || !packet.local_port ||
             packet.local_port > 65535) return -NV_EINVAL;
+        int selected = net_current(&packet.index);
+        if (selected < 0) return selected;
         for (u32 attempt = 0; attempt < 50; ++attempt) {
             int r = devctl(NV_SUB_NET, NV_NET_UDP_RECV, &packet);
             if (r == -NV_EAGAIN) { nap(100); continue; }

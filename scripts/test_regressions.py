@@ -16,7 +16,7 @@ def main():
         create_gpt_disk(extent_image, size_mib=128, partitions=2)
         raw_image = pathlib.Path(directory) / 'raw-extent.img'
         create_raw_disk(raw_image, size_mib=64)
-        for name in ['crypto', 'account', 'account_ui', 'ui_controls', 'address', 'native64', 'power', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'rndis', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'igc', 'audio', 'window', 'display', 'desktop_shell', 'keyboard', 'pointer', 'media', 'media_formats']:
+        for name in ['crypto', 'random', 'account', 'account_ui', 'ui_controls', 'address', 'native64', 'power', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'rndis', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'igc', 'audio', 'window', 'display', 'desktop_shell', 'keyboard', 'pointer', 'media', 'media_formats']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -38,7 +38,8 @@ def main():
             subprocess.run(args, check=True)
             if name == 'network':
                 for scenario in ('usb-mac', 'tcp-reset', 'tcp-window-ack', 'tcp-future-ack',
-                                 'tcp-zero-window', 'tcp-eof', 'tcp-wrap', 'tcp-ack-backpressure'):
+                                 'tcp-zero-window', 'tcp-eof', 'tcp-wrap', 'tcp-ack-backpressure',
+                                 'udp-owner', 'dhcp-server', 'entropy'):
                     subprocess.run([str(output), scenario], check=True)
             if name == 'igc':
                 for scenario in ('zero', 'multicast', 'broadcast', 'unprogrammed'):
@@ -55,7 +56,7 @@ def main():
         subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/package_test.py'], cwd=ROOT, check=True)
-    print('ALL 40 HOST REGRESSION GROUPS PASSED (including native line icons, desktop shell, keyboard modifiers, native windows, storage, network, media and source packaging; C fixtures use UBSan)')
+    print('ALL 41 HOST REGRESSION GROUPS PASSED (including random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

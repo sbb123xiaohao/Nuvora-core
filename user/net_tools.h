@@ -35,27 +35,93 @@ static int active_network(struct nv_net_info *out) {
 }
 static u16 dns_u16(const u8 *p) { return ((u16)p[0] << 8) | p[1]; }
 static u32 dns_u32(const u8 *p) { return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]; }
-static u32 dns_skip(const u8 *p, u32 n, u32 at) {
-    for (u32 labels = 0; at < n && labels < 128; ++labels) {
-        u8 length = p[at++];
-        if (!length) return at;
-        if ((length & 0xc0) == 0xc0) return at < n ? at + 1 : 0;
-        if ((length & 0xc0) || length > n - at) return 0;
-        at += length;
+/* Decode bounded ASCII names, including backward compression pointers.
+ * Validate label boundaries so a literal dot inside one label cannot match
+ * the same spelling encoded as two separate labels. */
+static bool dns_name(const u8 *p,u32 n,u32 at,char out[254],u32 *next) {
+    u32 used=0;bool jumped=false;
+    for (u32 steps=0;steps<128 && at<n;++steps) {
+        u8 length=p[at++];
+        if (!length) {
+            if (!jumped) *next=at;
+            out[used]=0;return true;
+        }
+        if ((length&0xc0)==0xc0) {
+            if (at>=n) return false;
+            u32 target=((u32)(length&63)<<8)|p[at++];
+            if (target<12 || target>=at-2) return false;
+            if (!jumped) *next=at;
+            jumped=true;at=target;continue;
+        }
+        if ((length&0xc0) || length>n-at || used+length+(used!=0)>253) return false;
+        if (used) out[used++]='.';
+        for (u32 i=0;i<length;++i) {
+            u8 c=p[at++];
+            if (c<=32 || c>=127 || c=='.') return false;
+            out[used++]=(char)c;
+        }
     }
-    return 0;
+    return false;
+}
+static bool dns_same_name(const char *a,const char *b) {
+    while (*a && *b) {
+        u8 x=(u8)*a++,y=(u8)*b++;
+        if (x>='A' && x<='Z') x+='a'-'A';
+        if (y>='A' && y<='Z') y+='a'-'A';
+        if (x!=y) return false;
+    }
+    return !*a && !*b;
+}
+static int dns_answer(const u8 *p,u32 n,const char *host,u16 id,u32 *out) {
+    if (n<12 || dns_u16(p)!=id || (p[2]&0xfa)!=0x80 ||
+        (p[3]&15) || dns_u16(p+4)!=1) return -NV_EAGAIN;
+    char target[254],name[254],alias[254];u32 at=0;
+    if (!dns_name(p,n,12,name,&at) || at+4>n) return -NV_EIO;
+    if (!dns_same_name(name,host) || dns_u16(p+at)!=1 || dns_u16(p+at+2)!=1)
+        return -NV_EAGAIN;
+    u32 answers=at+4;
+    strlcpy(target,host,sizeof(target));
+    /* Rescan for each alias so a legitimate CNAME chain does not depend on
+     * record order. Only A records belonging to this chain can resolve it. */
+    for (u32 depth=0;depth<8;++depth) {
+        u32 address=0;alias[0]=0;at=answers;
+        for (u32 record=0;record<dns_u16(p+6);++record) {
+            if (!dns_name(p,n,at,name,&at) || at+10>n) return -NV_EIO;
+            u16 kind=dns_u16(p+at),family=dns_u16(p+at+2),size=dns_u16(p+at+8);
+            at+=10;
+            if (size>n-at) return -NV_EIO;
+            if (family==1 && dns_same_name(name,target)) {
+                if (kind==1 && size==4 && !address) address=dns_u32(p+at);
+                if (kind==5) {
+                    u32 end=0;
+                    if (!dns_name(p,n,at,name,&end) || end!=at+size || !*name ||
+                        (*alias && !dns_same_name(alias,name))) return -NV_EIO;
+                    strlcpy(alias,name,sizeof(alias));
+                }
+            }
+            at+=size;
+        }
+        if (address && !*alias) { *out=address;return 0; }
+        if (!*alias) return !depth && dns_u16(p+6) ? -NV_EAGAIN : -NV_ENOENT;
+        if (address || dns_same_name(alias,target)) return -NV_EIO;
+        strlcpy(target,alias,sizeof(target));
+    }
+    return -NV_EIO;
 }
 static int resolve_host(const char *host, const struct nv_net_info *network, u32 *out) {
     if (read_ipv4(host, out) == 0) return 0;
     if (!network->dns) return -NV_ENODEV;
     u32 len = strlen(host);
     if (!len || len > 253) return -NV_EINVAL;
+    struct nv_random random={.length=4};
+    int entropy=devctl(NV_SUB_CPU,NV_CPU_RANDOM,&random);
+    if (entropy<0) return entropy;
     memset(&dns_io, 0, sizeof(dns_io));
     dns_io.index = network->index;
     dns_io.address = network->dns;
-    dns_io.local_port = 49152 + (clock_ticks() % 14000);
+    dns_io.local_port = 49152 + (dns_u16(random.data+2)&0x3fffu);
     dns_io.port = 53;
-    u16 id = (u16)(clock_ticks() ^ len ^ 0x4e56);
+    u16 id = dns_u16(random.data);
     dns_io.data[0] = (u8)(id >> 8); dns_io.data[1] = (u8)id;
     dns_io.data[2] = 1; dns_io.data[5] = 1;
     u32 pos = 12, start = 0;
@@ -89,29 +155,9 @@ static int resolve_host(const char *host, const struct nv_net_info *network, u32
             int got = devctl(NV_SUB_NET, NV_NET_UDP_RECV, &response);
             if (got == -NV_EAGAIN) { nap(30); continue; }
             if (got < 0) return got;
-            if (response.address != network->dns || response.port != 53 || got < 12 ||
-                dns_u16(response.data) != id || !(response.data[2] & 0x80) ||
-                (response.data[3] & 15)) continue;
-            u32 at = 12;
-            for (u32 q = 0; q < dns_u16(response.data + 4); ++q) {
-                at = dns_skip(response.data, (u32)got, at);
-                if (!at || at + 4 > (u32)got) return -NV_EIO;
-                at += 4;
-            }
-            for (u32 a = 0; a < dns_u16(response.data + 6); ++a) {
-                at = dns_skip(response.data, (u32)got, at);
-                if (!at || at + 10 > (u32)got) return -NV_EIO;
-                u16 kind = dns_u16(response.data + at), family = dns_u16(response.data + at + 2);
-                u16 size = dns_u16(response.data + at + 8);
-                at += 10;
-                if (size > (u32)got - at) return -NV_EIO;
-                if (kind == 1 && family == 1 && size == 4) {
-                    *out = dns_u32(response.data + at);
-                    return *out ? 0 : -NV_EIO;
-                }
-                at += size;
-            }
-            return -NV_ENOENT;
+            if (response.address != network->dns || response.port != 53) continue;
+            int answer=dns_answer(response.data,(u32)got,host,id,out);
+            if (answer!=-NV_EAGAIN) return answer;
         }
     }
     return -NV_EIO;

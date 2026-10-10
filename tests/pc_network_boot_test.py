@@ -7,6 +7,7 @@ QEMU's user network reaches a local HTTP server through 10.0.2.2.
 import argparse
 import hashlib
 import http.server
+import socketserver
 import json
 import pathlib
 import re
@@ -97,13 +98,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def saved_download(disk):
+class DNSHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        packet, transport = self.request
+        question = b'\x06nuvora\x04test\x00\x00\x01\x00\x01'
+        if len(packet) != 12 + len(question) or packet[4:6] != b'\x00\x01' or packet[12:] != question:
+            return
+        self.server.queries.append({'id': int.from_bytes(packet[:2], 'big'),
+                                    'host': 'nuvora.test'})
+        response = (packet[:2] + b'\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00' + question +
+                    b'\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x1e\x00\x04\x0a\x00\x02\x02')
+        wrong_question = bytearray(response); wrong_question[13] = ord('x')
+        wrong_question[-4:] = b'\xc0\x00\x02\x42'
+        transport.sendto(wrong_question, self.client_address)
+        time.sleep(.15)
+        wrong_owner = bytearray(response); wrong_owner[12 + len(question) + 1] = 19
+        wrong_owner[-4:] = b'\xc0\x00\x02\x42'
+        transport.sendto(wrong_owner, self.client_address)
+        time.sleep(.15)
+        # Repeat the valid answer while the polling guest drains its inbox.
+        for _ in range(3):
+            transport.sendto(response, self.client_address)
+            time.sleep(.08)
+
+
+class DNSServer(socketserver.ThreadingUDPServer):
+    daemon_threads = True
+
+
+def saved_download(disk, filename=b'/home/blob'):
     with disk.open('rb') as stream:
         geometry = layout(stream, 0, disk.stat().st_size // 512)
         records = roots(stream, 0, geometry)
         assert records, 'No committed NVSTORE3 root'
         for kind, path, size, extents in records[-1][2]:
-            if path != b'/home/blob':
+            if path != filename:
                 continue
             assert kind == 2 and size == len(PAYLOAD), (kind, size)
             result = bytearray(size)
@@ -167,10 +196,16 @@ def run(model, directory, port):
                       uefi=True, hardware=hardware, monitor=True, boot_timeout=90)
         try:
             configure(vm)
+            vm.send('forge probe udp-isolation', 'UDP SECURITY RESULT: 6 passed, 0 failed', timeout=30)
             send_broadcasts(vm)
             configure(vm)
             vm.send(f'wget -O /home/blob http://10.0.2.2:{port}/blob',
                     f'Downloaded {len(PAYLOAD)} bytes to /home/blob', timeout=90)
+            active = re.search(r'^\* (\d+) ', vm.send('net'), re.M)
+            assert active
+            vm.send(f'net static {active[1]} 10.0.2.15 255.255.255.0 10.0.2.2 10.0.2.2')
+            vm.send(f'wget -O /home/dns-blob http://nuvora.test:{port}/blob',
+                    f'Downloaded {len(PAYLOAD)} bytes to /home/dns-blob', timeout=90)
             vm.send('anchor', 'Saved /home.')
             if model == 'usb-net':
                 vm.monitor('human-monitor-command', {'command-line': 'device_del nic'})
@@ -188,11 +223,13 @@ def run(model, directory, port):
         finally:
             vm.close()
         assert saved_download(disk) == PAYLOAD, f'{model}: saved HTTP bytes differ'
+        assert saved_download(disk, b'/home/dns-blob') == PAYLOAD, f'{model}: DNS HTTP bytes differ'
         check_broadcasts(capture)
     finally:
         suite.firmware_arguments = original_firmware
     digest = hashlib.sha256(PAYLOAD).hexdigest()
-    print(f'PASS {model}: captured two UDP broadcasts without a gateway; DHCP, ping, reconnect, '
+    print(f'PASS {model}: native UDP process isolation and rejected mismatched DNS responses; '
+          f'captured two UDP broadcasts without a gateway; DHCP, ping, reconnect, '
           f'saved {len(PAYLOAD)} bytes SHA256 {digest}', flush=True)
     return {'nic': model, 'result': 'PASS', 'broadcasts': len(BROADCASTS),
             'bytes': len(PAYLOAD), 'sha256': digest}
@@ -210,15 +247,23 @@ def main():
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    dns = DNSServer(('127.0.0.1', 53), DNSHandler)
+    dns.queries = []
+    dns_thread = threading.Thread(target=dns.serve_forever, daemon=True)
+    dns_thread.start()
     try:
         with tempfile.TemporaryDirectory(prefix='nuvora-pc-network-') as directory:
             results = [run(model, pathlib.Path(directory), server.server_port)
                        for model in args.nic or NICS]
+        assert len(dns.queries) >= len(results), dns.queries
         (suite.REPORT / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
     finally:
         server.shutdown()
         server.server_close()
         thread.join()
+        dns.shutdown()
+        dns.server_close()
+        dns_thread.join()
 
 
 if __name__ == '__main__':

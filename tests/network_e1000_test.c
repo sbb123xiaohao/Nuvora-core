@@ -39,6 +39,7 @@ static bool user_range(void *pd, uptr address, usize size, bool write) {
     (void)pd; (void)address; (void)size; (void)write; return false;
 }
 static void kprintf(const char *format, ...) { (void)format; }
+bool cpu_random(void *out, u32 n) { memset(out, 0x67, n); return true; }
 #include "../kernel/net.c"
 
 int main(void) {
