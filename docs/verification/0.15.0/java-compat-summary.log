@@ -1,0 +1,72 @@
+Nuvora Core / experimental Java 21 bytecode bootstrap verification
+Baseline: 1267f0cfa0b8dbba03de5f3265a36a2dac8cb52f (GitHub main and local matched before edits).
+Final native build: Arch GCC 16.2.1 20260810; QEMU 11.1.1; Python 3.14.7; OVMF 202608.
+Additional sanitizer/differential checks: host GCC 14.2.0; OpenJDK/javac 21.0.12.1.
+This is an independently written bounded interpreter subset, not OpenJDK, Java SE 21, or a running Minecraft client.
+
+[ASan + UBSan / actual guest VM core]
+PASS Java launch arguments: empty strings, whitespace, quotes, backslashes and capacity bounds
+PASS Java 21 real javac output: classes, objects, arrays, switches, overflow, UTF-16 and invokedynamic concat
+PASS Java errors: divide/null/array/cast/string faults, memory/depth/instruction limits and host cancellation
+PASS Java parser: every truncated prefix, 1500 deterministic mutations and input/heap guard pages
+PASS Java bytecode safety: branch-into-operand, truncated switch, wide-local invalidation, stack categories and zero-stack iinc
+PASS JVMS return semantics: extra operands discarded and byte/char/short/boolean narrowed
+
+[OpenJDK 21 / recompiled source and matching checked-in class bytes]
+javac 21.0.12.1
+PASS OpenJDK 21 differential: NuvoraJavaDemo [], 147 output bytes
+PASS OpenJDK 21 differential: NuvoraJavaDemo ['hello', '', 'two words', 'a"b', 'C:\\path'], 211 output bytes
+PASS OpenJDK 21 differential: JavaEdges ['utf', '你好🌍'], 34 output bytes
+PASS OpenJDK 21 differential: JavaEdges ['arithmetic'], 36917 output bytes
+PASS matching fault: divide -> ArithmeticException (guest reports and exits; catch is unsupported)
+PASS matching fault: long-divide -> ArithmeticException (guest reports and exits; catch is unsupported)
+PASS matching fault: null -> NullPointerException (guest reports and exits; catch is unsupported)
+PASS matching fault: bounds -> ArrayIndexOutOfBoundsException (guest reports and exits; catch is unsupported)
+PASS matching fault: store-bounds -> ArrayIndexOutOfBoundsException (guest reports and exits; catch is unsupported)
+PASS matching fault: negative -> NegativeArraySizeException (guest reports and exits; catch is unsupported)
+PASS matching fault: store -> ArrayStoreException (guest reports and exits; catch is unsupported)
+PASS matching fault: cast -> ClassCastException (guest reports and exits; catch is unsupported)
+PASS matching fault: char-bounds -> StringIndexOutOfBoundsException (guest reports and exits; catch is unsupported)
+JAVA21 DIFFERENTIAL: 4 successful programs + 9 fault outcomes matched OpenJDK
+
+[Final Arch host regression]
+ALL 47 HOST REGRESSION GROUPS PASSED (including Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, static PIE/RELRO, editor large-file/error handling and failed-save protection, account commit/lock races, session client suspension, lock input/display revocation, random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)
+
+[UEFI USB / 64 MiB]
+Created UEFI system partition image: build/x86_64/esp.img
+Created UEFI GPT boot image: /tmp/nuvora-removable-y74wxsm1/boot.img (66 MiB)
+PASS removable UEFI GPT/FAT32 (64 MiB): BOOTX64.EFI, USB xHCI and 152 native/legacy Ring 3 assertions; QEMU exit 33
+
+[Native disk classes / BIOS / 64 MiB]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-java-guest-6zw_wqsy/data.img
+PASS Ring 3: java --demo "two words"
+PASS Ring 3: java "/home/Java Demo.class" "two words"
+PASS Ring 3: forge java "/home/Java Demo.class" "two words"
+PASS isolated guest failure: bounds -> ArrayIndexOutOfBoundsException
+PASS isolated guest failure: null -> NullPointerException
+PASS isolated guest failure: memory -> Java array exceeds arena
+PASS isolated guest failure: recursive -> Java call-depth limit
+PASS isolated guest failure: forever -> Java instruction budget exhausted
+PASS isolated guest failure: library -> Java library method is not implemented
+PASS Java guest exit reclamation, malformed/JAR rejection, shell and filesystem recovery
+JAVA21 GUEST DISK TEST PASSED
+Independent serial log check: 3 Java demos and 3 self-tests; free KiB before/after = 40844/40844.
+
+[Production graphical session]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-java-desktop-ze0rmr28/data.img
+Created UEFI GPT boot image: /tmp/nuvora-java-desktop-ze0rmr28/boot.img (66 MiB)
+PASS production Terminal: Java child returned; subsequent file write persisted
+CAPTURE java21.png: 1280x800; raw PPM retained for independent comparison
+PNG independently decoded against original QMP PPM: 1280 x 800, identical RGB pixels.
+Java screenshot SHA256: fee5ea9da9fc1267588828344fc96cb77b00ceee1005e385a6ad310a599048eb
+Production kernel SHA256: 12604a1ad6897fc6bc018e0d894cb27a3d87b4b5d244effa4844e23438e96d92
+ESP SHA256: 570905cab3e84f62b69b140a7645f5e2703905292508054ee3d319158892cadc
+Demo class SHA256: 434b05cc88b31da7d48551c65a955a26409e86bd95ec79a99d2d67553223f4ac
+Native java.elf SHA256: 9768198703d02aecf52601b35adc156d9be691b53e65df0cae87b3705526d02e
+Independent ELF/archive check: x64 static ET_EXEC, entry 0x100000000, no W+X LOAD, no PT_INTERP/DYNAMIC/TLS; exact class embedded; /apps/java exact ELF.
+Source check: all 213 build/code/test/fixture files match the final tested tree byte for byte.
+Tested source content fingerprint SHA256: 4862ba9ae0f5bd7e465603cbda17dd618043f1d5d81ae0180227f27307be85e3
+GCC freestanding general-register-only stack report: largest individual C frame 1120 bytes; Java frames allocated in arena.
+
+Limits: single application class; integer/long only; 2 MiB arena; no GC/threads/JAR/JNI/LWJGL/OpenGL/full class library.
+No Minecraft launch, world entry, FPS, Java TCK, or physical-hardware certification was performed.

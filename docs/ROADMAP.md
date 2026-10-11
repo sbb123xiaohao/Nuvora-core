@@ -12,5 +12,6 @@
 8. **CPU 扩展与 NVIDIA**：按 CPU 能力实现 XSAVE/AVX 状态；先完成 framebuffer/GOP 与 PCI/DMA/中断基础，再选择实体 NVIDIA 型号实现驱动，详见 [CPU-GPU.md](CPU-GPU.md)。
 9. **AI 运行架构**：大规模张量缓冲与流式训练数据、DMA/IOMMU、GPU/NPU 设备驱动和运行时、失败恢复与真正模型基准；目前的 NEON 计算自检与 x64 大缓冲测试只是可测基线，详见 [ARM64-AI.md](ARM64-AI.md)。
 10. **生产质量**：模糊测试、长时间运行、故障注入、威胁模型、安全审查和持续集成。
+11. **Java 21 与 Minecraft**：现有 bootstrap 只验证单类解释执行与原生接入；后续先确定成熟 JVM 平台层移植方案，补齐类库、GC、线程、JNI、动态库，再接入 LWJGL/GLFW/OpenGL、网络/TLS 和游戏资源流程。以真实客户端进入世界和保存为最终验收；当前仍不能启动游戏，详见 [JAVA.md](JAVA.md)。
 
 这些都不是几个空函数可以替代的功能，需要继续分阶段实现和验证。现有源码不放置声称已完成这些模块的占位实现。

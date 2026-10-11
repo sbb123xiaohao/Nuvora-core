@@ -28,6 +28,14 @@ ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像
   分页或磁盘文件，分配失败不修改原文件；没有通用软件包安装器。
 - 对 ARM64 仍只有独立 QEMU `virt` 移植基线，尚无此应用 ABI。
 
+## Java 实验入口
+
+Java 实验入口已作为普通原生 ELF 接入：`user/java.c` 使用现有读文件、堆、
+输出与进程接口，`user/java_vm.c` 解释单类字节码，不添加内核系统调用。
+支持范围和与完整 Java 21/Minecraft 的差距见 [JAVA.md](JAVA.md)。
+需要 argv 语义的应用可用 `quote_args` 与 `tokenize` 配对；现有接受原始文本的
+应用继续使用 `join_args`，不改变它们的参数含义。
+
 ## 静态 PIE 应用
 
 原生应用可使用 GCC 的 `-fpie` 和普通 ELF 链接布局，无须指定固定的链接

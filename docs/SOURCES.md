@@ -1,5 +1,7 @@
 # 参考规范与来源
 
+- [Java Virtual Machine Specification, Java SE 21](https://docs.oracle.com/javase/specs/jvms/se21/html/index.html)：class 格式、modified UTF-8、操作数槽、字节码、switch、整数除余/移位、dup 与返回值转换规则。实验性解释器为独立 C 实现，不含 OpenJDK 源码；真实 javac 21 产物及 OpenJDK 21 执行结果作为差分基准，范围见 [JAVA.md](JAVA.md)。
+
 处理器和标准格式相关实现参考下列公开文档。项目自己的代码、命令名称、ABI 编排和快照格式在本次工作中编写，没有将 Linux 内核源码改名包装。
 
 本轮存储核对使用用户提供的 `linux-7.2.8.tar.xz` 中的

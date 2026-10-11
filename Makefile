@@ -53,7 +53,7 @@ ASFLAGS := $(BASEFLAGS) -g
 KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/power.c common/pci_decode.c common/crypto.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := session loom terminal pulse spin fault probe folio relay vector desktop wave media abi1 pie
+APPS := session loom terminal pulse spin fault probe folio relay vector desktop wave media abi1 pie java
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/user/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
@@ -104,6 +104,11 @@ $(BUILD)/apps/abi1.elf: $(BUILD)/user/abi1.o $(ULINK)
 	@mkdir -p $(dir $@)
 	$(LD) -m $(MACHINE) --gc-sections -z max-page-size=4096 --defsym=USER_IMAGE_BASE=0x40000000 -T $(ULINK) -o $@ $<
 $(BUILD)/apps/media.elf: $(BUILD)/user/media.o $(BUILD)/user/media_codecs.o $(UCOMMON) $(ULINK)
+$(BUILD)/user/java_demo.h: tests/fixtures/java/NuvoraJavaDemo.class scripts/embed_java.py
+	$(PYTHON) scripts/embed_java.py $< $@
+$(BUILD)/user/java.o: user/java.c $(BUILD)/user/java_demo.h
+	$(CC) $(filter-out -mcmodel=small,$(CFLAGS)) -mcmodel=large -I$(BUILD)/user -c $< -o $@
+$(BUILD)/apps/java.elf: $(BUILD)/user/java.o $(BUILD)/user/java_vm.o $(UCOMMON) $(ULINK)
 $(BUILD)/user/media.o $(BUILD)/user/media_codecs.o: CFLAGS := $(filter-out -mgeneral-regs-only -msoft-float -mno-sse -mno-sse2,$(CFLAGS)) -msse2 -U_FORTIFY_SOURCE
 $(BUILD)/apps/%.elf: $(BUILD)/user/%.o $(UCOMMON) $(ULINK)
 	@mkdir -p $(dir $@)

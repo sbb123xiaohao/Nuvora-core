@@ -1,5 +1,47 @@
 # 测试与复现
 
+## 未发布：Java 21 字节码运行基础
+
+以远端与本地一致的完整 `1267f0c` 为基线，新增的是 x64 用户态实验性
+解释器和原生命令，没有扩展内核权限或系统调用。准确功能边界见
+[JAVA.md](JAVA.md)，原始结论汇总见
+[Java 验证记录](verification/0.15.0/java-compat-summary.log)。
+
+- 实际 OpenJDK **21.0.12.1** 重新编译两份 Java 源码，major 65 类文件与
+  保存夹具逐字节相同；四组成功输出（含 800 行算术差分、Unicode 与引号参数）
+  和九类错误均与 OpenJDK 结果对应。客体报告异常后退出，不支持 catch。
+- `java_test` 直接编译客体 C 核心，检查所有截断前缀、1,500 次确定性变异、
+  类输入/arena 保护页、常量池与指令边界、宽局部变量、栈类别、返回值窄化、
+  参数重新引用，以及内存/递归/指令配额和宿主 I/O/取消；ASan/UBSan 通过。
+- Arch GCC **16.2.1 20260810** 构建与 **47 组宿主回归**通过；QEMU
+  **11.1.1** 的 64 MiB UEFI USB 启动完成 **152 项**原生/兼容断言。
+  新断言在 Ring 3 实际运行 Java 21 类，并逐字节核对其输出。
+- `java_boot_test.py` 在 64 MiB BIOS 客体从私有 NVSTORE 数据盘读取类文件，
+  验证带空格路径与参数、六种运行失败、坏文件/JAR 拒绝、三次启动后空闲页
+  精确恢复，以及后续终端/文件操作。
+- `java_desktop_test.py` 从正式 UEFI 生产内核启动、完成 OOBE，在真实
+  Terminal 运行 Java，再确认后续文件写入持久化。新 PNG 与 QMP 原始 PPM
+  独立解码比较像素；README 引用该图，原有桌面截图保留其原始清单。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/java_compat_test.py       # 需要 JDK 21
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/java_boot_test.py
+python3 tests/java_desktop_test.py
+```
+
+差分脚本支持 `JAVA`/`JAVAC` 覆盖命令；本机 JRE 带 compiler module 但没有
+`javac` 启动器，使用
+`JAVAC='java -m jdk.compiler/com.sun.tools.javac.Main'` 执行。正常源码构建
+不依赖宿主 Java。编译器栈报告中 Java 核心单函数最大静态帧为 1,120 字节；
+Java 调用帧存于 arena，避免深递归消耗 32 KiB 原生用户栈。
+
+这是 Java 字节码子集和模拟 PC 测试，**没有运行 Minecraft 客户端、没有测游戏
+帧率，也未进行实体机认证或 Java TCK**。此轮没有修改 ARM64 启动代码，新增
+应用仅接入已经具备原生 ELF/进程接口的 x86-64 系统。
+
 ## 未发布：底层内存优化与原生静态 PIE
 
 以 GitHub/local 一致的完整 `d5ceaa6` 为基线。旧加载器在合法纯 PIE

@@ -321,6 +321,8 @@ static void process_tests(void) {
           "process exhaustion recovery has no leak");
 }
 static void executable_tests(void) {
+    int java=spawn("/apps/java","--self-test");
+    check(java>0 && wait_task(java)==74,"Java 21 class executes methods, arrays, strings and overflow in Ring 3");
     int pie=spawn("/apps/pie","--self-test");
     check(pie>0 && wait_task(pie)==73,"static PIE starts with relative pointers, BSS and read-only relocations");
     pie=spawn("/apps/pie","--exec");

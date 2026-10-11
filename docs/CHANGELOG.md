@@ -1,5 +1,13 @@
 # Nuvora Core 0.15.0
 
+## 未发布：Java 21 字节码兼容起步
+
+- 新增 `/apps/java` 和 Terminal/Loom 的 `java` 命令，加载真实非 preview 的 class 52–65 文件；提供无需宿主 JDK 即可构建的 Java 21 示例。
+- 实现单类对象、静态/实例方法与字段、int/long、单维数组、switch、UTF-16 字符串、基础输出及 StringConcatFactory 拼接。它是新写的实验性子集，不是完整 Java SE/JVM；Minecraft 尚不能运行。
+- 以有界 arena、显式调用帧、对象引用表、类型/指令边界检查和执行预算处理损坏输入与资源耗尽；未支持的类库、JAR、浮点、线程、JNI、GC 等明确报错。
+- Java 启动参数重新引用，保留带空格路径、空参数、引号与反斜线；原有使用 raw 文本的应用保持原语义。
+- 加入 OpenJDK 21 差分、ASan/UBSan、截断/变异/保护页、真实客体读类文件/内存回收和生产桌面截图；记录 Minecraft 后续依赖与验收条件。
+
 ## 未发布：底层内存优化与原生静态 PIE
 
 - x86-64 加载器支持原生静态 PIE（ET_DYN），使用固定加载偏移处理 R_X86_64_RELATIVE，并在重定位后设置 GNU RELRO 页面只读；保持固定地址 ELF 和旧 ABI。动态库、TLS、构造器和 Linux/Windows 二进制接口仍不支持。

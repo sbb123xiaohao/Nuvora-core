@@ -238,6 +238,26 @@ int join_args(char *out, u32 cap, char **argv, int first, int argc) {
     out[p] = 0;
     return 0;
 }
+/* Inverse of tokenize for applications that parse argv themselves. Existing
+ * applications that consume raw text keep using join_args. */
+int quote_args(char *out,u32 cap,char **argv,int first,int argc) {
+    u32 used=0;
+    if (!cap || first<0 || first>argc) return -NV_EINVAL;
+    for (int i=first;i<argc;++i) {
+        if ((i>first?2u:1u)>=cap-used) return -NV_E2BIG;
+        if (i>first) out[used++]=' ';
+        out[used++]='"';
+        for (const char *p=argv[i];*p;++p) {
+            bool escape=*p=='"' || *p=='\\';
+            if ((escape?2u:1u)>=cap-used) return -NV_E2BIG;
+            if (escape) out[used++]='\\';
+            out[used++]=*p;
+        }
+        if (used+1>=cap) return -NV_E2BIG;
+        out[used++]='"';
+    }
+    out[used]=0; return 0;
+}
 int copy_file(const char *from, const char *to) {
     /* Existing destinations are deliberately refused, including the source itself. */
     int existing = open_file(to, NV_READ);

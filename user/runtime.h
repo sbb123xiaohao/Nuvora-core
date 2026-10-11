@@ -166,5 +166,6 @@ const char *error_name(int);
 int read_line(char *, u32);
 int tokenize(char *, char **, u32);
 int join_args(char *, u32, char **, int, int);
+int quote_args(char *, u32, char **, int, int);
 int copy_file(const char *, const char *);
 #endif

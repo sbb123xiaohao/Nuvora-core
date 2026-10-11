@@ -112,7 +112,7 @@ static void process_list(void) {
         println(t.name);
     }
 }
-static int run_app(const char *app, char **argv, int argc, bool background) {
+static int run_app(const char *app, char **argv, int first, int argc, bool background) {
     char path[NV_PATH_MAX], args[NV_ARG_MAX];
     bool slash = false;
     for (const char *p = app; *p; ++p)
@@ -127,7 +127,8 @@ static int run_app(const char *app, char **argv, int argc, bool background) {
             return -NV_E2BIG;
         strlcpy(path + 6, app, sizeof(path) - 6);
     }
-    int r = join_args(args, sizeof(args), argv, 2, argc);
+    int r = !strcmp(path,"/apps/java") ? quote_args(args,sizeof(args),argv,first,argc) :
+            join_args(args, sizeof(args), argv, first, argc);
     if (r < 0)
         return r;
     int pid = spawn(path, args);
@@ -279,10 +280,11 @@ static int dispatch(int n, char **v) {
         return 0;
     }
     if ((!strcmp(cmd, "forge") || !strcmp(cmd, "scatter")) && n >= 2)
-        return run_app(v[1], v, n, !strcmp(cmd, "scatter"));
+        return run_app(v[1], v, 2, n, !strcmp(cmd, "scatter"));
+    if (!strcmp(cmd,"java")) return run_app("java",v,1,n,false);
     if (!strcmp(cmd, "trial") && n == 1) {
         char *args[] = {"forge", "probe"};
-        return run_app("probe", args, 2, false);
+        return run_app("probe", args, 2, 2, false);
     }
     if ((!strcmp(cmd, "gather") || !strcmp(cmd, "quench") || !strcmp(cmd, "doze")) && n == 2) {
         u32 value;
