@@ -53,7 +53,7 @@ ASFLAGS := $(BASEFLAGS) -g
 KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/power.c common/pci_decode.c common/crypto.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := session loom terminal pulse spin fault probe folio relay vector desktop wave media abi1
+APPS := session loom terminal pulse spin fault probe folio relay vector desktop wave media abi1 pie
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/user/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
@@ -72,6 +72,16 @@ $(BUILD)/%.o: %.S
 $(BUILD)/user/string.o: common/string.c include/nv/string.h
 	@mkdir -p $(dir $@)
 	$(CC) $(filter-out -mcmodel=small,$(CFLAGS)) -mcmodel=large -c $< -o $@
+PIEFLAGS = $(filter-out -fno-pie -fno-pic -mcmodel=small,$(CFLAGS)) -fpie -mcmodel=small
+$(BUILD)/user/pie.o: user/pie.c
+	@mkdir -p $(dir $@)
+	$(CC) $(PIEFLAGS) -c $< -o $@
+$(BUILD)/user/string-pie.o: common/string.c include/nv/string.h
+	@mkdir -p $(dir $@)
+	$(CC) $(PIEFLAGS) -c $< -o $@
+$(BUILD)/apps/pie.elf: $(BUILD)/user/pie.o $(BUILD)/user/string-pie.o $(BUILD)/user/start64.o
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_x86_64 -pie --no-dynamic-linker --gc-sections -z text -z noexecstack -z relro -z now -z max-page-size=4096 -e _start -o $@ $^
 $(BUILD)/arch/$(ARCHDIR)/boot.o: arch/cpu_boot.inc
 $(BUILD)/arch/x86_64/uefi.o: arch/x86_64/uefi.c $(wildcard include/nv/*.h)
 	@mkdir -p $(dir $@)

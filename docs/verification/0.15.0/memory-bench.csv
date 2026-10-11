@@ -1,0 +1,10 @@
+operation,bytes,byte_loop_ns,scalar_word_ns,speedup
+memcpy,64,20.91,4.47,4.68
+memcpy,4096,1198.05,119.51,10.02
+memcpy,1048576,303513.14,40260.03,7.54
+memset,64,11.46,3.58,3.20
+memset,4096,586.47,115.14,5.09
+memset,1048576,150928.05,29908.98,5.05
+memmove-backward,64,20.41,6.27,3.26
+memmove-backward,4096,1167.01,151.26,7.72
+memmove-backward,1048576,301258.33,39432.23,7.64

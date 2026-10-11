@@ -270,6 +270,7 @@ void memory_selftest(void);
 pte_t *vm_create(void);
 void vm_destroy(pte_t *);
 int vm_map(pte_t *, uptr, u32);
+int vm_readonly(pte_t *, uptr);
 uptr vm_translate(pte_t *, uptr);
 void vm_unmap(pte_t *, uptr);
 bool user_range(pte_t *, uptr, usize, bool);

@@ -321,6 +321,10 @@ static void process_tests(void) {
           "process exhaustion recovery has no leak");
 }
 static void executable_tests(void) {
+    int pie=spawn("/apps/pie","--self-test");
+    check(pie>0 && wait_task(pie)==73,"static PIE starts with relative pointers, BSS and read-only relocations");
+    pie=spawn("/apps/pie","--exec");
+    check(pie>0 && wait_task(pie)==73,"static PIE exec relocates and clears the replacement image");
     int fd = open_file("/tmp/bad-elf", NV_WRITE | NV_CREATE | NV_EXCL);
     emit(fd, "not-an-elf", 10);
     close_file(fd);

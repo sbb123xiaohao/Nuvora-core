@@ -20,12 +20,48 @@ ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像
   `NV_CALL_NATIVE | 操作号`，RBX/RCX/RDX 为三个完整 64 位参数，RAX
   返回有符号 64 位值。负值是 `-NV_E...`。用户指针须处于当前进程的有效
   映射；新应用映像从 4 GiB 起、堆从 64 GiB 起、栈在低半规范地址顶部。
-- 程序使用符合本项目 ABI 的静态 ELF64，没有动态链接器、POSIX
+- 程序使用符合本项目 ABI 的静态 ELF64，支持固定地址 ET_EXEC 和静态
+  PIE（ET_DYN）；没有动态链接器、POSIX
   socket/libc、共享库或用户态直接显存映射。可把源码加入 `APPS`，
   通过 `scripts/mkarchive.py` 随内核映像嵌入 `/apps/`；符合加载器约束的
   ELF 也可复制到数据卷后用 `NV_SPAWN`/`NV_EXEC` 运行。加载器会临时读取
   分页或磁盘文件，分配失败不修改原文件；没有通用软件包安装器。
 - 对 ARM64 仍只有独立 QEMU `virt` 移植基线，尚无此应用 ABI。
+
+## 静态 PIE 应用
+
+原生应用可使用 GCC 的 `-fpie` 和普通 ELF 链接布局，无须指定固定的链接
+地址。入口和系统调用沿用 ABI 2；内核把 ET_DYN 的虚拟地址整体加上
+`0x100000000`，完成相对重定位后启动。当前偏移固定，**不提供 ASLR**。
+
+`user/pie.c` 是可运行示例，包含数据指针、函数指针、跨页 BSS 和只读
+重定位区。构建完整系统后，在 Terminal 执行 `forge pie`；其 `--self-test`
+和 `--exec` 模式供集成测试使用，成功返回状态 73。编译自己的应用时：
+
+```sh
+make build/x86_64/user/start64.o build/x86_64/user/string-pie.o
+gcc -m64 -mcmodel=small -mno-red-zone -mgeneral-regs-only -ffreestanding \
+  -fno-builtin -fpie -fno-stack-protector -fno-asynchronous-unwind-tables \
+  -fno-unwind-tables -std=c11 -O2 -Iinclude \
+  -c user/pie.c -o build/x86_64/user/my_app.o
+ld -m elf_x86_64 -pie --no-dynamic-linker --gc-sections \
+  -z text -z noexecstack -z relro -z now -z max-page-size=4096 -e _start \
+  -o build/x86_64/apps/my_app.elf build/x86_64/user/my_app.o \
+  build/x86_64/user/string-pie.o build/x86_64/user/start64.o
+```
+
+把 `user/pie.c` 换成自己的 `int user_main(const char *args)` 源码。将 ELF
+导入数据卷后可通过 `forge /home/my_app.elf` 启动，或加入构建归档。链接时
+应检查 `readelf -l -d -r`：无 PT_INTERP/DT_NEEDED，重定位只使用符号索引
+为零的 `R_X86_64_RELATIVE`。内核验证完整文件后再分配用户映射：
+
+- 每个 LOAD 段不得同时可写、可执行，也不得与其他段共享页面。
+- 重定位表须完整位于文件中的 LOAD 段；每个目标完整落在可写段，支持
+  非对齐和跨页目标。表最多 65,536 项，动态表最多 64 KiB。
+- PT_GNU_RELRO 在重定位后去掉写权限；开始向下对齐，结束向下对齐到
+  4 KiB 页。拒绝可执行栈请求、越界、重复的关键动态项和不支持的动态功能。
+- 仍不支持共享库、符号解析、PLT、TLS、构造/析构器、REL/RELR 或 IFUNC；
+  Linux/Windows 二进制及其运行库不在本轮兼容范围内。
 
 ## 像素显示
 

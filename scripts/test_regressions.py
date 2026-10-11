@@ -16,7 +16,7 @@ def main():
         create_gpt_disk(extent_image, size_mib=128, partitions=2)
         raw_image = pathlib.Path(directory) / 'raw-extent.img'
         create_raw_disk(raw_image, size_mib=64)
-        for name in ['crypto', 'random', 'account', 'account_ui', 'session_client', 'editor_io', 'folio_io', 'ui_controls', 'address', 'native64', 'power', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'rndis', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'igc', 'audio', 'window', 'console_security', 'display', 'desktop_shell', 'keyboard', 'pointer', 'media', 'media_formats']:
+        for name in ['string', 'crypto', 'random', 'account', 'account_ui', 'session_client', 'editor_io', 'folio_io', 'ui_controls', 'address', 'native64', 'power', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'rndis', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'igc', 'audio', 'window', 'console_security', 'display', 'desktop_shell', 'keyboard', 'pointer', 'media', 'media_formats']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -56,7 +56,7 @@ def main():
         subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/package_test.py'], cwd=ROOT, check=True)
-    print('ALL 45 HOST REGRESSION GROUPS PASSED (including editor large-file/error handling and failed-save protection, account commit/lock races, session client suspension, lock input/display revocation, random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)')
+    print('ALL 46 HOST REGRESSION GROUPS PASSED (including bounded scalar memory, static PIE/RELRO, editor large-file/error handling and failed-save protection, account commit/lock races, session client suspension, lock input/display revocation, random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

@@ -23,7 +23,7 @@ REPORT.mkdir(parents=True, exist_ok=True)
 results = []
 VERSION = '0.15.0'
 command = partial(command, diagnostics=True)
-EXPECTED_ASSERTIONS = 149
+EXPECTED_ASSERTIONS = 151
 if ARCH != 'x86_64':
     raise SystemExit('Use scripts/arm64.py test for ARM64; 32-bit x86 is retired')
 

@@ -1,23 +1,8 @@
 #include "kernel.h"
+#include "elf_loader.h"
 struct task tasks[NV_TASK_MAX];
 struct task *current;
 static u32 next_pid = 1;
-struct elf_header {
-    u8 ident[16];
-    u16 type, machine;
-    u32 version;
-    u64 entry, phoff, shoff;
-    u32 flags;
-    u16 ehsize, phentsize, phnum, shentsize, shnum, shstr;
-} PACKED;
-struct program_header {
-    u32 type, flags;
-    u64 offset, vaddr, paddr, filesz, memsz, align;
-} PACKED;
-#define ELF_CLASS 2
-#define ELF_MACHINE 62
-_Static_assert(sizeof(struct elf_header) == 64, "ELF64 header");
-_Static_assert(sizeof(struct program_header) == 56, "ELF64 program header");
 void task_init(void) {
     memset(tasks, 0, sizeof(tasks));
 }
@@ -46,71 +31,6 @@ void task_reap(void) {
         if (t->collected || !t->parent)
             memset(t, 0, sizeof(*t));
     }
-}
-static int load_elf(struct task *t, const u8 *data, usize len, uptr *entry) {
-    if (len < sizeof(struct elf_header))
-        return -NV_ENOEXEC;
-    const struct elf_header *h = (const void *)(uptr)data;
-    if (memcmp(h->ident, "\177ELF", 4) || h->ident[4] != ELF_CLASS || h->ident[5] != 1 ||
-        h->ident[6] != 1 || h->type != 2 || h->machine != ELF_MACHINE || h->version != 1 ||
-        h->ehsize != sizeof(*h) || h->phentsize != sizeof(struct program_header) || !h->phnum ||
-        h->phnum > 32)
-        return -NV_ENOEXEC;
-    if (h->phoff > len || h->phnum > (len - h->phoff) / sizeof(struct program_header))
-        return -NV_ENOEXEC;
-    const struct program_header *ph = (const void *)(uptr)(data + h->phoff);
-    bool executable_entry = false;
-    u32 abi = 0;
-    /* Reject the complete image before an invalid later segment or entry can
-     * consume the physical budget while mapping an earlier large BSS. */
-    for (u32 i = 0; i < h->phnum; ++i) {
-        const struct program_header *p = &ph[i];
-        if (p->type == 2 || p->type == 3 || p->type == 7)
-            return -NV_ENOEXEC;
-        if (p->type != 1)
-            continue;
-        if (!p->memsz && !p->filesz)
-            continue;
-        if (p->filesz > p->memsz || p->offset > len || p->filesz > len - p->offset ||
-            p->vaddr < USER_BASE || (p->vaddr >= 0x80000000ull && p->vaddr < NV_USER_IMAGE) || p->vaddr >= (p->vaddr < 0x80000000ull ? USER_IMAGE_END : NV_USER_IMAGE_END) ||
-            p->memsz > (p->vaddr < 0x80000000ull ? USER_IMAGE_END : NV_USER_IMAGE_END) - p->vaddr || (p->flags & ~7u) || ((p->flags & 3) == 3))
-            return -NV_ENOEXEC;
-        if (p->align > 1 &&
-            ((p->align & (p->align - 1)) || ((p->offset ^ p->vaddr) & (p->align - 1))))
-            return -NV_ENOEXEC;
-        if (!p->memsz)
-            continue;
-        u32 segment_abi = p->vaddr >= NV_USER_IMAGE ? NV_ABI_VERSION : NV_ABI_LEGACY;
-        if (abi && abi != segment_abi) return -NV_ENOEXEC;
-        abi = segment_abi;
-        if ((p->flags & 1) && h->entry >= p->vaddr && h->entry - p->vaddr < p->memsz)
-            executable_entry = true;
-        uptr first = p->vaddr & ~(uptr)4095, end = ALIGN_UP(p->vaddr + p->memsz, PAGE);
-        for (u32 j = 0; j < i; ++j) {
-            if (ph[j].type != 1 || !ph[j].memsz) continue;
-            uptr other_first = ph[j].vaddr & ~(uptr)4095;
-            uptr other_end = ALIGN_UP(ph[j].vaddr + ph[j].memsz, PAGE);
-            if (first < other_end && other_first < end) return -NV_ENOEXEC;
-        }
-    }
-    if (!executable_entry)
-        return -NV_ENOEXEC;
-    t->abi = abi;
-    for (u32 i = 0; i < h->phnum; ++i) {
-        const struct program_header *p = &ph[i];
-        if (p->type != 1 || !p->memsz) continue;
-        uptr first = p->vaddr & ~(uptr)4095, end = ALIGN_UP(p->vaddr + p->memsz, PAGE);
-        for (uptr va = first; va < end; va += PAGE) {
-            int r =
-                vm_map(t->pd, va, ((p->flags & 2) ? P_WRITE : 0) | ((p->flags & 1) ? P_EXEC : 0));
-            if (r < 0)
-                return r == -NV_EEXIST ? -NV_ENOEXEC : r;
-        }
-        if (copy_to_space(t->pd, p->vaddr, data + p->offset, p->filesz) < 0)
-            return -NV_ENOEXEC;
-    }
-    *entry = h->entry;
-    return 0;
 }
 static int prepare_image(struct task *t, const char *path, const char *args, struct frame *frame) {
     if (strlen(args) >= NV_ARG_MAX)

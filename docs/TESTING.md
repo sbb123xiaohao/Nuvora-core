@@ -1,5 +1,48 @@
 # 测试与复现
 
+## 未发布：底层内存优化与原生静态 PIE
+
+以 GitHub/local 一致的完整 `d5ceaa6` 为基线。旧加载器在合法纯 PIE
+夹具中返回 `ENOEXEC`，新增实现通过；记录见
+[兼容与性能摘要](verification/0.15.0/native-compat-summary.log)。
+
+- `native64_test` 覆盖纯 PIE、相对指针与跨页非对齐重定位、BSS/参数、
+  NX 与 RELRO；28 类损坏/不支持的文件在映射前拒绝，24 个分配预算
+  验证失败回收，保留高地址与旧 ABI 固定映像回归。
+- 新 `string_test` 检查 12,000 组随机重叠、0–4096 每种长度的保护页
+  读写边界、全部字对齐和 1–33 字节重叠位移；另以 ASan/UBSan 运行。
+- GCC 生成的真实 `pie.elf` 含数据/函数指针重定位及 RELRO，Ring 3
+  集成检查普通 SPAWN 和 EXEC 后重定位、BSS 清零及只读权限。
+
+Arch x86-64 构建与 **46 组宿主回归**通过。64 MiB UEFI USB 启动与
+BIOS Core 2 Duo 模型均完成 **151 项**原生/兼容断言；TCG 不递交 SSE
+`#XM` 的既有硬件项明确跳过。ARM64 在 64/256/1024/5120 MiB 四种配置
+分别完成 15 项引导、页表、EL0 NEON 与隔离检查；ARM64 应用 ELF ABI
+仍未实现。截图流程继续验证文档保存、媒体、音量和网络操作。
+
+内存微基准使用宿主 GCC 14.2.0、`-O2 -ffreestanding -fno-builtin`，
+关闭向量化；实际内存函数还使用 `-mgeneral-regs-only`。旧字节循环与
+新实现交替测量，每组五次取中位数，每次处理 64 MiB，并使用非对齐
+缓冲。4 KiB～1 MiB 的复制/填充/向后搬移约快 **5–10 倍**，原始纳秒
+数据见 [CSV](verification/0.15.0/memory-bench.csv)。这是当前宿主的函数
+微基准，不能换算为整机或实体硬件提速；可复现命令：
+
+```sh
+mkdir -p build/bench
+gcc -std=c11 -O2 -Wall -Wextra -Werror -fno-builtin -ffreestanding \
+  -fno-tree-vectorize -mgeneral-regs-only -Iinclude \
+  -c common/string.c -o build/bench/string.o
+gcc -std=c11 -O2 -Wall -Wextra -Werror -fno-builtin -ffreestanding \
+  -fno-tree-vectorize -Iinclude tests/memory_bench.c build/bench/string.o \
+  -o build/bench/memory-bench
+build/bench/memory-bench
+make -j4 diagnostics esp
+make test-host
+python3 tests/uefi_media_boot_test.py --memory 64
+make ARCH=aarch64 -j4 test
+python3 tests/capture_screenshots.py
+```
+
 ## 未发布：编辑器大文件与保存失败保护
 
 基线为 GitHub 与本地一致的完整 `3e66dea`。两个夹具直接编译实际编辑器

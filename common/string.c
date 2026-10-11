@@ -1,22 +1,51 @@
 #include <nv/string.h>
+/* Unaligned, alias-safe scalar words work in kernel code without SIMD state.
+ * Every access fits inside the requested span, including page-edge tails. */
+typedef uptr memory_word __attribute__((__may_alias__, __aligned__(1)));
+static void copy_forward(u8 *d, const u8 *s, usize n) {
+    while (n>=4*sizeof(memory_word)) {
+        ((memory_word *)d)[0]=((const memory_word *)s)[0];
+        ((memory_word *)d)[1]=((const memory_word *)s)[1];
+        ((memory_word *)d)[2]=((const memory_word *)s)[2];
+        ((memory_word *)d)[3]=((const memory_word *)s)[3];
+        d+=4*sizeof(memory_word);s+=4*sizeof(memory_word);n-=4*sizeof(memory_word);
+    }
+    while (n>=sizeof(memory_word)) {
+        *(memory_word *)d=*(const memory_word *)s;
+        d+=sizeof(memory_word);s+=sizeof(memory_word);n-=sizeof(memory_word);
+    }
+    while (n--) *d++=*s++;
+}
 void *memset(void *dst, int c, usize n) {
     u8 *d = dst;
+    memory_word value=(~(uptr)0/255u)*(u8)c;
+    while (n>=4*sizeof(memory_word)) {
+        ((memory_word *)d)[0]=value;((memory_word *)d)[1]=value;
+        ((memory_word *)d)[2]=value;((memory_word *)d)[3]=value;
+        d+=4*sizeof(memory_word);n-=4*sizeof(memory_word);
+    }
+    while (n>=sizeof(memory_word)) {
+        *(memory_word *)d=value;d+=sizeof(memory_word);n-=sizeof(memory_word);
+    }
     while (n--)
         *d++ = (u8)c;
     return dst;
 }
 void *memcpy(void *dst, const void *src, usize n) {
-    u8 *d = dst;
-    const u8 *s = src;
-    while (n--)
-        *d++ = *s++;
+    copy_forward(dst,src,n);
     return dst;
 }
 void *memmove(void *dst, const void *src, usize n) {
     u8 *d = dst;
     const u8 *s = src;
-    if (d < s)
-        return memcpy(dst, src, n);
+    if (d==s || !n) return dst;
+    if ((uptr)d<(uptr)s || (uptr)d-(uptr)s>=n) {
+        copy_forward(d,s,n);return dst;
+    }
+    while (n>=sizeof(memory_word)) {
+        n-=sizeof(memory_word);
+        *(memory_word *)(d+n)=*(const memory_word *)(s+n);
+    }
     while (n) {
         --n;
         d[n] = s[n];

@@ -167,6 +167,14 @@ uptr vm_translate(pte_t *root, uptr va) {
     return p && (*p & (P_PRESENT | P_USER)) == (P_PRESENT | P_USER) ?
         (uptr)(*p & ADDRESS) + (va & (PAGE - 1)) : 0;
 }
+int vm_readonly(pte_t *root, uptr va) {
+    if (va%PAGE) return -NV_EINVAL;
+    pte_t *p=leaf(root,va,false);
+    if (!p || (*p&(P_PRESENT|P_USER))!=(P_PRESENT|P_USER)) return -NV_EFAULT;
+    *p&=~(pte_t)P_WRITE;
+    NV_VM_INVALIDATE(va);
+    return 0;
+}
 static bool empty(pte_t *t) {
     for (u32 i = 0; i < 512; ++i) if (t[i] & P_PRESENT) return false;
     return true;

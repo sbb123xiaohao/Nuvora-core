@@ -113,6 +113,108 @@ static void loader_and_heap(void) {
     assert(load_elf(&task,image,sizeof(image),&entry)==-NV_ENOEXEC);
     vm_destroy(task.pd); assert(!live);
 }
+static void loader_pie(void) {
+    reset(); executable(0);
+    ((struct elf_header *)(void *)image)->type=3;
+    struct task task={0}; struct frame frame;
+    assert(prepare_image(&task,"/apps/pie","PIE arguments",&frame)==0);
+    assert(task.abi==NV_ABI_VERSION && frame.eip==NV_USER_IMAGE);
+    vm_destroy(task.pd); assert(!live);
+}
+static void pie_image(void) {
+    executable(0);
+    struct elf_header *h=(void *)image;h->type=3;h->phnum=5;
+    struct program_header *p=(void *)(image+h->phoff);
+    p[0]=(struct program_header){.type=1,.flags=5,.offset=512,.filesz=16,.memsz=PAGE,.align=1};
+    p[1]=(struct program_header){.type=1,.flags=4,.offset=768,.vaddr=0x1000,.filesz=16,.memsz=PAGE,.align=1};
+    p[2]=(struct program_header){.type=1,.flags=6,.offset=1024,.vaddr=0x2000,.filesz=512,.memsz=PAGE+8,.align=1};
+    p[3]=(struct program_header){.type=2,.flags=6,.offset=1088,.vaddr=0x2040,.filesz=80,.memsz=80,.align=8};
+    p[4]=(struct program_header){.type=ELF_RELRO,.vaddr=0x2000,.memsz=PAGE};
+    struct elf_dynamic *d=(void *)(image+1088);
+    d[0]=(struct elf_dynamic){7,0x2100};d[1]=(struct elf_dynamic){8,24};
+    d[2]=(struct elf_dynamic){9,24};d[3]=(struct elf_dynamic){0x6ffffffb,0x08000001};
+    d[4]=(struct elf_dynamic){0,0};
+    *(struct elf_rela *)(void *)(image+1280)=(struct elf_rela){0x2000,8,0x1000};
+    image[512]=0xc3;image[768]=0x5a;
+}
+static u64 mapped_word(pte_t *pd,uptr address) {
+    u64 result=0;
+    for (u32 i=0;i<8;++i) result|=(u64)*(u8 *)phys_ptr(vm_translate(pd,address+i))<<(8*i);
+    return result;
+}
+static void pie_relocations(void) {
+    for (u32 cross=0;cross<2;++cross) {
+        reset();pie_image();
+        struct elf_rela *r=(void *)(image+1280);
+        if (cross) r->offset=0x2ffd;
+        struct task task={0};struct frame frame;
+        assert(!prepare_image(&task,"/apps/relative","argument",&frame));
+        assert(task.abi==NV_ABI_VERSION && frame.eip==NV_USER_IMAGE);
+        assert(mapped_word(task.pd,NV_USER_IMAGE+r->offset)==NV_USER_IMAGE+0x1000);
+        assert(!user_range(task.pd,NV_USER_IMAGE+0x2000,1,true));
+        assert(user_range(task.pd,NV_USER_IMAGE+0x3000,8,true));
+        assert((*leaf(task.pd,NV_USER_IMAGE+0x2000,false)&NX) &&
+               !(*leaf(task.pd,NV_USER_IMAGE,false)&NX));
+        assert(*(u8 *)phys_ptr(vm_translate(task.pd,NV_USER_IMAGE+0x2800))==0);
+        assert(!strcmp(phys_ptr(vm_translate(task.pd,frame.ebx)),"argument"));
+        u32 before=live;
+        assert(vm_readonly(task.pd,NV_USER_IMAGE+1)==-NV_EINVAL);
+        assert(vm_readonly(task.pd,NV_USER_IMAGE+0x4000)==-NV_EFAULT);
+        assert(!vm_readonly(task.pd,NV_USER_IMAGE+0x2000) && live==before);
+        vm_destroy(task.pd);assert(!live);
+    }
+    for (u32 which=0;which<28;++which) {
+        reset();pie_image();
+        struct elf_header *h=(void *)image;
+        struct program_header *p=(void *)(image+h->phoff);
+        struct elf_dynamic *d=(void *)(image+1088);
+        struct elf_rela *r=(void *)(image+1280);
+        switch (which) {
+        case 0: p[3].type=3;break; /* Dynamic interpreter. */
+        case 1: p[3].type=7;break; /* TLS. */
+        case 2: d[3].tag=1;break; /* DT_NEEDED. */
+        case 3: d[3].tag=22;break; /* DT_TEXTREL. */
+        case 4: d[3].tag=17;break; /* DT_REL. */
+        case 5: d[3].tag=23;break; /* DT_JMPREL. */
+        case 6: d[3].tag=12;break; /* Constructors need another startup ABI. */
+        case 7: d[3]=d[0];break; /* Duplicate relocation tag. */
+        case 8: d[4].tag=5;break; /* Missing DT_NULL. */
+        case 9: d[1].value=23;break;
+        case 10: d[2].value=16;break;
+        case 11: d[0].value=0x21f8;break; /* Table extends into zero-fill. */
+        case 12: r->info=1;break; /* Unsupported relocation kind. */
+        case 13: r->info=(1ull<<32)|8;break; /* Nonzero symbol. */
+        case 14: r->offset=0;break; /* Text modification. */
+        case 15: r->offset=0x1000;break; /* Read-only data modification. */
+        case 16: r->offset=0x3001;break; /* Eight bytes do not fit. */
+        case 17: r->addend=-1;break;
+        case 18: r->addend=(i64)(NV_USER_IMAGE_END-NV_USER_IMAGE);break;
+        case 19: p[3].offset++;break; /* Dynamic file/virtual address mismatch. */
+        case 20: p[3].filesz--;break;
+        case 21: p[4]=p[3];break; /* Duplicate PT_DYNAMIC. */
+        case 22: p[4].vaddr=0x1000;break; /* RELRO not in writable LOAD. */
+        case 23: p[4].memsz=~0ull;break;
+        case 24: p[2].vaddr=~0ull-7;break;
+        case 25: p[4].type=ELF_STACK;p[4].flags=7;break;
+        case 26: d[3]=(struct elf_dynamic){0x6ffffff9,2};break;
+        case 27: d[3]=(struct elf_dynamic){30,4};break; /* DF_TEXTREL. */
+        }
+        struct task task={.pd=vm_create()};assert(task.pd);
+        u32 before=live,allocations=page_allocations;uptr entry=0;
+        assert(load_elf(&task,image,sizeof(image),&entry)==-NV_ENOEXEC);
+        assert(live==before && page_allocations==allocations && !task.abi && !entry);
+        vm_destroy(task.pd);assert(!live);
+    }
+    /* Every allocation failure in a valid PIE leaves a reclaimable image. */
+    for (u32 limit=0;limit<24;++limit) {
+        reset();pie_image();budget=limit;
+        struct task task={0};struct frame frame;
+        int result=prepare_image(&task,"/apps/relative","",&frame);
+        assert(result==0 || result==-NV_ENOMEM);
+        vm_destroy(task.pd);assert(!live && budget==limit);
+    }
+    puts("PASS static PIE: relative/cross-page fixups, BSS, arguments, NX/RELRO, 28 malformed images rejected before mapping and 24 OOM budgets");
+}
 static void loader_validation_budget(void) {
     for (u32 which=0;which<6;++which) {
         reset(); executable(NV_USER_IMAGE);
@@ -164,7 +266,7 @@ int main(void) {
     void *ram=mmap(phys_ptr(physical_base),bytes,PROT_READ|PROT_WRITE,
                   MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
     assert(ram==phys_ptr(physical_base));
-    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); framebuffer_masks();
+    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); loader_pie(); pie_relocations(); framebuffer_masks();
     assert(!munmap(ram,bytes));
     puts("PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, full validation before allocation, OOM rollback, legacy ELF and GOP masks");
 }
