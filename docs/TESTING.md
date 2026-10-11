@@ -1,5 +1,35 @@
 # 测试与复现
 
+## 未发布：编辑器大文件与保存失败保护
+
+基线为 GitHub 与本地一致的完整 `3e66dea`。两个夹具直接编译实际编辑器
+与 runtime，通过受控文件调用复现 64 位长度截断、seek 错误误报和保存
+失败后清除未保存状态。基线断言失败与最终结果见
+[本轮验证摘要](verification/0.15.0/editor-io-summary.log)。
+
+- `editor_io_test` / `folio_io_test` 覆盖 128 KiB 上界外、2 GiB、4 GiB、
+  4 GiB 加短前缀和文件最大长度；拒绝时不读取内容、不更改原文档。
+- 验证 seek/rewind/read 的原始错误、空文件、正常短文件与失败后状态保留。
+  Text Editor 额外验证磁盘同步和状态读取失败、关闭确认、成功重试后关闭。
+- `editor_boot_test.py` 在正式 UEFI 内核中导入 **4 GiB + 1 字节**稀疏文件，
+  仅占两个数据块。经 Files 和 Folio 打开后继续输入、保存，离线读取客体
+  已提交元数据，核对原文档内容、路径、光标与大文件长度及首尾数据不变。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/editor_boot_test.py
+python3 tests/capture_screenshots.py
+```
+
+Arch GCC 构建、**45 组宿主回归**（C 夹具启用 UBSan）、64 MiB UEFI 的
+**149 项**原生/兼容断言、两个编辑器的生产系统回归及截图流程通过。
+新增编辑器夹具另以宿主 GCC 的 ASan/UBSan 通过。十一张 PNG 与 QMP 原始
+PPM 独立解码逐像素相同；内核、ESP、固件、音频及图片哈希已核验，HDA
+左右声道峰值均为 6000。磁盘故障由宿主夹具注入；QEMU 未模拟物理磁盘
+掉电，本轮也未做实体机测试。
+
 ## 未发布：账户提交与锁屏客户端恢复
 
 基线为完整 `40f6970`。`account_test` 在磁盘同步时触发定时器自动锁屏，

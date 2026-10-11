@@ -457,12 +457,12 @@ static int read_document(const char *name) {
     int fd = open_file(name, NV_READ);
     if (fd < 0)
         return fd;
-    int size = seek_file(fd, 0, 2);
-    seek_file(fd, 0, 0);
-    int result = 0;
-    if (size < 0 || (u32)size > sizeof(io_buffer))
-        result = -NV_E2BIG;
-    else {
+    iptr length = seek_file(fd, 0, 2);
+    if (length < 0) { close_file(fd); return (int)length; }
+    if ((u64)length > sizeof(io_buffer)) { close_file(fd); return -NV_E2BIG; }
+    u32 size = (u32)length;
+    int result = seek_file(fd, 0, 0);
+    if (result >= 0) {
         u32 pos = 0;
         while (pos < (u32)size) {
             int n = take(fd, io_buffer + pos, MIN(16384u, (u32)size - pos));

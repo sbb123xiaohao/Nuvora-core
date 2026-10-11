@@ -519,8 +519,10 @@ static void editor_reset(void) {
 static int editor_load(const char *path) {
     int fd=open_file(path,NV_READ);
     if (fd<0) return fd;
-    int size=seek_file(fd,0,2);
-    if (size<0 || (u32)size>EDITOR_CAP) { close_file(fd); return -NV_E2BIG; }
+    iptr length=seek_file(fd,0,2);
+    if (length<0) { close_file(fd); return (int)length; }
+    if ((u64)length>EDITOR_CAP) { close_file(fd); return -NV_E2BIG; }
+    u32 size=(u32)length;
     int r=seek_file(fd,0,0), result=0;
     u32 at=0;
     while (r>=0 && at<(u32)size) {
@@ -578,13 +580,18 @@ static int editor_save_target(const char *target) {
     int r=editor_atomic_save(target);
     if (r<0) return r;
     strlcpy(editor_path,target,sizeof(editor_path));
-    editor_dirty=false;
-    note("Document saved.");
+    /* The replacement exists in RAM, but a failed commit must still guard
+       close, new/open, sign-out and power actions as an unsaved document. */
+    editor_dirty=true;
     struct nv_info disk;
-    if (info(&disk)==0 && disk.disk_present) {
+    r=info(&disk);
+    if (r<0) { note("Saved in RAM; disk status unavailable."); return r; }
+    if (disk.disk_present) {
         r=control(NV_CTL_SYNC,0);
         if (r<0) { note("Saved in RAM; disk sync failed."); return r; }
     }
+    editor_dirty=false;
+    note("Document saved.");
     editor_mode=DESKTOP_EDIT_NORMAL;
     refresh();scroll_to_selection();
     return editor_load_next();
