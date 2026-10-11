@@ -6,20 +6,21 @@ Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动�
 
 保留 0.14.0 的原生 64 位 ABI：代码、栈、堆及图形/音频缓冲可使用 4 GiB 以上地址，兼容旧 ABI 1 ELF64 二进制。实体 PC 使用 FAT32 UEFI 启动介质、GOP 模式回退、按设备能力选择的 DMA 地址及 ACPI 电源路径；本版修正 UEFI ACPI 1.0 表 GUID，并优先选择 ACPI 2.0。上机步骤与准确边界见[实体机与 64 位说明](docs/NATIVE64-HARDWARE.md)。
 
-## Java 21 兼容起步
+## Java 21 兼容进度
 
 新增实验性 Java 字节码解释器，在 Terminal 输入 `java --demo "hello world"`，
-或用 `java /home/MyProgram.class` 运行单类程序。支持整数/长整数、对象和方法、
-数组、基础字符串及 Java 21 默认字符串拼接；真实输出与 OpenJDK 21 比对。
+或用 `java -cp /home MultiMain` 运行多类程序。现在支持目录类路径、最多 16 个
+应用类、跨类对象与方法、按需静态初始化、整数/长整数、数组和基础字符串；
+真实输出与 OpenJDK 21 比对。
 **目前仍不能运行 Minecraft**：完整 JVM/类库、GC、线程、JNI/LWJGL 和 OpenGL
 尚未实现。当前边界、编译导入步骤和 Minecraft 路线见 [Java 说明](docs/JAVA.md)。
 
-正式系统中的 Java 21 类运行画面（实际 Terminal 帧缓冲）：
+正式系统中的 Java 21 多类程序运行画面（实际 Terminal 帧缓冲）：
 
-![Nuvora Java 21 字节码实际运行](docs/screenshots/java21.png)
+![Nuvora Java 21 字节码实际运行](docs/screenshots/java21-multiclass.png)
 
 可用 `python3 tests/java_desktop_test.py` 重拍，校验值见
-[Java 截图清单](docs/screenshots/java21-manifest.json)。下面保留此前桌面回归截图。
+[Java 截图清单](docs/screenshots/java21-multiclass-manifest.json)。下面保留此前桌面回归截图。
 
 ## 运行截图
 
@@ -145,7 +146,7 @@ make iso-uefi   # 需要 mtools 和 xorriso
 make media      # 生成 GPT/ESP 启动镜像，不写宿主磁盘
 ```
 
-当前通过 47 组宿主回归，包括 Java 21 字节码/损坏输入/资源上限、内存操作边界、静态 PIE/RELRO、编辑器文件保护、锁屏输入/显示撤权、随机字节 ABI、网络进程归属与报文校验、原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、共享图标、媒体路径、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
+当前通过 48 组宿主回归，包括 Java 21 多类加载/初始化/损坏输入/资源上限、内存操作边界、静态 PIE/RELRO、编辑器文件保护、锁屏输入/显示撤权、随机字节 ABI、网络进程归属与报文校验、原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、共享图标、媒体路径、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
 
 目前只挂载 Nuvora 自有格式，**不会格式化或写入普通 Windows/Linux 分区**。4Kn 逻辑扇区、USB 存储挂载、笔记本内置 PCI Wi-Fi、USB NCM、VirtIO/SCSI、Secure Boot、多核和 Linux/POSIX 应用兼容尚未实现。完整边界与历史变更见[测试说明](docs/TESTING.md)、[架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)和[更新记录](docs/CHANGELOG.md)。
 

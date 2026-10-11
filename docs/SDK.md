@@ -31,7 +31,9 @@ ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像
 ## Java 实验入口
 
 Java 实验入口已作为普通原生 ELF 接入：`user/java.c` 使用现有读文件、堆、
-输出与进程接口，`user/java_vm.c` 解释单类字节码，不添加内核系统调用。
+输出与进程接口，`user/java_vm.c` 解释有界多类字节码，不添加内核系统调用。
+宿主 `read_class` 回调接收已校验的内部类名，先查询大小再读入 VM 所有的缓冲；
+每次启动最多 16 类、2 MiB arena。`main_class` 可检查入口类身份。
 支持范围和与完整 Java 21/Minecraft 的差距见 [JAVA.md](JAVA.md)。
 需要 argv 语义的应用可用 `quote_args` 与 `tokenize` 配对；现有接受原始文本的
 应用继续使用 `join_args`，不改变它们的参数含义。

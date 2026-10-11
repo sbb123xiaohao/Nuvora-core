@@ -86,9 +86,9 @@ static const struct command_help commands[] = {
      "Names without / are resolved under /apps. Arguments are joined with spaces."},
     {"scatter", "scatter APP [ARGUMENTS]", "Start a program in the background and print its PID.",
      "scatter pulse", "Use gather PID to wait, or quench PID to terminate it."},
-    {"java", "java --demo [ARGS] | java FILE.class [ARGS] | java --version",
+    {"java", "java --demo [ARGS] | java FILE.class [ARGS] | java -cp DIR MAIN [ARGS]",
      "Run the experimental Java 21 bytecode subset in an isolated process.", "java --demo \"hello world\"",
-     "One class, integer/long arithmetic, arrays and basic strings. Quoted arguments are preserved.\n"
+     "Up to 16 classes with lazy initialization, integer/long arithmetic and arrays. Quoted arguments are preserved.\n"
      "Not a full Java SE runtime: JAR, JNI/LWJGL and Minecraft are not runnable yet."},
     {"gather", "gather PID", "Wait for one child process and show its exit status.", "gather 2",
      "The PID must identify an unwaited child of this shell."},

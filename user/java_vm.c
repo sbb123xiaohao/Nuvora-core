@@ -15,8 +15,9 @@
 #define CODE_MAX 16384
 enum { T_EMPTY, T_INT, T_LONG, T_REF, T_TOP, T_VOID };
 enum { O_INSTANCE, O_STRING, O_PRINT, O_ARRAY };
-enum { C_OBJECT, C_SELF, C_STRING, C_PRINT, C_INTS, C_LONGS,
-       C_BYTES, C_CHARS, C_SHORTS, C_BOOLS, C_OBJECTS, C_SELFS, C_STRINGS };
+enum { C_OBJECT, C_RESERVED, C_STRING, C_PRINT, C_INTS, C_LONGS,
+       C_BYTES, C_CHARS, C_SHORTS, C_BOOLS, C_OBJECTS, C_RESERVED_ARRAY, C_STRINGS,
+       C_APP=32, C_APP_ARRAY=64 };
 struct value { u64 bits; u8 tag; };
 struct cp { const u8 *text; u64 bits; u16 length, a, b; u8 tag; };
 struct method {
@@ -31,20 +32,26 @@ struct frame {
     struct value locals[SLOT_MAX], stack[SLOT_MAX];
     u32 pc;
     u16 method, used;
+    u8 owner;
+    bool initializer;
 };
 struct bootstrap { u16 handle, count, args[ARG_MAX]; };
-struct vm {
+struct java_class {
     struct cp pool[CP_MAX];
     u32 strings[CP_MAX];
     struct method methods[METHOD_MAX];
     struct field fields[FIELD_MAX];
+    struct bootstrap boots[BOOT_MAX];
+    u16 pool_count, method_count, field_count, boot_count, self, major, flags;
+    u8 id, state; /* 0 prepared, 1 initializing on this thread, 2 initialized */
+};
+struct vm {
+    struct java_class *c, *classes[NV_JAVA_CLASSES];
     struct frame frames[FRAME_MAX];
     struct object *objects[OBJECT_MAX];
-    struct bootstrap boots[BOOT_MAX];
     u16 text_buffer[STRING_MAX];
     u8 *arena;
-    u32 capacity, used, object_count, depth, limit;
-    u16 pool_count, method_count, field_count, boot_count, self;
+    u32 capacity, used, object_count, depth, limit, class_count;
     struct nv_java_host host;
     struct nv_java_result *result;
 };
@@ -81,10 +88,10 @@ static bool skip(struct reader *r, u32 n) {
     r->at += n; return true;
 }
 static struct cp *constant(struct vm *v, u16 index, u8 tag) {
-    if (!index || index >= v->pool_count || v->pool[index].tag != tag) {
+    if (!index || index >= v->c->pool_count || v->c->pool[index].tag != tag) {
         fail(v, NV_JAVA_FORMAT, "Invalid constant-pool reference"); return NULL;
     }
-    return &v->pool[index];
+    return &v->c->pool[index];
 }
 static bool text_is(struct vm *v, u16 index, const char *text) {
     struct cp *c = constant(v, index, 1);
@@ -97,10 +104,6 @@ static bool text_same(struct vm *v, u16 a, u16 b) {
 static bool class_is(struct vm *v, u16 index, const char *name) {
     struct cp *c = constant(v, index, 7);
     return c && text_is(v, c->a, name);
-}
-static bool self_class(struct vm *v, u16 index) {
-    struct cp *c = constant(v, index, 7), *self = constant(v, v->self, 7);
-    return c && self && text_same(v, c->a, self->a);
 }
 /* Modified UTF-8 represents UTF-16 units, including isolated surrogates. */
 static bool mutf_unit(const u8 *s, u32 length, u32 *at, u16 *unit) {
@@ -125,6 +128,31 @@ static bool valid_mutf(const u8 *s, u32 length) {
     u32 at = 0; u16 unit;
     while (at < length) if (!mutf_unit(s, length, &at, &unit)) return false;
     return true;
+}
+/* Class names become relative paths. In particular, neither a class file nor
+ * a symbolic reference may escape the chosen root with dots or backslashes.
+ * Surrogates/NUL are not representable filesystem names in this loader. */
+static bool valid_class_name(const u8 *s,u32 n) {
+    if (!n || n>=NV_JAVA_NAME_MAX) return false;
+    u32 at=0;
+    while (at<n) {
+        u32 start=at; u16 c;
+        if (!mutf_unit(s,n,&at,&c) || c<32 || c==127 || (c>=0xd800 && c<=0xdfff) ||
+            c=='.' || c=='\\' || c==':' || c==';' || c=='[') return false;
+        if (c=='/' && (!start || at==n || s[start-1]=='/')) return false;
+    }
+    return true;
+}
+int nv_java_class_path(char *out,u32 capacity,const char *root,const char *name) {
+    if (!out || !capacity || !root || !name) return -1;
+    out[0]=0;
+    u32 n=strlen(name),r=strlen(root);
+    if (!valid_class_name((const u8 *)name,n) || r>=capacity || n>=capacity-r) return -1;
+    bool slash=r && root[r-1]!='/';
+    if (capacity-r-n<7u+(u32)slash) return -1;
+    memcpy(out,root,r); if (slash) out[r++]='/';
+    memcpy(out+r,name,n); memcpy(out+r+n,".class",7);
+    return 0;
 }
 static u8 descriptor_type(struct vm *v, const u8 *s, u32 length, u32 *at, bool result) {
     if (*at >= length) { fail(v, NV_JAVA_FORMAT, "Truncated descriptor"); return T_EMPTY; }
@@ -234,10 +262,10 @@ static bool decode(struct vm *v, struct method *m) {
     return good(v);
 }
 static bool parse_pool(struct vm *v, struct reader *r) {
-    v->pool_count = read_n(r,2);
-    if (!v->pool_count || v->pool_count > CP_MAX) return fail(v,NV_JAVA_LIMIT,"Constant-pool limit exceeded");
-    for (u32 i = 1; i < v->pool_count && good(v); ++i) {
-        struct cp *c = &v->pool[i]; c->tag = read_n(r,1);
+    v->c->pool_count = read_n(r,2);
+    if (!v->c->pool_count || v->c->pool_count > CP_MAX) return fail(v,NV_JAVA_LIMIT,"Constant-pool limit exceeded");
+    for (u32 i = 1; i < v->c->pool_count && good(v); ++i) {
+        struct cp *c = &v->c->pool[i]; c->tag = read_n(r,1);
         switch (c->tag) {
         case 1:
             c->length = read_n(r,2); c->text = r->bytes+r->at;
@@ -246,7 +274,7 @@ static bool parse_pool(struct vm *v, struct reader *r) {
         case 3: case 4: c->bits = read_n(r,4); break;
         case 5: case 6:
             c->bits = (u64)read_n(r,4)<<32; c->bits |= read_n(r,4);
-            if (++i >= v->pool_count) return fail(v,NV_JAVA_FORMAT,"Missing wide constant-pool slot");
+            if (++i >= v->c->pool_count) return fail(v,NV_JAVA_FORMAT,"Missing wide constant-pool slot");
             break;
         case 7: case 8: case 16: case 19: case 20: c->a=read_n(r,2); break;
         case 9: case 10: case 11: case 12: case 17: case 18:
@@ -255,16 +283,16 @@ static bool parse_pool(struct vm *v, struct reader *r) {
         default: return fail(v,NV_JAVA_FORMAT,"Unknown constant-pool tag");
         }
     }
-    for (u32 i=1;i<v->pool_count && good(v);++i) {
-        struct cp *c=&v->pool[i];
+    for (u32 i=1;i<v->c->pool_count && good(v);++i) {
+        struct cp *c=&v->c->pool[i];
         switch(c->tag) {
         case 7: case 8: case 16: case 19: case 20: constant(v,c->a,1); break;
         case 9: case 10: case 11: constant(v,c->a,7); constant(v,c->b,12); break;
         case 12: constant(v,c->a,1); constant(v,c->b,1); break;
         case 17: case 18: constant(v,c->b,12); break;
         case 15: {
-            if (c->a<1 || c->a>9 || !c->b || c->b>=v->pool_count) return fail(v,NV_JAVA_FORMAT,"Invalid method handle");
-            u8 tag=v->pool[c->b].tag;
+            if (c->a<1 || c->a>9 || !c->b || c->b>=v->c->pool_count) return fail(v,NV_JAVA_FORMAT,"Invalid method handle");
+            u8 tag=v->c->pool[c->b].tag;
             if ((c->a<=4 && tag!=9) || (c->a==9 && tag!=11) ||
                 ((c->a==5 || c->a==8) && tag!=10) || ((c->a==6 || c->a==7) && tag!=10 && tag!=11))
                 return fail(v,NV_JAVA_FORMAT,"Invalid method-handle target");
@@ -296,16 +324,16 @@ static bool attributes(struct vm *v, struct reader *r, struct method *m, struct 
             if (!f->constant) return fail(v,NV_JAVA_FORMAT,"Invalid field constant");
         } else if (top && text_is(v,name,"BootstrapMethods")) {
             if (saw_boot) return fail(v,NV_JAVA_FORMAT,"Duplicate bootstrap table");
-            saw_boot=true; v->boot_count=read_n(&a,2);
-            if (v->boot_count>BOOT_MAX) return fail(v,NV_JAVA_LIMIT,"Bootstrap-method limit exceeded");
-            for (u32 j=0;j<v->boot_count && good(v);++j) {
-                struct bootstrap *b=&v->boots[j];
+            saw_boot=true; v->c->boot_count=read_n(&a,2);
+            if (v->c->boot_count>BOOT_MAX) return fail(v,NV_JAVA_LIMIT,"Bootstrap-method limit exceeded");
+            for (u32 j=0;j<v->c->boot_count && good(v);++j) {
+                struct bootstrap *b=&v->c->boots[j];
                 b->handle=read_n(&a,2); b->count=read_n(&a,2);
                 if (!constant(v,b->handle,15)) return false;
                 if (b->count>ARG_MAX) return fail(v,NV_JAVA_LIMIT,"Bootstrap-argument limit exceeded");
                 for (u32 k=0;k<b->count;++k) {
                     b->args[k]=read_n(&a,2);
-                    if (!b->args[k] || b->args[k]>=v->pool_count || !v->pool[b->args[k]].tag)
+                    if (!b->args[k] || b->args[k]>=v->c->pool_count || !v->c->pool[b->args[k]].tag)
                         return fail(v,NV_JAVA_FORMAT,"Invalid bootstrap argument");
                 }
             }
@@ -318,38 +346,36 @@ static bool attributes(struct vm *v, struct reader *r, struct method *m, struct 
 static bool parse_class(struct vm *v, const void *data, u32 size) {
     struct reader r={data,size,0,v};
     if (read_n(&r,4)!=0xcafebabeu) return fail(v,NV_JAVA_FORMAT,"Expected a .class file (JAR loading is not implemented)");
-    u32 minor=read_n(&r,2); v->result->major=read_n(&r,2);
-    if (minor || v->result->major<52 || v->result->major>65)
+    u32 minor=read_n(&r,2); v->c->major=read_n(&r,2);
+    if (minor || v->c->major<52 || v->c->major>65)
         return fail(v,NV_JAVA_UNSUPPORTED,"Expected non-preview Java 8 through Java 21 class format");
     if (!parse_pool(v,&r)) return false;
-    u16 flags=read_n(&r,2); v->self=read_n(&r,2); u16 parent=read_n(&r,2);
-    if (!constant(v,v->self,7) || !class_is(v,parent,"java/lang/Object"))
-        return fail(v,NV_JAVA_UNSUPPORTED,"Only a single class extending Object is supported");
-    struct cp *self_name=constant(v,v->pool[v->self].a,1);
-    if (!self_name || !self_name->length) return fail(v,NV_JAVA_FORMAT,"Empty class name");
+    u16 flags=read_n(&r,2); v->c->flags=flags;
+    v->c->self=read_n(&r,2); u16 parent=read_n(&r,2);
+    if (!constant(v,v->c->self,7) || !class_is(v,parent,"java/lang/Object"))
+        return fail(v,NV_JAVA_UNSUPPORTED,"Application classes must directly extend Object");
+    struct cp *self_name=constant(v,v->c->pool[v->c->self].a,1);
+    if (!self_name || !valid_class_name(self_name->text,self_name->length))
+        return fail(v,NV_JAVA_FORMAT,"Invalid or unsafe class name");
     if (self_name->length>=5 && !memcmp(self_name->text,"java/",5))
         return fail(v,NV_JAVA_UNSUPPORTED,"Applications cannot replace bootstrap java classes");
-    for (u32 i=0;i<self_name->length;++i)
-        if (self_name->text[i]=='.' || self_name->text[i]==';' || self_name->text[i]=='[' ||
-            (self_name->text[i]=='/' && (!i || i+1==self_name->length || self_name->text[i-1]=='/')))
-            return fail(v,NV_JAVA_FORMAT,"Invalid class name");
     if (flags&~0x1031u) return fail(v,NV_JAVA_UNSUPPORTED,"Interfaces, enums, annotations and modules are not implemented");
     if (read_n(&r,2)) return fail(v,NV_JAVA_UNSUPPORTED,"Interfaces are not implemented");
-    v->field_count=read_n(&r,2);
-    if (v->field_count>FIELD_MAX) return fail(v,NV_JAVA_LIMIT,"Field limit exceeded");
-    for (u32 i=0;i<v->field_count && good(v);++i) {
-        struct field *f=&v->fields[i];
+    v->c->field_count=read_n(&r,2);
+    if (v->c->field_count>FIELD_MAX) return fail(v,NV_JAVA_LIMIT,"Field limit exceeded");
+    for (u32 i=0;i<v->c->field_count && good(v);++i) {
+        struct field *f=&v->c->fields[i];
         f->flags=read_n(&r,2); f->name=read_n(&r,2); f->desc=read_n(&r,2);
         if (!constant(v,f->name,1)) return false;
         f->value.tag=field_type(v,f->desc);
         if (!good(v) || !attributes(v,&r,NULL,f,false)) return false;
-        for (u32 j=0;j<i;++j) if (text_same(v,f->name,v->fields[j].name) && text_same(v,f->desc,v->fields[j].desc))
+        for (u32 j=0;j<i;++j) if (text_same(v,f->name,v->c->fields[j].name) && text_same(v,f->desc,v->c->fields[j].desc))
             return fail(v,NV_JAVA_FORMAT,"Duplicate field");
     }
-    v->method_count=read_n(&r,2);
-    if (v->method_count>METHOD_MAX) return fail(v,NV_JAVA_LIMIT,"Method limit exceeded");
-    for (u32 i=0;i<v->method_count && good(v);++i) {
-        struct method *m=&v->methods[i]; struct signature sig;
+    v->c->method_count=read_n(&r,2);
+    if (v->c->method_count>METHOD_MAX) return fail(v,NV_JAVA_LIMIT,"Method limit exceeded");
+    for (u32 i=0;i<v->c->method_count && good(v);++i) {
+        struct method *m=&v->c->methods[i]; struct signature sig;
         m->flags=read_n(&r,2); m->name=read_n(&r,2); m->desc=read_n(&r,2);
         if (!constant(v,m->name,1) || !signature(v,m->desc,&sig)) return false;
         if (m->flags&(0x20|0x100|0x400)) return fail(v,NV_JAVA_UNSUPPORTED,"Synchronized/native/abstract methods are not implemented");
@@ -359,11 +385,11 @@ static bool parse_class(struct vm *v, const void *data, u32 size) {
             return fail(v,NV_JAVA_FORMAT,"Invalid constructor");
         if (text_is(v,m->name,"<clinit>") && (!(m->flags&8) || !text_is(v,m->desc,"()V")))
             return fail(v,NV_JAVA_FORMAT,"Invalid class initializer");
-        for (u32 j=0;j<i;++j) if (text_same(v,m->name,v->methods[j].name) && text_same(v,m->desc,v->methods[j].desc))
+        for (u32 j=0;j<i;++j) if (text_same(v,m->name,v->c->methods[j].name) && text_same(v,m->desc,v->c->methods[j].desc))
             return fail(v,NV_JAVA_FORMAT,"Duplicate method");
     }
     if (!attributes(v,&r,NULL,NULL,true)) return false;
-    for (u32 i=1;i<v->pool_count;++i) if ((v->pool[i].tag==17 || v->pool[i].tag==18) && v->pool[i].a>=v->boot_count)
+    for (u32 i=1;i<v->c->pool_count;++i) if ((v->c->pool[i].tag==17 || v->c->pool[i].tag==18) && v->c->pool[i].a>=v->c->boot_count)
         return fail(v,NV_JAVA_FORMAT,"Invalid bootstrap index");
     return good(v) && r.at==r.size ? true : fail(v,NV_JAVA_FORMAT,"Trailing class-file bytes");
 }
@@ -395,11 +421,17 @@ static u32 string_units(struct vm *v, const u16 *units, u32 length) {
 static u32 string_constant(struct vm *v, u16 index) {
     struct cp *c=constant(v,index,8);
     if (!c) return 0;
-    if (v->strings[index]) return v->strings[index];
+    if (v->c->strings[index]) return v->c->strings[index];
     struct cp *utf=constant(v,c->a,1);
     if (!utf) return 0;
-    for (u32 i=1;i<v->pool_count;++i)
-        if (v->strings[i] && text_same(v,c->a,v->pool[i].a)) return v->strings[index]=v->strings[i];
+    for (u32 ci=0;ci<v->class_count;++ci) {
+        struct java_class *other=v->classes[ci];
+        for (u32 i=1;i<other->pool_count;++i) if (other->strings[i]) {
+            struct cp *text=&other->pool[other->pool[i].a];
+            if (text->length==utf->length && !memcmp(text->text,utf->text,utf->length))
+                return v->c->strings[index]=other->strings[i];
+        }
+    }
     u32 at=0,count=0; u16 unit;
     while (at<utf->length) { if (!mutf_unit(utf->text,utf->length,&at,&unit)) return 0; ++count; }
     if (count>STRING_MAX) { fail(v,NV_JAVA_LIMIT,"String constant exceeds limit"); return 0; }
@@ -407,7 +439,7 @@ static u32 string_constant(struct vm *v, u16 index) {
     if (!id) return 0;
     at=0; u16 *units=(u16 *)v->objects[id]->data;
     for (u32 i=0;i<count;++i) mutf_unit(utf->text,utf->length,&at,&units[i]);
-    v->strings[index]=id; return id;
+    v->c->strings[index]=id; return id;
 }
 static u32 argument_string(struct vm *v, const char *text) {
     u16 *units=v->text_buffer; u32 at=0,count=0;
@@ -435,7 +467,7 @@ static u32 argument_string(struct vm *v, const char *text) {
 static bool push(struct vm *v, struct frame *f, struct value value) {
     u32 slots=value.tag==T_LONG?2:1;
     if (value.tag!=T_INT && value.tag!=T_LONG && value.tag!=T_REF) return fail(v,NV_JAVA_VERIFY,"Invalid operand type");
-    if (slots>(u32)(v->methods[f->method].stack-f->used)) return fail(v,NV_JAVA_VERIFY,"Operand stack overflow");
+    if (slots>(u32)(v->classes[f->owner]->methods[f->method].stack-f->used)) return fail(v,NV_JAVA_VERIFY,"Operand stack overflow");
     f->stack[f->used++]=value;
     if (slots==2) f->stack[f->used++]=(struct value){0,T_TOP};
     return true;
@@ -451,7 +483,7 @@ static struct value pop(struct vm *v, struct frame *f, u8 expected) {
     return value;
 }
 static bool local_store(struct vm *v, struct frame *f, u32 index, struct value value) {
-    u32 slots=value.tag==T_LONG?2:1, limit=v->methods[f->method].locals;
+    u32 slots=value.tag==T_LONG?2:1, limit=v->classes[f->owner]->methods[f->method].locals;
     if (index>=limit || slots>limit-index) return fail(v,NV_JAVA_VERIFY,"Local index out of range");
     for (u32 j=index;j<index+slots;++j) {
         if (f->locals[j].tag==T_TOP && j) f->locals[j-1]=empty();
@@ -462,28 +494,28 @@ static bool local_store(struct vm *v, struct frame *f, u32 index, struct value v
     return good(v);
 }
 static bool local_load(struct vm *v, struct frame *f, u32 index, u8 tag) {
-    u32 limit=v->methods[f->method].locals;
+    u32 limit=v->classes[f->owner]->methods[f->method].locals;
     if (index>=limit || f->locals[index].tag!=tag ||
         (tag==T_LONG && (index+1>=limit || f->locals[index+1].tag!=T_TOP)))
         return fail(v,NV_JAVA_VERIFY,"Uninitialized or mistyped local");
     return push(v,f,f->locals[index]);
 }
 static bool increment(struct vm *v,struct frame *f,u32 index,i64 delta) {
-    if (index>=v->methods[f->method].locals || f->locals[index].tag!=T_INT)
+    if (index>=v->classes[f->owner]->methods[f->method].locals || f->locals[index].tag!=T_INT)
         return fail(v,NV_JAVA_VERIFY,"iinc requires an initialized int local");
     f->locals[index].bits=(u32)(f->locals[index].bits+delta);
     return true;
 }
 static bool enter(struct vm *v, u16 method, const struct value *args, u32 count) {
     if (v->depth==FRAME_MAX) return fail(v,NV_JAVA_LIMIT,"Java call-depth limit exceeded");
-    struct frame *f=&v->frames[v->depth++]; memset(f,0,sizeof(*f)); f->method=method;
+    struct frame *f=&v->frames[v->depth++]; memset(f,0,sizeof(*f)); f->method=method; f->owner=v->c->id;
     u32 at=0;
     for (u32 i=0;i<count && good(v);++i) { local_store(v,f,at,args[i]); at+=args[i].tag==T_LONG?2:1; }
     return good(v);
 }
 static int method_named(struct vm *v, const char *name, const char *desc) {
-    for (u32 i=0;i<v->method_count;++i)
-        if (text_is(v,v->methods[i].name,name) && text_is(v,v->methods[i].desc,desc)) return i;
+    for (u32 i=0;i<v->c->method_count;++i)
+        if (text_is(v,v->c->methods[i].name,name) && text_is(v,v->c->methods[i].desc,desc)) return i;
     return -1;
 }
 static bool append_unit(struct vm *v, u16 *out, u32 *length, u16 c) {
@@ -579,8 +611,8 @@ static bool concat(struct vm *v, struct frame *f, u16 index) {
     struct cp *dyn=constant(v,index,18);
     if (!dyn) return false;
     struct cp *nt=constant(v,dyn->b,12);
-    if (!nt || dyn->a>=v->boot_count) return fail(v,NV_JAVA_FORMAT,"Invalid invokedynamic bootstrap");
-    struct bootstrap *b=&v->boots[dyn->a];
+    if (!nt || dyn->a>=v->c->boot_count) return fail(v,NV_JAVA_FORMAT,"Invalid invokedynamic bootstrap");
+    struct bootstrap *b=&v->c->boots[dyn->a];
     struct cp *handle=constant(v,b->handle,15);
     if (!handle || handle->a!=6) return fail(v,NV_JAVA_UNSUPPORTED,"Only static string concatenation bootstrap is implemented");
     struct cp *ref=constant(v,handle->b,10);
@@ -608,7 +640,7 @@ static bool concat(struct vm *v, struct frame *f, u16 index) {
             append_value(v,out,&length,args[arg],types[arg]); ++arg;
         } else if (units[i]==2) {
             if (literal>=b->count) return fail(v,NV_JAVA_FORMAT,"Concat recipe has too many constants");
-            u16 ci=b->args[literal++]; struct cp *c=&v->pool[ci];
+            u16 ci=b->args[literal++]; struct cp *c=&v->c->pool[ci];
             if (c->tag==8) append_value(v,out,&length,reference(string_constant(v,ci)),'L');
             else if (c->tag==3) append_value(v,out,&length,integer(c->bits),'I');
             else if (c->tag==5) append_value(v,out,&length,wide(c->bits),'J');
@@ -620,69 +652,168 @@ static bool concat(struct vm *v, struct frame *f, u16 index) {
     return id && push(v,f,reference(id));
 }
 
-static int class_id(struct vm *v,u16 index) {
-    if (self_class(v,index)) return C_SELF;
-    struct cp *c=constant(v,index,7), *self=constant(v,v->self,7);
-    struct cp *name=c?constant(v,c->a,1):NULL, *own=self?constant(v,self->a,1):NULL;
-    if (name && own && name->length==own->length+3u && name->text[0]=='[' && name->text[1]=='L' &&
-        name->text[name->length-1]==';' && !memcmp(name->text+2,own->text,own->length)) return C_SELFS;
+static struct cp *class_name(struct java_class *c) { return &c->pool[c->pool[c->self].a]; }
+static bool equal_text(const struct cp *a,const struct cp *b) {
+    return a->length==b->length && !memcmp(a->text,b->text,a->length);
+}
+static bool prepare_fields(struct vm *v) {
+    for (u32 i=0;i<v->c->field_count && good(v);++i) {
+        struct field *f=&v->c->fields[i];
+        if (!f->constant) continue;
+        u8 tag=f->value.tag==T_INT?3:f->value.tag==T_LONG?5:8;
+        struct cp *c=constant(v,f->constant,tag);
+        if (!c) return false;
+        if (tag==8 && !text_is(v,f->desc,"Ljava/lang/String;"))
+            return fail(v,NV_JAVA_FORMAT,"Invalid reference ConstantValue");
+        if (f->flags&8) {
+            f->value.bits=tag==8?string_constant(v,f->constant):c->bits;
+            u8 type=v->c->pool[f->desc].text[0];
+            if (type=='B') f->value.bits=(u32)signed8(f->value.bits&255);
+            if (type=='S') f->value.bits=(u32)signed16(f->value.bits&65535);
+            if (type=='C') f->value.bits&=65535;
+            if (type=='Z') f->value.bits&=1;
+        }
+    }
+    return good(v);
+}
+/* Loading does not initialize classes or recurse through symbolic references.
+ * A class's bytes and metadata share the same bounded process arena. */
+static struct java_class *load_class(struct vm *v,const u8 *name,u32 n) {
+    if (!valid_class_name(name,n)) { fail(v,NV_JAVA_FORMAT,"Invalid or unsafe class name"); return NULL; }
+    for (u32 i=0;i<v->class_count;++i) {
+        struct cp *own=class_name(v->classes[i]);
+        if (own->length==n && !memcmp(own->text,name,n)) return v->classes[i];
+    }
+    if (n>=5 && !memcmp(name,"java/",5)) {
+        fail(v,NV_JAVA_UNSUPPORTED,"Referenced bootstrap class is not implemented"); return NULL;
+    }
+    if (!v->host.read_class) { fail(v,NV_JAVA_UNSUPPORTED,"No classpath loader for referenced class"); return NULL; }
+    if (v->class_count==NV_JAVA_CLASSES) { fail(v,NV_JAVA_LIMIT,"Java loaded-class limit exceeded"); return NULL; }
+    char path[NV_JAVA_NAME_MAX]; memcpy(path,name,n); path[n]=0;
+    u32 length=0;
+    if (v->host.read_class(v->host.context,path,NULL,0,&length)) {
+        fail(v,NV_JAVA_IO,"Class not found or unreadable in classpath"); return NULL;
+    }
+    if (length<10 || length>NV_JAVA_CLASS_MAX) { fail(v,NV_JAVA_FORMAT,"Invalid dependency class size"); return NULL; }
+    u8 *bytes=allocate(v,length);
+    struct java_class *c=allocate(v,sizeof(*c));
+    if (!bytes || !c) return NULL;
+    u32 actual=0;
+    if (v->host.read_class(v->host.context,path,bytes,length,&actual) || actual!=length) {
+        fail(v,NV_JAVA_IO,"Dependency class read changed or was incomplete"); return NULL;
+    }
+    struct java_class *saved=v->c; v->c=c;
+    bool parsed=parse_class(v,bytes,length);
+    if (parsed) {
+        struct cp *own=class_name(c);
+        if (own->length!=n || memcmp(own->text,name,n)) parsed=fail(v,NV_JAVA_VERIFY,"Class name does not match requested dependency");
+    }
+    if (parsed) {
+        c->id=v->class_count; v->classes[v->class_count++]=c;
+        parsed=prepare_fields(v);
+    }
+    v->c=saved;
+    return parsed?c:NULL;
+}
+static bool member_accessible(struct vm *v,struct java_class *owner,u16 flags);
+static struct java_class *resolve_class(struct vm *v,u16 index) {
+    struct cp *cls=constant(v,index,7), *name=cls?constant(v,cls->a,1):NULL;
+    struct java_class *c=name?load_class(v,name->text,name->length):NULL;
+    return c && member_accessible(v,c,c->flags)?c:NULL;
+}
+/* Return true if a new Java frame was scheduled. The caller retries its
+ * instruction with operands untouched after <clinit> returns. Cycles observe
+ * prepared defaults, exactly once on this single Java thread. */
+static bool initialize(struct vm *v,struct java_class *c,struct frame *caller,u32 pc) {
+    if (c->state) return false;
+    c->state=1;
+    struct java_class *saved=v->c; v->c=c;
+    int method=method_named(v,"<clinit>","()V");
+    if (method>=0) {
+        if (caller) caller->pc=pc;
+        if (enter(v,method,NULL,0)) v->frames[v->depth-1].initializer=true;
+    } else c->state=2;
+    v->c=saved;
+    return method>=0;
+}
+static bool member_accessible(struct vm *v,struct java_class *owner,u16 flags) {
+    if (owner==v->c || (flags&1)) return true;
+    if (flags&2) return fail(v,NV_JAVA_VERIFY,"Private cross-class access (nestmates not implemented)");
+    struct cp *a=class_name(owner),*b=class_name(v->c); u32 ap=0,bp=0;
+    for (u32 i=0;i<a->length;++i) if (a->text[i]=='/') ap=i+1;
+    for (u32 i=0;i<b->length;++i) if (b->text[i]=='/') bp=i+1;
+    return ap==bp && !memcmp(a->text,b->text,ap)?true:fail(v,NV_JAVA_VERIFY,"Member is not accessible from this package");
+}
+static int named_type(struct vm *v,const u8 *name,u32 n) {
     static const char *const names[]={"java/lang/Object",NULL,"java/lang/String","java/io/PrintStream",
         "[I","[J","[B","[C","[S","[Z","[Ljava/lang/Object;",NULL,"[Ljava/lang/String;"};
-    for (u32 i=0;i<sizeof(names)/sizeof(*names);++i) if (names[i] && class_is(v,index,names[i])) return i;
-    fail(v,NV_JAVA_UNSUPPORTED,"Referenced class is not implemented"); return -1;
+    for (u32 i=0;i<ARRAY_LEN(names);++i)
+        if (names[i] && n==strlen(names[i]) && !memcmp(name,names[i],n)) return i;
+    bool array=n>3 && name[0]=='[' && name[1]=='L' && name[n-1]==';';
+    if (n && name[0]=='[' && !array) {
+        fail(v,NV_JAVA_UNSUPPORTED,"Array class type is not implemented"); return -1;
+    }
+    struct java_class *c=load_class(v,name+(array?2:0),n-(array?3:0));
+    return c?(array?C_APP_ARRAY:C_APP)+c->id:-1;
 }
+static int class_id(struct vm *v,u16 index) {
+    struct cp *c=constant(v,index,7), *name=c?constant(v,c->a,1):NULL;
+    return name?named_type(v,name->text,name->length):-1;
+}
+static bool app_array(int cls) { return cls>=C_APP_ARRAY && cls<C_APP_ARRAY+(int)NV_JAVA_CLASSES; }
+static bool app_instance(int cls) { return cls>=C_APP && cls<C_APP+(int)NV_JAVA_CLASSES; }
 static bool instance_of(struct object *o,int cls) {
     return cls==C_OBJECT || o->cls==cls ||
-           (cls==C_OBJECTS && (o->cls==C_SELFS || o->cls==C_STRINGS));
+           (cls==C_OBJECTS && (app_array(o->cls) || o->cls==C_STRINGS));
 }
 static bool reference_fits(struct vm *v,struct value val,u16 desc,u32 at) {
     if (val.tag!=T_REF || !val.bits) return true;
     struct object *o=object(v,val); struct cp *d=constant(v,desc,1);
     if (!o || !d || at>=d->length) return fail(v,NV_JAVA_VERIFY,"Invalid reference descriptor");
-    const u8 *s=d->text+at;
-    u32 end=at; descriptor_type(v,d->text,d->length,&end,false); u32 n=end-at;
-    static const char *const names[]={"Ljava/lang/Object;",NULL,"Ljava/lang/String;","Ljava/io/PrintStream;",
-        "[I","[J","[B","[C","[S","[Z","[Ljava/lang/Object;",NULL,"[Ljava/lang/String;"};
-    int cls=-1;
-    for (u32 i=0;i<ARRAY_LEN(names);++i)
-        if (names[i] && n==strlen(names[i]) && !memcmp(s,names[i],n)) { cls=i; break; }
-    struct cp *self=constant(v,v->self,7); struct cp *name=self?constant(v,self->a,1):NULL;
-    if (name) {
-        if (n==name->length+2u && s[0]=='L' && s[n-1]==';' && !memcmp(s+1,name->text,name->length)) cls=C_SELF;
-        if (n==name->length+3u && s[0]=='[' && s[1]=='L' && s[n-1]==';' && !memcmp(s+2,name->text,name->length)) cls=C_SELFS;
-    }
-    if (cls<0) return fail(v,NV_JAVA_UNSUPPORTED,"Reference type is not implemented");
+    u32 end=at; descriptor_type(v,d->text,d->length,&end,false);
+    if (!good(v)) return false;
+    const u8 *s=d->text+at; u32 n=end-at;
+    bool wrapped=s[0]=='L';
+    int cls=named_type(v,s+(wrapped?1:0),n-(wrapped?2:0));
+    if (!good(v)) return false;
     return instance_of(o,cls)?true:fail(v,NV_JAVA_VERIFY,"Reference does not match declared type");
 }
 static bool array_store_compatible(struct vm *v,struct object *array,struct value val) {
     if (!val.bits) return true;
     struct object *o=object(v,val);
-    int cls=array->cls==C_OBJECTS?C_OBJECT:array->cls==C_SELFS?C_SELF:C_STRING;
+    int cls=array->cls==C_OBJECTS?C_OBJECT:app_array(array->cls)?C_APP+array->cls-C_APP_ARRAY:C_STRING;
     return o && instance_of(o,cls) ? true : fail(v,NV_JAVA_EXCEPTION,"ArrayStoreException");
 }
-static bool field_access(struct vm *v,struct frame *f,u8 op,u16 index) {
+static bool field_access(struct vm *v,struct frame *f,u8 op,u16 index,u32 pc) {
     struct cp *ref=constant(v,index,9);
     struct cp *nt=ref?constant(v,ref->b,12):NULL;
     if (!nt) return false;
     bool is_static=op==0xb2 || op==0xb3, store=op==0xb3 || op==0xb5;
     if (op==0xb2 && class_is(v,ref->a,"java/lang/System") && text_is(v,nt->a,"out") &&
         text_is(v,nt->b,"Ljava/io/PrintStream;")) return push(v,f,reference(1));
-    if (!self_class(v,ref->a)) return fail(v,NV_JAVA_UNSUPPORTED,"External field is not implemented");
-    for (u32 i=0;i<v->field_count;++i) {
-        struct field *field=&v->fields[i];
-        if (!text_same(v,field->name,nt->a) || !text_same(v,field->desc,nt->b)) continue;
+    struct java_class *owner=resolve_class(v,ref->a);
+    if (!owner) return false;
+    for (u32 i=0;i<owner->field_count;++i) {
+        struct field *field=&owner->fields[i];
+        if (!equal_text(&owner->pool[field->name],&v->c->pool[nt->a]) ||
+            !equal_text(&owner->pool[field->desc],&v->c->pool[nt->b])) continue;
         if (!!(field->flags&8)!=is_static) return fail(v,NV_JAVA_VERIFY,"Field static/instance mismatch");
+        if (!member_accessible(v,owner,field->flags)) return false;
+        if (store && (field->flags&16) && (owner!=v->c ||
+            !text_is(v,v->c->methods[f->method].name,is_static?"<clinit>":"<init>")))
+            return fail(v,NV_JAVA_VERIFY,"Final field write outside declaring initializer");
+        if (is_static && initialize(v,owner,f,pc)) return good(v);
         struct value value=store?pop(v,f,field->value.tag):field->value;
         struct object *o=NULL;
         if (!is_static) {
             o=object(v,pop(v,f,T_REF));
-            if (!o || o->kind!=O_INSTANCE || o->cls!=C_SELF) return fail(v,NV_JAVA_VERIFY,"Invalid field receiver");
+            if (!o || o->kind!=O_INSTANCE || o->cls!=C_APP+owner->id) return fail(v,NV_JAVA_VERIFY,"Invalid field receiver");
             if (!store) value.bits=o->data[i];
         }
         if (!good(v)) return false;
         if (store) {
-            if (!reference_fits(v,value,field->desc,0)) return false;
-            struct cp *desc=constant(v,field->desc,1);
+            if (!reference_fits(v,value,nt->b,0)) return false;
+            struct cp *desc=constant(v,nt->b,1);
             if (!desc) return false;
             if (desc->text[0]=='B') value.bits=(u32)signed8(value.bits&255);
             if (desc->text[0]=='S') value.bits=(u32)signed16(value.bits&65535);
@@ -695,12 +826,31 @@ static bool field_access(struct vm *v,struct frame *f,u8 op,u16 index) {
     }
     return fail(v,NV_JAVA_VERIFY,"Field not found");
 }
-static bool invoke(struct vm *v,struct frame *f,u8 op,u16 index) {
+static bool invoke(struct vm *v,struct frame *f,u8 op,u16 index,u32 pc) {
     struct cp *ref=constant(v,index,10);
     struct cp *nt=ref?constant(v,ref->b,12):NULL;
     struct signature sig;
     if (!nt || !signature(v,nt->b,&sig)) return false;
     bool is_static=op==0xb8;
+    struct java_class *owner=NULL; int method=-1;
+    struct cp *target_name=constant(v,v->c->pool[ref->a].a,1);
+    if (!target_name) return false;
+    if (target_name->length<5 || memcmp(target_name->text,"java/",5)) {
+        owner=resolve_class(v,ref->a);
+        if (!owner) return false;
+        for (u32 i=0;i<owner->method_count;++i) {
+            struct method *m=&owner->methods[i];
+            if (!equal_text(&owner->pool[m->name],&v->c->pool[nt->a]) ||
+                !equal_text(&owner->pool[m->desc],&v->c->pool[nt->b])) continue;
+            if (!!(m->flags&8)!=is_static) return fail(v,NV_JAVA_VERIFY,"Method static/instance mismatch");
+            if (!member_accessible(v,owner,m->flags)) return false;
+            if (text_is(v,nt->a,"<clinit>") || (text_is(v,nt->a,"<init>") && op!=0xb7))
+                return fail(v,NV_JAVA_VERIFY,"Invalid explicit initializer invocation");
+            method=i; break;
+        }
+        if (method<0) return fail(v,NV_JAVA_VERIFY,"Method not found");
+        if (is_static && initialize(v,owner,f,pc)) return good(v);
+    }
     struct value args[ARG_MAX+1]; u32 base=is_static?0:1;
     for (u32 i=sig.count;i && good(v);--i) args[base+i-1]=pop(v,f,sig.args[i-1]);
     if (!is_static) args[0]=pop(v,f,T_REF);
@@ -708,18 +858,12 @@ static bool invoke(struct vm *v,struct frame *f,u8 op,u16 index) {
     for (u32 i=0;i<sig.count;++i)
         if (!reference_fits(v,args[base+i],nt->b,sig.positions[i])) return false;
     if (!is_static && !object(v,args[0])) return false;
-    if (self_class(v,ref->a)) {
-        if (!is_static && v->objects[args[0].bits]->cls!=C_SELF) return fail(v,NV_JAVA_VERIFY,"Wrong method receiver");
-        for (u32 i=0;i<v->method_count;++i) {
-            struct method *m=&v->methods[i];
-            if (!text_same(v,m->name,nt->a) || !text_same(v,m->desc,nt->b)) continue;
-            if (!!(m->flags&8)!=is_static) return fail(v,NV_JAVA_VERIFY,"Method static/instance mismatch");
-            if (text_is(v,m->name,"<clinit>") || (text_is(v,m->name,"<init>") && op!=0xb7))
-                return fail(v,NV_JAVA_VERIFY,"Invalid explicit initializer invocation");
-            return enter(v,i,args,base+sig.count);
-        }
-        return fail(v,NV_JAVA_VERIFY,"Method not found");
+    if (owner) {
+        if (!is_static && v->objects[args[0].bits]->cls!=C_APP+owner->id) return fail(v,NV_JAVA_VERIFY,"Wrong method receiver");
+        v->c=owner;
+        return enter(v,method,args,base+sig.count);
     }
+    if (text_is(v,nt->a,"<init>") && op!=0xb7) return fail(v,NV_JAVA_VERIFY,"Invalid constructor opcode");
     return native_call(v,f,ref->a,nt->a,nt->b,is_static,args,base+sig.count);
 }
 static bool stack_op(struct vm *v,struct frame *f,u8 op) {
@@ -824,7 +968,7 @@ static bool array_access(struct vm *v,struct frame *f,u8 op) {
     struct object *o=good(v)?object(v,array):NULL;
     if (!o) return false;
     if (o->kind!=O_ARRAY || (o->cls!=classes[kind] && !(kind==5 && o->cls==C_BOOLS) &&
-        !(kind==4 && (o->cls==C_SELFS || o->cls==C_STRINGS)))) return fail(v,NV_JAVA_VERIFY,"Wrong array element type");
+        !(kind==4 && (app_array(o->cls) || o->cls==C_STRINGS)))) return fail(v,NV_JAVA_VERIFY,"Wrong array element type");
     if (index.bits>=o->length) return fail(v,NV_JAVA_EXCEPTION,"ArrayIndexOutOfBoundsException");
     if (store) {
         if (kind==4 && !array_store_compatible(v,o,value)) return false;
@@ -840,14 +984,15 @@ static bool array_access(struct vm *v,struct frame *f,u8 op) {
 static bool execute(struct vm *v) {
     static const u8 types[]={T_INT,T_LONG,T_EMPTY,T_EMPTY,T_REF};
     while (v->depth && good(v)) {
-        struct frame *f=&v->frames[v->depth-1]; struct method *m=&v->methods[f->method];
+        struct frame *f=&v->frames[v->depth-1]; v->c=v->classes[f->owner];
+        struct method *m=&v->classes[f->owner]->methods[f->method];
         if (f->pc>=m->length || !m->starts[f->pc]) return fail(v,NV_JAVA_VERIFY,"Execution fell outside method");
         if (v->result->instructions==v->limit) return fail(v,NV_JAVA_LIMIT,"Java instruction budget exhausted");
         ++v->result->instructions;
         if (!(v->result->instructions&4095) && v->host.poll && v->host.poll(v->host.context))
             return fail(v,NV_JAVA_IO,"Java execution cancelled");
         u32 pc=f->pc; u8 op=m->code[f->pc++]; const u8 *code=m->code;
-        v->result->pc=pc; v->result->method=f->method; v->result->opcode=op;
+        v->result->pc=pc; v->result->method=f->method; v->result->class_index=f->owner; v->result->opcode=op;
         if (op==0) continue;
         if (op==1) { push(v,f,reference(0)); continue; }
         if (op>=2 && op<=8) { push(v,f,integer((u32)op-3)); continue; }
@@ -857,8 +1002,8 @@ static bool execute(struct vm *v) {
         if (op>=0x12 && op<=0x14) {
             u32 index=op==0x12?code[f->pc++]:((u32)code[f->pc]<<8|code[f->pc+1]);
             if (op!=0x12) f->pc+=2;
-            if (!index || index>=v->pool_count) return fail(v,NV_JAVA_FORMAT,"Invalid ldc index");
-            struct cp *c=&v->pool[index];
+            if (!index || index>=v->c->pool_count) return fail(v,NV_JAVA_FORMAT,"Invalid ldc index");
+            struct cp *c=&v->c->pool[index];
             if (op==0x14 && c->tag==5) push(v,f,wide(c->bits));
             else if (op!=0x14 && c->tag==3) push(v,f,integer(c->bits));
             else if (op!=0x14 && c->tag==8) { u32 id=string_constant(v,index); if (id) push(v,f,reference(id)); }
@@ -937,20 +1082,21 @@ static bool execute(struct vm *v) {
             if (!good(v)) return false;
             if (!reference_fits(v,val,m->desc,sig.return_at)) return false;
             if (type==T_INT) {
-                u8 declared=v->pool[m->desc].text[sig.return_at];
+                u8 declared=v->c->pool[m->desc].text[sig.return_at];
                 if (declared=='B') val.bits=(u32)signed8(val.bits&255);
                 if (declared=='S') val.bits=(u32)signed16(val.bits&65535);
                 if (declared=='C') val.bits&=65535;
                 if (declared=='Z') val.bits&=1;
             }
             /* JVMS ireturn/return discard the rest of this frame's stack. */
+            if (f->initializer) v->c->state=2;
             --v->depth;
             if (v->depth && type!=T_VOID) push(v,&v->frames[v->depth-1],val);
             continue;
         }
         if (op>=0xb2 && op<=0xb8) {
             u16 index=(u32)code[f->pc]<<8|code[f->pc+1]; f->pc+=2;
-            if (op<=0xb5) field_access(v,f,op,index); else invoke(v,f,op,index);
+            if (op<=0xb5) field_access(v,f,op,index,pc); else invoke(v,f,op,index,pc);
             continue;
         }
         if (op==0xba) {
@@ -960,8 +1106,10 @@ static bool execute(struct vm *v) {
         }
         if (op==0xbb) {
             u16 index=(u32)code[f->pc]<<8|code[f->pc+1]; f->pc+=2;
-            if (!self_class(v,index)) return fail(v,NV_JAVA_UNSUPPORTED,"External object construction is not implemented");
-            u32 id=new_object(v,O_INSTANCE,C_SELF,v->field_count,v->field_count*8);
+            struct java_class *owner=resolve_class(v,index);
+            if (!owner) return false;
+            if (initialize(v,owner,f,pc)) continue;
+            u32 id=new_object(v,O_INSTANCE,C_APP+owner->id,owner->field_count,owner->field_count*8);
             if (id) push(v,f,reference(id));
             continue;
         }
@@ -973,7 +1121,7 @@ static bool execute(struct vm *v) {
                 if (cls<0) return fail(v,NV_JAVA_UNSUPPORTED,"Primitive array type is not implemented");
             } else {
                 int element=class_id(v,(u32)code[f->pc]<<8|code[f->pc+1]); f->pc+=2;
-                cls=element==C_SELF?C_SELFS:element==C_OBJECT?C_OBJECTS:element==C_STRING?C_STRINGS:-1;
+                cls=app_instance(element)?C_APP_ARRAY+element-C_APP:element==C_OBJECT?C_OBJECTS:element==C_STRING?C_STRINGS:-1;
                 if (cls<0) return fail(v,NV_JAVA_UNSUPPORTED,"Reference array type is not implemented");
             }
             struct value length=pop(v,f,T_INT);
@@ -1033,22 +1181,22 @@ int nv_java_run(const void *bytes,u32 length,void *arena,u32 arena_size,
     struct vm *v=arena; memset(v,0,sizeof(*v));
     v->arena=arena; v->capacity=arena_size; v->used=(sizeof(*v)+15u)&~15u;
     v->result=result; v->limit=instruction_limit; v->host=*host;
+    v->c=allocate(v,sizeof(*v->c));
+    if (!v->c) goto done;
+    v->classes[v->class_count++]=v->c;
     if (!parse_class(v,bytes,length)) goto done;
-    if (new_object(v,O_PRINT,C_PRINT,0,0)!=1) goto done;
-    for (u32 i=0;i<v->field_count && good(v);++i) {
-        struct field *f=&v->fields[i];
-        if (!f->constant) continue;
-        u8 tag=f->value.tag==T_INT?3:f->value.tag==T_LONG?5:8;
-        struct cp *c=constant(v,f->constant,tag);
-        if (!c) break;
-        if (tag==8 && !text_is(v,f->desc,"Ljava/lang/String;")) { fail(v,NV_JAVA_FORMAT,"Invalid reference ConstantValue"); break; }
-        if (f->flags&8) f->value.bits=tag==8?string_constant(v,f->constant):c->bits;
+    result->major=v->c->major;
+    if (host->main_class) {
+        struct cp *name=class_name(v->c);
+        if (strlen(host->main_class)!=name->length || memcmp(host->main_class,name->text,name->length)) {
+            fail(v,NV_JAVA_VERIFY,"Entry class name does not match classpath request"); goto done;
+        }
     }
-    if (!good(v)) goto done;
+    if (new_object(v,O_PRINT,C_PRINT,0,0)!=1 || !prepare_fields(v)) goto done;
     int main=method_named(v,"main","([Ljava/lang/String;)V");
-    if (main<0 || (v->methods[main].flags&9)!=9) { fail(v,NV_JAVA_VERIFY,"public static void main(String[]) not found"); goto done; }
-    int initializer=method_named(v,"<clinit>","()V");
-    if (initializer>=0 && (!enter(v,initializer,NULL,0) || !execute(v))) goto done;
+    if (main<0 || (v->c->methods[main].flags&9)!=9) { fail(v,NV_JAVA_VERIFY,"public static void main(String[]) not found"); goto done; }
+    if (initialize(v,v->c,NULL,0) && !execute(v)) goto done;
+    v->c=v->classes[0];
     u32 array=new_object(v,O_ARRAY,C_STRINGS,argc,argc*8);
     if (!array) goto done;
     for (u32 i=0;i<argc && good(v);++i) {

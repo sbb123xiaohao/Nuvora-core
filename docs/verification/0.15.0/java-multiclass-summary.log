@@ -1,0 +1,92 @@
+Nuvora Core / experimental Java 21 multi-class verification
+Baseline: 748210d43c1122678f35e361e9d6cfe8f9a8a5a8 (GitHub main and local matched before edits).
+Final native build: Arch GCC 16.2.1 20260810; QEMU 11.1.1; Python 3.14.7; OVMF 202608.
+Additional sanitizer/differential checks: host GCC 14.2.0; OpenJDK/javac 21.0.12.1.
+This is an independently written bounded interpreter subset, not OpenJDK, Java SE 21, or a running Minecraft client.
+
+[ASan + UBSan / actual guest VM core]
+PASS Java launch arguments: empty strings, whitespace, quotes, backslashes and capacity bounds
+PASS Java 21 real javac output: classes, objects, arrays, switches, overflow, UTF-16 and invokedynamic concat
+PASS Java errors: divide/null/array/cast/string faults, memory/depth/instruction limits and host cancellation
+PASS Java parser: every truncated prefix, 1500 deterministic mutations and input/heap guard pages
+PASS Java bytecode safety: branch-into-operand, truncated switch, wide-local invalidation, stack categories and zero-stack iinc
+PASS JVMS return semantics: extra operands discarded and byte/char/short/boolean narrowed
+PASS Java classpath: package paths, traversal/absolute/NUL/surrogate rejection and output bounds
+PASS Java multi-class: independent pools/fields, calls/long returns, lazy/cyclic initialization and cross-class string interning
+PASS Java loader identity: packaged entry, main-name mismatch and dependency-name spoof rejected
+PASS Java loading limits: missing/oversized/changing/failed reads, 16-class cap, cast/store faults and failing initializer
+PASS Java dependency parser: every truncated prefix and 1000 mutations with guarded arena
+
+[OpenJDK 21 / recompiled source and matching checked-in class bytes]
+javac 21.0.12.1
+PASS OpenJDK 21 differential: NuvoraJavaDemo [], 147 output bytes
+PASS OpenJDK 21 differential: NuvoraJavaDemo ['hello', '', 'two words', 'a"b', 'C:\\path'], 211 output bytes
+PASS OpenJDK 21 differential: JavaEdges ['utf', '你好🌍'], 34 output bytes
+PASS OpenJDK 21 differential: JavaEdges ['arithmetic'], 36917 output bytes
+PASS OpenJDK 21 differential: MultiMain [], 251 output bytes
+PASS OpenJDK 21 differential: MultiMain ['two words', '', 'a"b', 'C:\\path'], 302 output bytes
+PASS OpenJDK 21 differential: pkg.Entry ['two words'], 39 output bytes
+PASS matching fault: divide -> ArithmeticException (guest reports and exits; catch is unsupported)
+PASS matching fault: long-divide -> ArithmeticException (guest reports and exits; catch is unsupported)
+PASS matching fault: null -> NullPointerException (guest reports and exits; catch is unsupported)
+PASS matching fault: bounds -> ArrayIndexOutOfBoundsException (guest reports and exits; catch is unsupported)
+PASS matching fault: store-bounds -> ArrayIndexOutOfBoundsException (guest reports and exits; catch is unsupported)
+PASS matching fault: negative -> NegativeArraySizeException (guest reports and exits; catch is unsupported)
+PASS matching fault: store -> ArrayStoreException (guest reports and exits; catch is unsupported)
+PASS matching fault: cast -> ClassCastException (guest reports and exits; catch is unsupported)
+PASS matching fault: char-bounds -> StringIndexOutOfBoundsException (guest reports and exits; catch is unsupported)
+PASS matching multi-class fault: store -> ArrayStoreException
+PASS matching multi-class fault: cast -> ClassCastException
+PASS matching multi-class fault: init-fail -> ArithmeticException
+PASS explicit subset limit: OpenJDK runs 17 classes; bootstrap rejects class 17
+JAVA21 DIFFERENTIAL: 7 successful programs + 12 fault outcomes matched OpenJDK; class cap checked
+
+[Final Arch host regression]
+ALL 48 HOST REGRESSION GROUPS PASSED (including Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, static PIE/RELRO, editor large-file/error handling and failed-save protection, account commit/lock races, session client suspension, lock input/display revocation, random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)
+
+[UEFI USB / 64 MiB]
+Created UEFI system partition image: build/x86_64/esp.img
+Created UEFI GPT boot image: /tmp/nuvora-removable-trfd9hpv/boot.img (66 MiB)
+PASS removable UEFI GPT/FAT32 (64 MiB): BOOTX64.EFI, USB xHCI and 152 native/legacy Ring 3 assertions; QEMU exit 33
+
+[Native disk classes / BIOS / 64 MiB]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-java-guest-j8ghztz1/data.img
+PASS Ring 3: java --demo "two words"
+PASS Ring 3: java "/home/Java Demo.class" "two words"
+PASS Ring 3: forge java "/home/Java Demo.class" "two words"
+PASS isolated guest failure: bounds -> ArrayIndexOutOfBoundsException
+PASS isolated guest failure: null -> NullPointerException
+PASS isolated guest failure: memory -> Java array exceeds arena
+PASS isolated guest failure: recursive -> Java call-depth limit
+PASS isolated guest failure: forever -> Java instruction budget exhausted
+PASS isolated guest failure: library -> Java library method is not implemented
+PASS Ring 3 multi-class: java /home/MultiMain.class "two words" ""
+PASS Ring 3 multi-class: java -cp /home MultiMain "two words" ""
+PASS Ring 3 multi-class: forge java --class-path /home MultiMain "two words" ""
+PASS packaged classpath: pkg.Entry -> pkg.Value from real nested files
+PASS multi-class guest failure: store -> ArrayStoreException
+PASS multi-class guest failure: cast -> ClassCastException
+PASS multi-class guest failure: missing -> Class not found or unreadable
+PASS multi-class guest failure: init-fail -> ArithmeticException
+PASS Java guest exit reclamation, multi-class reclamation, malformed/JAR rejection, shell and filesystem recovery
+JAVA21 GUEST DISK TEST PASSED
+Independent serial log check: 3 Java demos, 6 multi-class runs, 1 packaged run and 3 self-tests; free KiB before/after = 40832/40832.
+
+[Production graphical session]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-java-desktop-okoqvjxz/data.img
+Created UEFI GPT boot image: /tmp/nuvora-java-desktop-okoqvjxz/boot.img (66 MiB)
+PASS production Terminal: Java child returned; subsequent file write persisted
+CAPTURE java21-multiclass.png: 1280x800; raw PPM retained for independent comparison
+PNG independently decoded against original QMP PPM: 1280 x 800, identical RGB pixels.
+Java screenshot SHA256: ef924f13c3e4df62de77359a516effac7f2165ac8357dede94429d98009b0c12
+Production kernel SHA256: 871d380ded50eca55b3d8ade7014ced3ea9564991beb40d088b42ae62b85533d
+ESP SHA256: 7db2b68d7d840acbc63f90ec030a8a6837a0a6b70f5ee8364b8dafbfd4b92764
+Imported fixture class SHA256 values: {"Block.class": "06b439f89df17118116ebeea8d20abb07b6b12e5bf678c51918942a4b13cf9c7", "Broken.class": "dc6ade98e788f0fee52a92d2abd06e002c1d1a937001798bac5cde4fde3dedf0", "Chunk.class": "6a3d3b202d2e660eee5b0d74e0a97d87f8b93cc593997bb93bac863fe4a08728", "Cold.class": "b10b09b2dfd618fd7243e641c2ff4160bdd4923d702393836a3a7a1766cffe3c", "First.class": "049c0e20df7b63a4b7a31ab0b2f4295680aab8dde34d7c88a9163a0ba18aaf10", "Limit00.class": "091c21187300f8d0eca0bac82eef1fb98a7f067de66404b8c431883764fb873a", "Limit01.class": "0419b6c4ca3ff1e723fa1cb7e84584c0909b0dffd35f686db31ec3e84f626816", "Limit02.class": "e51069c7cf6c718b98dd15600516a330b211b288454a65a773aaf8f781766b64", "Limit03.class": "a29afe8d4060906e45fedf699ef0c91c17002e7d75a136037327fabd404990ee", "Limit04.class": "8b246cf74dbee1dfa0d94944a99de19de57b0de201b497c12d6d71f826658260", "Limit05.class": "505e86869021fb1fce2175b3955ee8ea8c0fa702a6fce65614d19c8519b67545", "Limit06.class": "1ed88496aac12db0b7586d98f2ac2fd3418cd1bcb0696bb6bddd06c379a86b0c", "Limit07.class": "b698a3678118dd9fa1abf370b26770ed8b2b8d0c14e9635a05c7f6361fa3cf71", "Limit08.class": "f50e20919e1bc1b0441cc114bb7862b203485f864f22800681d127121b3f5924", "Limit09.class": "13b8dc42ffcb172544248b6d417bca40c3afd54d5c3a021af3141ee4a9ee83ae", "Limit10.class": "ce552df94479d5409312f6357b367ae0af1c1e7866b1ebf802bc1815943eb4a9", "Limit11.class": "392906fbc35019552ef604f1b1b366c9ac9101e6fa2903445fd7efeab89181fd", "Limit12.class": "4da62afbc7be5e1e6eaef74f733d0510b59a79087460268d8592aea10efdba7a", "Limit13.class": "8f165e1b9a04fe92b78469ac9f1166b49c9f5c9d46ababdf5fb27a69d1bd1b08", "Limit14.class": "5eb7ff36beed2420d9df6cd9d7f26f80edae94e787d25a7949c3ba108821b83d", "Limit15.class": "5fb0508b2be5233896c13327cdd0440087359db250a6a71fc2ec9dc730c36033", "LimitMain.class": "6adc09a2177e02b9bfd902b68535ab05e521328355dd2fc5e782d8e902988c9c", "Missing.class": "1be09e6155138c02daf1b820337a6e5dce6a278c7042e22af01b1b8e3d9983f7", "MultiMain.class": "6613f7434e98b9cd26f8fba97366f170a79d932399e570dd7db46d8e59df5e9c", "Second.class": "60676e654e54e09998861c791245167b24601d13b545537c4a6d597ba325feb6", "Trace.class": "a0749da8addf363288e19487c6c8cbc4516c8b5b1730ca6ecdc5677e136d68f7", "WriteFirst.class": "7cecb414ebaef9169776c1087616ba2b11c7e4e61f45a16285f9a60e972e675f"}
+Native java.elf SHA256: 25e320e6cf24189b381ed7bb5325ee2039e2e9c144215b5e2053f6900c7150c6
+Independent ELF/archive check: x64 static ET_EXEC, entry 0x100000000, no W+X LOAD, no PT_INTERP/DYNAMIC/TLS; exact class embedded; /apps/java exact ELF.
+Source check: all 247 build/code/test/fixture files match the final tested tree byte for byte.
+Tested source content fingerprint SHA256: ecef860f7e11c7f2d41e83a658bfe6876e57c968970be4155c56f2b958ff0f77
+GCC freestanding general-register-only stack report: largest individual C frame 1184 bytes; Java frames allocated in arena.
+
+Limits: up to 16 application classes with a single directory classpath; integer/long only; 2 MiB arena; no GC/threads/JAR/JNI/LWJGL/OpenGL/full class library.
+No Minecraft launch, world entry, FPS, Java TCK, or physical-hardware certification was performed.

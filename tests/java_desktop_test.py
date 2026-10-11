@@ -12,6 +12,7 @@ from desktop_boot_test import Monitor, first_account, qemu, create
 from session_boot_test import wait_saved_file
 from capture_screenshots import write_png
 from mkmedia import create as create_media
+from import_media import import_files
 
 
 def digest(path):
@@ -35,6 +36,8 @@ def main():
         private=pathlib.Path(directory)
         disk,esp,media=private/'data.img',private/'esp.img',private/'boot.img'
         create(disk,size_mib=128,partitions=1)
+        fixtures=qemu.ROOT/'tests/fixtures/java/multiclass'
+        import_files(disk,sorted(fixtures.glob('*.class')))
         shutil.copyfile(qemu.BUILD/'esp.img',esp)
         create_media(esp,media)
         original=qemu.BUILD
@@ -57,27 +60,27 @@ def main():
                     time.sleep(.2)
                 first_account(monitor,output)
                 monitor.start(2);monitor.key('alt','f10')
-                type_command(monitor,'java --demo "native runtime"\nweave java-ready.txt ready\nanchor\n')
+                type_command(monitor,'java -cp /home MultiMain "native runtime"\nweave java-ready.txt ready\nanchor\n')
                 wait_saved_file(monitor,disk,'/home/users/tester/java-ready.txt',b'ready\n')
-                type_command(monitor,'scrub\njava --version\njava --demo "native runtime"\n')
+                type_command(monitor,'scrub\njava --version\njava -cp /home MultiMain "native runtime"\n')
                 time.sleep(3)
-                width,height,pixels=monitor.shot(output,'java21')
+                width,height,pixels=monitor.shot(output,'java21-multiclass')
                 # Maximized Terminal intentionally covers most of the desktop.
                 assert width>=640 and height>=480 and len(set(pixels))>16
-                write_png(output/'java21.png',width,height,pixels)
+                write_png(output/'java21-multiclass.png',width,height,pixels)
                 text=serial.read_text(errors='replace')
                 assert 'PANIC' not in text and '[trap]' not in text and 'PROBE RESULT:' not in text
                 manifest={'capture':'production UEFI / QEMU q35 / 256 MiB / AHCI / USB keyboard',
                           'kernel_sha256':digest(qemu.BUILD/'nuvora-uefi.elf'),
                           'esp_sha256':digest(qemu.BUILD/'esp.img'),
-                          'class_sha256':digest(qemu.ROOT/'tests/fixtures/java/NuvoraJavaDemo.class'),
-                          'file':'java21.png','width':width,'height':height,
-                          'sha256':digest(output/'java21.png'),
-                          'commands':['java --version','java --demo "native runtime"'],
-                          'note':'Real Java 21 class subset; Minecraft is not running.'}
+                          'classes':{p.name:digest(p) for p in sorted(fixtures.glob('*.class'))},
+                          'file':'java21-multiclass.png','width':width,'height':height,
+                          'sha256':digest(output/'java21-multiclass.png'),
+                          'commands':['java --version','java -cp /home MultiMain "native runtime"'],
+                          'note':'Real Java 21 multi-class subset; Minecraft is not running.'}
                 (output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
                 print('PASS production Terminal: Java child returned; subsequent file write persisted',flush=True)
-                print(f'CAPTURE java21.png: {width}x{height}; raw PPM retained for independent comparison',flush=True)
+                print(f'CAPTURE java21-multiclass.png: {width}x{height}; raw PPM retained for independent comparison',flush=True)
             finally:
                 if process.poll() is None:
                     process.terminate()

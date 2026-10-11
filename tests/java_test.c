@@ -25,7 +25,7 @@ static u8 *read_file(const char *path,u32 *length) {
 static u32 random_state=0x21c0ffee;
 static u32 random_u32(void) { random_state^=random_state<<13; random_state^=random_state>>17; random_state^=random_state<<5; return random_state; }
 static struct nv_java_result run(u8 *bytes,u32 length,void *arena,struct capture *capture,const char *arg,u32 budget) {
-    struct nv_java_host host={capture,output,poll_host}; struct nv_java_result result;
+    struct nv_java_host host={.context=capture,.write=output,.poll=poll_host}; struct nv_java_result result;
     const char *args[]={arg};
     int status=nv_java_run(bytes,length,arena,NV_JAVA_ARENA,args,arg?1:0,budget,&host,&result);
     assert(status==(int)result.status); assert(result.heap_bytes<=NV_JAVA_ARENA);
@@ -86,6 +86,7 @@ int main(void) {
     /* Verify branch boundaries independently of javac's well-formed output. */
     struct vm *v=arena; memset(v,0,sizeof(*v));
     result=(struct nv_java_result){0}; v->result=&result; v->arena=arena; v->capacity=NV_JAVA_ARENA; v->used=(sizeof(*v)+15)&~15u;
+    v->c=allocate(v,sizeof(*v->c)); v->classes[v->class_count++]=v->c;
     const u8 operand_branch[]={0x10,0x01,0xa7,0xff,0xff,0xb1};
     struct method bad={.code=operand_branch,.length=sizeof(operand_branch)};
     assert(!decode(v,&bad) && result.status==NV_JAVA_VERIFY);
@@ -93,26 +94,26 @@ int main(void) {
     const u8 truncated_switch[]={0xaa,0,0,0,0,0,0,0};
     bad=(struct method){.code=truncated_switch,.length=sizeof(truncated_switch)};
     assert(!decode(v,&bad) && result.status==NV_JAVA_FORMAT);
-    result=(struct nv_java_result){0}; v->methods[0]=(struct method){.stack=4,.locals=4};
+    result=(struct nv_java_result){0}; v->c->methods[0]=(struct method){.stack=4,.locals=4};
     struct frame *frame=&v->frames[0]; memset(frame,0,sizeof(*frame));
     assert(local_store(v,frame,0,wide(123)) && local_store(v,frame,1,integer(5)));
     assert(!local_load(v,frame,0,T_LONG) && result.status==NV_JAVA_VERIFY);
     result=(struct nv_java_result){0};
     assert(push(v,frame,wide(2)) && !stack_op(v,frame,0x59) && result.status==NV_JAVA_VERIFY);
-    result=(struct nv_java_result){0}; frame->used=0; v->methods[0].stack=0;
+    result=(struct nv_java_result){0}; frame->used=0; v->c->methods[0].stack=0;
     assert(local_store(v,frame,0,integer(0xffffffffu)) && increment(v,frame,0,1) && frame->locals[0].bits==0);
     puts("PASS Java bytecode safety: branch-into-operand, truncated switch, wide-local invalidation, stack categories and zero-stack iinc");
     const u8 parent_code[]={0x3b,0xb1}, child_code[]={0x03,0x02,0xac};
     const char *return_types[]={"()B","()C","()S","()Z"};
     const u32 narrowed[]={0xffffffffu,65535,0xffffffffu,1};
     for (u32 i=0;i<4;++i) {
-        result=(struct nv_java_result){0};v->pool_count=3;v->limit=20;v->depth=2;
-        v->pool[1]=(struct cp){.text=(const u8 *)"()V",.length=3,.tag=1};
-        v->pool[2]=(struct cp){.text=(const u8 *)return_types[i],.length=3,.tag=1};
-        v->methods[0]=(struct method){.code=parent_code,.length=2,.stack=1,.locals=1,.desc=1};
-        v->methods[1]=(struct method){.code=child_code,.length=3,.stack=2,.desc=2};
+        result=(struct nv_java_result){0};v->c->pool_count=3;v->limit=20;v->depth=2;
+        v->c->pool[1]=(struct cp){.text=(const u8 *)"()V",.length=3,.tag=1};
+        v->c->pool[2]=(struct cp){.text=(const u8 *)return_types[i],.length=3,.tag=1};
+        v->c->methods[0]=(struct method){.code=parent_code,.length=2,.stack=1,.locals=1,.desc=1};
+        v->c->methods[1]=(struct method){.code=child_code,.length=3,.stack=2,.desc=2};
         memset(v->frames,0,2*sizeof(struct frame));v->frames[1].method=1;
-        assert(decode(v,&v->methods[0]) && decode(v,&v->methods[1]) && execute(v));
+        assert(decode(v,&v->c->methods[0]) && decode(v,&v->c->methods[1]) && execute(v));
         assert(v->frames[0].locals[0].bits==narrowed[i]);
     }
     puts("PASS JVMS return semantics: extra operands discarded and byte/char/short/boolean narrowed");

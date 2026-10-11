@@ -1,0 +1,43 @@
+{
+  "capture": "production UEFI / QEMU q35 / 256 MiB / AHCI / USB keyboard",
+  "kernel_sha256": "871d380ded50eca55b3d8ade7014ced3ea9564991beb40d088b42ae62b85533d",
+  "esp_sha256": "7db2b68d7d840acbc63f90ec030a8a6837a0a6b70f5ee8364b8dafbfd4b92764",
+  "classes": {
+    "Block.class": "06b439f89df17118116ebeea8d20abb07b6b12e5bf678c51918942a4b13cf9c7",
+    "Broken.class": "dc6ade98e788f0fee52a92d2abd06e002c1d1a937001798bac5cde4fde3dedf0",
+    "Chunk.class": "6a3d3b202d2e660eee5b0d74e0a97d87f8b93cc593997bb93bac863fe4a08728",
+    "Cold.class": "b10b09b2dfd618fd7243e641c2ff4160bdd4923d702393836a3a7a1766cffe3c",
+    "First.class": "049c0e20df7b63a4b7a31ab0b2f4295680aab8dde34d7c88a9163a0ba18aaf10",
+    "Limit00.class": "091c21187300f8d0eca0bac82eef1fb98a7f067de66404b8c431883764fb873a",
+    "Limit01.class": "0419b6c4ca3ff1e723fa1cb7e84584c0909b0dffd35f686db31ec3e84f626816",
+    "Limit02.class": "e51069c7cf6c718b98dd15600516a330b211b288454a65a773aaf8f781766b64",
+    "Limit03.class": "a29afe8d4060906e45fedf699ef0c91c17002e7d75a136037327fabd404990ee",
+    "Limit04.class": "8b246cf74dbee1dfa0d94944a99de19de57b0de201b497c12d6d71f826658260",
+    "Limit05.class": "505e86869021fb1fce2175b3955ee8ea8c0fa702a6fce65614d19c8519b67545",
+    "Limit06.class": "1ed88496aac12db0b7586d98f2ac2fd3418cd1bcb0696bb6bddd06c379a86b0c",
+    "Limit07.class": "b698a3678118dd9fa1abf370b26770ed8b2b8d0c14e9635a05c7f6361fa3cf71",
+    "Limit08.class": "f50e20919e1bc1b0441cc114bb7862b203485f864f22800681d127121b3f5924",
+    "Limit09.class": "13b8dc42ffcb172544248b6d417bca40c3afd54d5c3a021af3141ee4a9ee83ae",
+    "Limit10.class": "ce552df94479d5409312f6357b367ae0af1c1e7866b1ebf802bc1815943eb4a9",
+    "Limit11.class": "392906fbc35019552ef604f1b1b366c9ac9101e6fa2903445fd7efeab89181fd",
+    "Limit12.class": "4da62afbc7be5e1e6eaef74f733d0510b59a79087460268d8592aea10efdba7a",
+    "Limit13.class": "8f165e1b9a04fe92b78469ac9f1166b49c9f5c9d46ababdf5fb27a69d1bd1b08",
+    "Limit14.class": "5eb7ff36beed2420d9df6cd9d7f26f80edae94e787d25a7949c3ba108821b83d",
+    "Limit15.class": "5fb0508b2be5233896c13327cdd0440087359db250a6a71fc2ec9dc730c36033",
+    "LimitMain.class": "6adc09a2177e02b9bfd902b68535ab05e521328355dd2fc5e782d8e902988c9c",
+    "Missing.class": "1be09e6155138c02daf1b820337a6e5dce6a278c7042e22af01b1b8e3d9983f7",
+    "MultiMain.class": "6613f7434e98b9cd26f8fba97366f170a79d932399e570dd7db46d8e59df5e9c",
+    "Second.class": "60676e654e54e09998861c791245167b24601d13b545537c4a6d597ba325feb6",
+    "Trace.class": "a0749da8addf363288e19487c6c8cbc4516c8b5b1730ca6ecdc5677e136d68f7",
+    "WriteFirst.class": "7cecb414ebaef9169776c1087616ba2b11c7e4e61f45a16285f9a60e972e675f"
+  },
+  "file": "java21-multiclass.png",
+  "width": 1280,
+  "height": 800,
+  "sha256": "ef924f13c3e4df62de77359a516effac7f2165ac8357dede94429d98009b0c12",
+  "commands": [
+    "java --version",
+    "java -cp /home MultiMain \"native runtime\""
+  ],
+  "note": "Real Java 21 multi-class subset; Minecraft is not running."
+}

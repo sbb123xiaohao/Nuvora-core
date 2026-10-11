@@ -1,5 +1,13 @@
 # Nuvora Core 0.15.0
 
+## 未发布：Java 21 多类加载与初始化
+
+- `java -cp DIRECTORY package.Main` / `--class-path` 从真实目录按需加载依赖；直接 `.class` 入口从同目录解析依赖，最多 16 类，沿用 2 MiB arena。
+- 各类独立常量池、字段、对象与调用帧；跨类静态/实例调用、数组类型和字符串驻留；首次主动使用执行 `<clinit>`，循环初始化只执行一次，暂停的指令保留其操作数。
+- 校验入口/依赖类名、路径、访问权限、final 写入位置、每次读取的长度和资源上限；损坏输入与缺失依赖明确退出。
+- 新增真实 javac 21 多类与 package 示例、OpenJDK 差分、ASan/UBSan 回归、64 MiB 客体文件加载与回收检查，以及正式桌面截图。
+- 这仍是实验性解释器子集；JAR、完整类库、继承、异常捕获、浮点、GC、线程、JNI/LWJGL 和 OpenGL 尚未实现，Minecraft 仍不能运行。
+
 ## 未发布：Java 21 字节码兼容起步
 
 - 新增 `/apps/java` 和 Terminal/Loom 的 `java` 命令，加载真实非 preview 的 class 52–65 文件；提供无需宿主 JDK 即可构建的 Java 21 示例。

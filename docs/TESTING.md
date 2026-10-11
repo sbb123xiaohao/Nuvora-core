@@ -1,5 +1,37 @@
 # 测试与复现
 
+## 未发布：Java 21 多类加载与目录类路径
+
+以 GitHub/local 一致的完整 `748210d` 为基线。新增有界多类解释执行和
+`java -cp DIR package.Main`，没有扩展内核 ABI 或账户权限。边界见
+[JAVA.md](JAVA.md)，本轮记录见
+[多类验证记录](verification/0.15.0/java-multiclass-summary.log)。
+
+- OpenJDK/javac **21.0.12.1** 重新编译 5 份源码，31 个 major 65 类文件与
+  保存夹具逐字节一致；**7 组成功输出、12 类异常结果**匹配，额外对照
+  OpenJDK 成功运行 17 类、bootstrap 明确在第 17 类报告配额错误。
+- 实际 C 核心通过 ASan/UBSan：旧的单类测试继续通过；新夹具验证 8 类协作、
+  独立常量池与字段、跨类 long 返回、数组类型、字符串驻留、惰性与循环初始化、
+  `new/getstatic/putstatic/invokestatic` 暂停后操作数保留，以及 package 路径。
+  同时覆盖入口/依赖冒名、路径穿越、缺失依赖、超大/变化/失败读取、类数配额、
+  初始化异常、所有主类/依赖类截断前缀、合计 **2,500 次**确定性变异和保护页。
+- 最终 Arch GCC **16.2.1 20260810** 构建、**48 组宿主回归**通过；QEMU
+  **11.1.1**、64 MiB UEFI USB 启动完成 **152 项**原生/兼容断言。
+- 64 MiB BIOS 客体从真实 NVSTORE 文件加载多类程序：直接路径、`-cp`、
+  `--class-path`、`forge`、空字符串/带空格参数与嵌套 package 文件均通过。
+  错误程序退出后可继续操作文件；缓存稳定后重复三次单类与多类进程，空闲内存
+  均为 **40,832 KiB**，没有 arena/类缓冲泄漏。
+- 正式 UEFI 桌面 Terminal 实际运行多类程序，后续写文件仍能持久化；
+  README 引用新的 `java21-multiclass.png`，并保留旧图。PNG 由 QMP 帧缓冲
+  无损转换，与原始 PPM 独立逐像素比较，清单记录内核、ESP、类文件和图片哈希。
+
+复现命令与下一节相同。新增 `java_multiclass_test.c` 已纳入 `make test-host`。
+GCC 14.2.0、`-O2 -mgeneral-regs-only` 的栈报告：解释器最大单函数帧为
+**1,184 字节**，Java 调用帧与依赖元数据位于 arena。没有修改 ARM64 启动代码。
+
+此轮支持单目录类路径，**JAR、完整 Java SE、Minecraft 启动仍未实现**；
+测试运行在 QEMU，没有实体机或游戏帧率认证。
+
 ## 未发布：Java 21 字节码运行基础
 
 以远端与本地一致的完整 `1267f0c` 为基线，新增的是 x64 用户态实验性

@@ -1,0 +1,11 @@
+Java 21 / multiple application classes
+lazy=1, null=true
+cycle=5,3
+block=21, mass=1234567890123
+cast=true, types=true
+intern=true, text=true
+sum=2469135780256, calls=1
+write=88, cached=2
+init=132567, cold=4, once=4
+final-order=1325674
+MULTICLASS PASS
