@@ -6,7 +6,7 @@
  * the content while a button is captured by the window server. */
 struct app_window {
     u32 id, serial, width, height;
-    bool closed, visible, focused, resized;
+    bool closed, visible, focused, resized, suspended;
     struct nv_window_event input[32];
     u32 head, tail, queued;
 };
@@ -24,10 +24,22 @@ static inline int app_window_open(struct app_window *w, const char *title, u32 w
 }
 static inline int app_window_pump(struct app_window *w) {
     if (!w->id) return 0;
+    /* A full local queue would otherwise skip POLL and its lock check. */
+    if (w->queued == ARRAY_LEN(w->input) && account_session_locked()) {
+        w->head = w->tail = w->queued = 0;
+        w->suspended = true;
+        return 0;
+    }
+    w->suspended = false;
     for (u32 i = 0; i < 32 && w->queued < ARRAY_LEN(w->input); ++i) {
         struct nv_window_event e;
         int r = nv_window_poll(w->id, &e);
         if (r == -NV_ENOENT || r == -NV_ENODEV) { w->closed = true; return 0; }
+        if (r == -NV_EACCESS && account_session_locked()) {
+            w->head = w->tail = w->queued = 0;
+            w->suspended = true;
+            return 0;
+        }
         if (r <= 0) return r;
         if (e.type == NV_WINDOW_EVENT_CLOSE) w->closed = true;
         else if (e.type == NV_WINDOW_EVENT_CONFIGURE) {
@@ -73,6 +85,7 @@ static inline int app_window_begin(struct app_window *w) {
     int r = app_window_pump(w);
     if (r < 0) return r;
     if (w->closed) return -NV_ENODEV;
+    if (w->suspended) return -NV_EAGAIN;
     struct nv_window_frame io = {w->id, w->serial, w->width, w->height};
     return nv_window_begin(&io);
 }

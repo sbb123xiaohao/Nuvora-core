@@ -133,7 +133,7 @@ int read_line(char *out, u32 cap) {
     for (;;) {
         char c;
         int r = take(0, &c, 1);
-        if (r == -NV_EAGAIN) {
+        if (r == -NV_EAGAIN || (r == -NV_EACCESS && account_session_locked())) {
             nap(10);
             continue;
         }

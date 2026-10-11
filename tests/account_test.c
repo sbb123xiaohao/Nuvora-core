@@ -12,6 +12,7 @@ volatile u64 ticks;
 bool test_mode;
 static bool random_available=true;
 static int sync_error,session_ends;
+static bool lock_during_sync;
 static u32 network_releases,released_uid;
 static u32 released_pids;
 static u32 console_locks,window_locks,lock_manager,lock_uid;
@@ -29,7 +30,14 @@ bool user_range(pte_t *pd, uptr p, usize n,bool write) {
     (void)pd;(void)write;return p>=(u32)(uptr)io_buffer && (u64)p+n<=(uptr)io_buffer+PAGE;
 }
 bool disk_ready(void) { return true; }
-int store_sync(void) { return sync_error; }
+int store_sync(void) {
+    if (lock_during_sync) {
+        lock_during_sync=false;
+        ticks=last_activity+idle_timeout;account_tick();
+        assert(locked && !account_job.active);
+    }
+    return sync_error;
+}
 int store_write_error(u32 v) { (void)v;return 0; }
 int store_read_bytes(u32 v,int slot,u32 off,void *dst,u32 len) {
     (void)v;(void)slot;(void)off;(void)dst;(void)len;return -NV_EIO;
@@ -206,6 +214,25 @@ int main(void) {
     assert(console_locks==locks+1 && window_locks==console_locks && !lock_manager && lock_uid==1000);
     assert(!call(NV_ACCOUNT_CLAIM,NULL) && locked);
     assert(!run(NV_ACCOUNT_LOGIN,&admin));
+    /* Device waits enable timer interrupts during the final account commit. */
+    struct nv_account_request carol=credentials("carol","carol local password");
+    u32 new_uid=database.next_uid;
+    lock_during_sync=true;
+    assert(!run(NV_ACCOUNT_ADD,&carol));
+    assert(((struct nv_account_progress *)io_buffer)->uid==new_uid);
+    assert(locked && !account_job.active && account_index(new_uid)<database.count);
+    assert(!run(NV_ACCOUNT_LOGIN,&admin));
+    edit=credentials("alice","changed admin password");edit.uid=1000;
+    strlcpy(edit.old_password,admin.password,sizeof(edit.old_password));
+    lock_during_sync=true;assert(!run(NV_ACCOUNT_PASSWORD,&edit));
+    assert(((struct nv_account_progress *)io_buffer)->uid==1000 && locked && !account_job.active);
+    assert(run(NV_ACCOUNT_LOGIN,&admin)==-NV_EACCESS);
+    admin=edit;assert(!run(NV_ACCOUNT_LOGIN,&admin));
+    /* Both committed identities survive a reload; completion never unlocks. */
+    account_init();assert(!broken && database.count==2 && account_index(new_uid)<database.count);
+    assert(!call(NV_ACCOUNT_CLAIM,NULL) && !run(NV_ACCOUNT_LOGIN,&carol));
+    assert(session_uid==new_uid);assert(!call(NV_ACCOUNT_LOGOUT,NULL));
+    assert(!run(NV_ACCOUNT_LOGIN,&admin));
     /* An ambiguous disk commit cannot claim success, and reboot reloads it. */
     sync_error=-NV_EIO;edit=(struct nv_account_request){.uid=1000,.role=1};strlcpy(edit.display_name,"Saved Alice",64);
     assert(call(NV_ACCOUNT_UPDATE,&edit)==-NV_EIO && broken);assert(run(NV_ACCOUNT_ADD,&bob)==-NV_EIO);
@@ -214,6 +241,6 @@ int main(void) {
     assert(fd>=3 && fs_write(&internal,fd,"BROKEN!",7)==7);fs_close(&internal,fd);
     account_init();assert(broken);assert(!call(NV_ACCOUNT_CLAIM,NULL));assert(run(NV_ACCOUNT_SETUP,&admin)==-NV_EIO);
     test_mode=true;account_init();assert(account_ioctl(NV_ACCOUNT_INFO,(u32)(uptr)io_buffer)==-NV_ENODEV);
-    puts("PASS accounts: trusted program identity, roles, kernel idle lock, full-cost hash, persistence, lock, login/password cooldown, tick wrap, home isolation and fail-closed storage");
+    puts("PASS accounts: trusted program identity, roles, kernel idle lock, full-cost hash, persistence, ADD/PASSWORD commit across lock, login/password cooldown, tick wrap, home isolation and fail-closed storage");
     return 0;
 }

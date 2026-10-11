@@ -2,8 +2,8 @@
   "capture": "QMP screendump; lossless P6 to RGB PNG",
   "boot": "production UEFI USB; q35; 256 MiB; AHCI; USB keyboard/tablet; e1000e; HDA",
   "qemu": "QEMU emulator version 11.1.1",
-  "kernel_sha256": "2c3214fa12131e01a7a78a9210ddd94c956672773b1451b096a7ca6ec3f2be3f",
-  "esp_sha256": "1267683edeec5a1f7378bd93f7ae548efaae7b3684bf07eaf7d7cf55d9485e6e",
+  "kernel_sha256": "043ee4d9687fa8733353772d4b8e1f3fada7e5924d2f154c5f1fea41579b5028",
+  "esp_sha256": "a6a842282df1fe3a0b4d3cd2e7736f35ed13c3aa88c01911aee2fa67104b7a33",
   "firmware_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
   "screenshots": [
     {
@@ -40,7 +40,7 @@
       "file": "files-terminal.png",
       "width": 1280,
       "height": 800,
-      "sha256": "6b4c71e5197822f7c58aa457a51420133ba36ff061672808fd2c7c66f2f8192e"
+      "sha256": "41f3fb1020f63bff01f5600c7329b0a4d81ae2b725486452417763e64d5bc75b"
     },
     {
       "file": "files-editor.png",
@@ -52,7 +52,7 @@
       "file": "settings.png",
       "width": 1280,
       "height": 800,
-      "sha256": "cf1589ff591c35207c6b0e960842fafc41977aa2ee8e84e35d259b2ea9922116"
+      "sha256": "595a5d935862645640e29071334a7ee20d0a1783eead55268a3ba062ec5075c5"
     },
     {
       "file": "settings-sound.png",
@@ -70,10 +70,10 @@
       "file": "music.png",
       "width": 1280,
       "height": 800,
-      "sha256": "64d023e8487bb9747b8bcf098150436d932c1bf069a52f526c405f5547393a01"
+      "sha256": "a8923c92677f4fea212ee2ce81fecfda24bcc8a6190782f520ebd24e46dcc870"
     }
   ],
-  "audio_capture_sha256": "378b833aafe223ae566a3e8ddf0740cce18d0caf97c2f0cba4994fce6ad86b5a",
+  "audio_capture_sha256": "9daab5986573f3c3ce0db81799d2f5b7aea87a4eae0298066d63a47886904693",
   "audio_peaks": [
     6000,
     6000

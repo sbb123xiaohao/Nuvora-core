@@ -1,4 +1,5 @@
 #include "runtime.h"
+#include "window_client.h"
 #include <nv/address.h>
 static u32 passed, failed;
 static void check(bool ok, const char *what) {
@@ -665,6 +666,9 @@ static int lock_input_tests(void) {
     if (nv_window_call(NV_WINDOW_BIND_STDIO,&id)<0) return 1;
     int child=spawn("/apps/probe","lock-input-child");
     if (child<0) return 1;
+    int media_pid=spawn("/apps/media","");
+    if (media_pid<0) return 1;
+    nap(500);
     char path[NV_PATH_MAX];default_home_file(path,"lock-input-security.txt");
     const char *ready="LOCK INPUT READY\n";
     int fd=open_file(path,NV_WRITE|NV_CREATE|NV_TRUNC);
@@ -678,7 +682,24 @@ static int lock_input_tests(void) {
     check(take(0,&ch,1)==-NV_EACCESS && ch==0xa9,"locked window stdin denied without touching output");
     check(take(0,&ch,0)==-NV_EACCESS,"locked zero-length window stdin denied");
     check(control(NV_CTL_CLEAR,0)==-NV_EACCESS,"locked terminal clear denied");
+    struct app_window client={.id=w.id,.width=w.width,.height=w.height,.serial=w.serial};
+    client.queued=ARRAY_LEN(client.input);
+    for (u32 i=0;i<client.queued;++i)
+        client.input[i]=(struct nv_window_event){.type=NV_WINDOW_EVENT_KEY,.key='x'};
+    check(app_window_key(&client)==-NV_EAGAIN && !client.queued && !client.closed,
+          "window adapter pauses a full input queue while locked");
+    check(app_window_begin(&client)==-NV_EAGAIN,"window adapter defers rendering while locked");
     if (!await_lock_state(false)) return 1;
+    check(app_window_pump(&client)>=0 && !client.closed && !client.suspended,
+          "window adapter resumes the existing window after authentication");
+    bool media_alive=false;
+    for (u32 i=0;i<NV_TASK_MAX;++i) {
+        struct nv_taskinfo64 task;
+        if (task_at64(i,&task)>0 && task.pid==(u32)media_pid && task.state!=NV_ZOMBIE)
+            media_alive=true;
+    }
+    check(media_alive,"original Media process survives lock and authentication");
+    stop_task(media_pid);wait_task(media_pid);
     check(nv_window_poll(w.id,&e)>=0,"window poll resumes after authentication");
     check(take(0,&ch,0)==0,"window stdin resumes after authentication");
     check(control(NV_CTL_CLEAR,0)==0,"terminal clear resumes after authentication");

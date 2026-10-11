@@ -319,22 +319,25 @@ static int poll_job(struct nv_account_progress *out) {
         return 0;
     }
     memcpy(account_job.record.hash,account_job.hash.result,32);
+    /* Disk waits may enable interrupts: an idle lock clears account_job.
+     * Finish the already-authorized commit using immutable non-secret metadata,
+     * without allowing completion to unlock an existing session. */
+    u32 operation=account_job.op,committed_uid=account_job.record.uid;
+    char created_home[NV_PATH_MAX]={0};
     candidate=database;
-    if (account_job.op==NV_ACCOUNT_PASSWORD) candidate.records[account_job.target]=account_job.record;
+    if (operation==NV_ACCOUNT_PASSWORD) candidate.records[account_job.target]=account_job.record;
     else {
-        char home[NV_PATH_MAX];home_path(home,account_job.record.name);
-        result=ensure_directory("/home/users");
-        if (!result) result=fs_mkdir(0,home);
-        if (result<0) goto complete;
+        home_path(created_home,account_job.record.name);
         candidate.records[candidate.count++]=account_job.record;++candidate.next_uid;
+        result=ensure_directory("/home/users");
+        if (!result) result=fs_mkdir(0,created_home);
+        if (result<0) goto complete;
     }
     result=persist_candidate();
-    if (result<0 && !broken && account_job.op!=NV_ACCOUNT_PASSWORD) {
-        char home[NV_PATH_MAX];home_path(home,account_job.record.name);fs_remove(0,home);
-    }
+    if (result<0 && !broken && *created_home) fs_remove(0,created_home);
     if (!result) {
-        uid=account_job.record.uid;
-        if (account_job.op==NV_ACCOUNT_SETUP) session_start(database.count-1);
+        uid=committed_uid;
+        if (operation==NV_ACCOUNT_SETUP) session_start(database.count-1);
     }
 complete:
     *out=(struct nv_account_progress){.completed=total,.total=total,.uid=uid,.result=result};

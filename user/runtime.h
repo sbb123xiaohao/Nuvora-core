@@ -64,6 +64,10 @@ static inline int devctl(u32 subsystem, u32 op, void *request) {
 static inline int account_call(u32 op,void *request) {
     return devctl(NV_SUB_ACCOUNT,op,request);
 }
+static inline bool account_session_locked(void) {
+    struct nv_account_info info;
+    return !account_call(NV_ACCOUNT_INFO,&info) && (info.flags&NV_AUTH_LOCKED);
+}
 static inline void default_home_file(char out[NV_PATH_MAX],const char *name) {
     struct nv_account_info account;
     const char *home=account_call(NV_ACCOUNT_INFO,&account)==0 && *account.home?account.home:"/home";

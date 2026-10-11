@@ -229,8 +229,8 @@ def main():
                 assert desktop_visible(m.shot(output,'06a-resumed')[2],scale)
                 print('PASS real idle lock, app/launcher barrier, wrong-password rejection and resume', flush=True)
                 wait_saved_file(m,disk,'/home/users/tester/lock-input-security.txt',
-                                b'LOCK INPUT SECURITY RESULT: 8 passed, 0 failed\n',timeout=20)
-                print('PASS real Ring 3 locked input: 8 parent assertions, including 3 inherited-child checks; window/stdin/clear denied then resumed',flush=True)
+                                b'LOCK INPUT SECURITY RESULT: 12 passed, 0 failed\n',timeout=20)
+                print('PASS real Ring 3 locked input: 12 parent assertions, including 3 inherited-child checks; window/stdin/clear denied then resumed; client queue/render suspension and original Media process survival',flush=True)
                 settings_page(m,4);m.key('tab');m.key('ret')
                 m.shot(output,'07-restart-confirmation');m.key('ret')
                 assert serial.read_text(errors='replace').count('Ring 3: /apps/session')==1
