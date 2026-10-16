@@ -1,0 +1,137 @@
+Nuvora / Linux x86-64 static runtime compatibility verification
+Baseline: fba279b0918c1ad91cb9540260a0a28b9709eee6 (local and GitHub main matched before editing).
+OS build/tests: Arch GCC 16.2.1 20260810; QEMU 11.1.1; OVMF 202608; Python 3.14.7.
+External ELF fixtures: GCC 14.2.0; unmodified musl 1.2.5, Lua 5.4.8, QuickJS 2025-09-13; pinned source SHA256 and licenses included.
+C++ example validates language core with musl, not libstdc++/RTTI/exceptions.
+QuickJS uses the project embedding with print/scriptArgs, not Node.js/DOM/workers.
+
+[Actual kernel C / ASan + UBSan]
+PASS Linux VMA: allocation rollback, split/reuse, R/RW/RX permissions, W+X denial and supervisor rejection
+PASS Linux quotas: 32 mappings, split failure is atomic, fixed mappings rejected and byte brk rollback
+PASS Linux ABI: native process gate, errno translation, wide descriptor/pointer checks, FS-base isolation, random errors and closed stdio
+
+[Actual page tables, ELF loader and Linux initial stack / UBSan]
+PASS static PIE: relative/cross-page fixups, BSS, arguments, NX/RELRO, 28 malformed images rejected before mapping and 24 OOM budgets
+PASS Linux ELF: static PIE/TLS template, quoted argv/env/auxv, random seed, aligned stack and malformed-image rejection before mapping
+PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, full validation before allocation, OOM rollback, legacy ELF and GOP masks
+
+[Complete host suite]
+ALL 50 HOST REGRESSION GROUPS PASSED (including Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, static PIE/RELRO, editor large-file/error handling and failed-save protection, account commit/lock races, session client suspension, lock input/display revocation, random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)
+
+[Same ELF / independent Linux reference vs guest]
+language: 44 stdout bytes identical in actual Linux ELF reference and Nuvora guest.
+lua: 119 stdout bytes identical in actual Linux ELF reference and Nuvora guest.
+js: 133 stdout bytes identical in actual Linux ELF reference and Nuvora guest.
+
+[UEFI / 64 MiB]
+Created UEFI system partition image: build/x86_64/esp.img
+Created UEFI GPT boot image: /tmp/nuvora-removable-n137e37s/boot.img (66 MiB)
+PASS removable UEFI GPT/FAT32 (64 MiB): BOOTX64.EFI, USB xHCI and 153 native/legacy Ring 3 assertions; QEMU exit 33
+BIOS / 32 MiB / max CPU: 153 assertions, including native SYSCALL gate.
+BIOS / 64 MiB / core2duo CPU: 153 assertions, including native SYSCALL gate (no RNG required for this native test).
+
+[Linux static runtime guest / BIOS / 64 MiB]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-compat-nkmtkrx3/data.img
+PASS real musl C: TLS, allocation, mmap split/protection, errno, bounds, clocks, descriptors and file I/O
+PASS real lua engine: parser, objects, GC, exceptions and floating point
+PASS real js engine: parser, objects, GC, exceptions and floating point
+PASS Linux/native scheduling: two concurrent TLS processes retain independent FS bases and waitable PIDs
+PASS language exceptions and shell cancellation of the actual compatibility process
+PASS malformed/dynamic ELF rejection, isolated user fault, native Java/PIE recovery and exact reclamation: 40764/40764 KiB
+LINUX RUNTIME GUEST TEST PASSED
+Independent serial count: C=4, Lua=4, JS=4, C++=1, TLS=2, expected isolated user page fault=1; free KiB=40764/40764.
+
+[Existing Java multi-class disk regression]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-java-guest-baluif2v/data.img
+PASS Ring 3: java --demo "two words"
+PASS Ring 3: java "/home/Java Demo.class" "two words"
+PASS Ring 3: forge java "/home/Java Demo.class" "two words"
+PASS isolated guest failure: bounds -> ArrayIndexOutOfBoundsException
+PASS isolated guest failure: null -> NullPointerException
+PASS isolated guest failure: memory -> Java array exceeds arena
+PASS isolated guest failure: recursive -> Java call-depth limit
+PASS isolated guest failure: forever -> Java instruction budget exhausted
+PASS isolated guest failure: library -> Java library method is not implemented
+PASS Ring 3 multi-class: java /home/MultiMain.class "two words" ""
+PASS Ring 3 multi-class: java -cp /home MultiMain "two words" ""
+PASS Ring 3 multi-class: forge java --class-path /home MultiMain "two words" ""
+PASS packaged classpath: pkg.Entry -> pkg.Value from real nested files
+PASS multi-class guest failure: store -> ArrayStoreException
+PASS multi-class guest failure: cast -> ClassCastException
+PASS multi-class guest failure: missing -> Class not found or unreadable
+PASS multi-class guest failure: init-fail -> ArithmeticException
+PASS Java guest exit reclamation, multi-class reclamation, malformed/JAR rejection, shell and filesystem recovery
+JAVA21 GUEST DISK TEST PASSED
+Java cached guest free KiB=40764/40764.
+
+[Production UEFI desktop]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-compat-desktop-yq0hkrzd/data.img
+Created UEFI GPT boot image: /tmp/nuvora-compat-desktop-yq0hkrzd/boot.img (66 MiB)
+PASS production compatibility: inherited uid=1000, protected database denied/unchanged, native file writes and Lua persistence
+CAPTURE compat-runtime.png + compat-languages.png: actual framebuffer, original PPM retained
+Synthetic first user uid=1000 was reported by actual Linux syscall; account database read denied, database digest unchanged, proof and Lua/C output files persisted.
+Both PNGs independently decoded against raw QMP PPM: 1280x800, identical RGB pixels.
+Production kernel SHA256: a20fabea0a21bced16a1ddff70b9d424a9e132ab3aa79c659e4891760d70077f
+Production ESP SHA256: afd416d7d12bebc8cc7bdaf221a743c0821ba498a73e8ea70682a9c193d99c87
+Screenshot SHA256 values: {"compat-languages.png": "04c7f1e135a2d5b63162984a67cc3559f5f938f788881f654b0c9201e3e2768e", "compat-runtime.png": "34bde2771f904811adcdb9900ff0c8dae5f1e1476675edddc1740e5250c64a8b"}
+Runtime ELF SHA256 values: {"js.elf": "517cdf1af185d6a982c0743e48d9545f7419a806af131ce0d1a4adbcee93773b", "language.elf": "1528cdb2411f24f9748e49294b9c8a2b78944bce25b882f5de4dd9719f99afa4", "lua.elf": "19af546c546c33d583d3a8ba7b4db85158e6f48fc385f6384aad9a0f93916a96", "runtime_check.elf": "5157515972aaabcf4ae2b18f6de961e56567988ecc844c5bb5d063c722012b2b"}
+Native compat.elf SHA256: 42953ec2a65460a44a37ce653de9f1a61d64634cf9ceabcfc3ef2050e26a1f67
+All 270 current source/build/test/fixture paths match final tested tree byte for byte.
+Tested source fingerprint SHA256: 1225a2c063d9fc44a6491a7498755e8994a529caf18234414b093f736341f193
+Freestanding general-register-only largest individual C frames: Linux dispatcher=880 bytes; task/exec=2064 bytes (kernel stacks=16 KiB).
+
+[Real OpenJDK ELF requirements, read-only; no JDK code run in Nuvora]
+{
+  "files": [
+    {
+      "file": "java",
+      "sha256": "6698f6f10143ed8463b06062281c727152d2e0ae2a3569b1716fbb2c6cedf0ba",
+      "machine": 62,
+      "elf_type": 3,
+      "interpreter": "/lib64/ld-linux-x86-64.so.2",
+      "needed": [
+        "libz.so.1",
+        "libjli.so",
+        "libc.so.6"
+      ],
+      "tls_template": false,
+      "loader_blockers": [
+        "ELF interpreter missing: /lib64/ld-linux-x86-64.so.2",
+        "shared-library loader missing: libz.so.1, libjli.so, libc.so.6"
+      ],
+      "note": "No code executed; an empty blocker list does not prove runtime support."
+    },
+    {
+      "file": "libjvm.so",
+      "sha256": "56a71b907446b53ea9ab0f1599d3c22298f150ac2f9530acc62d5e7fc003e564",
+      "machine": 62,
+      "elf_type": 3,
+      "interpreter": null,
+      "needed": [
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "tls_template": true,
+      "loader_blockers": [
+        "shared-library loader missing: libstdc++.so.6, libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux-x86-64.so.2",
+        "entry does not select executable code"
+      ],
+      "note": "No code executed; an empty blocker list does not prove runtime support."
+    }
+  ],
+  "platform_missing": [
+    "dynamic loader/shared libraries",
+    "clone/threads and blocking synchronization",
+    "Linux signals and exception delivery",
+    "file-backed mappings and reserved address space",
+    "JNI/LWJGL/GLFW/OpenGL backends"
+  ],
+  "minecraft_client_started": false
+}
+
+Minecraft target metadata: official 1.21.1 / Java 21 / LWJGL 3.3.3; source URL and digests in docs/minecraft-target.json.
+Limits: static PIE only; no dynamic loader/shared libraries, clone/threads/signals, file-backed/PROT_NONE mappings, JNI/LWJGL/OpenGL or complete Linux/POSIX contract.
+No Minecraft/JVM client launch, world entry, game FPS, Java TCK, or physical hardware certification was performed.

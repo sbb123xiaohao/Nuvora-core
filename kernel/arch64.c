@@ -20,11 +20,20 @@ static u64 gdt[7];
 static struct idt_entry64 idt[256];
 static struct tss64 tss;
 static u8 emergency_stack[8192] ALIGNED(16);
+/* Single-CPU entry scratch; FMASK disables interrupts before SYSCALL writes
+ * the saved user stack. No user address is used as a supervisor stack. */
+uptr arch_syscall_stack, arch_syscall_user_stack;
+extern void linux_syscall_entry(void);
+static void write_msr(u32 index,u64 value) {
+    __asm__ volatile("wrmsr" :: "c"(index),"a"((u32)value),"d"((u32)(value>>32)));
+}
+void arch_set_fs(uptr base) { write_msr(0xc0000100u,base); }
 extern uptr isr_table[];
 extern void gdt_load(const struct table_ptr64 *);
 volatile u64 ticks;
 void arch_set_stack(uptr top) {
     tss.rsp[0] = top;
+    arch_syscall_stack = top;
 }
 static void gate(u32 v, uptr a, u8 flags, u8 ist) {
     idt[v] = (struct idt_entry64){(u16)a, 8, ist, flags, (u16)(a >> 16), (u32)(a >> 32), 0};
@@ -43,6 +52,12 @@ void arch_init(void) {
     gdt[6] = b >> 32;
     struct table_ptr64 gp = {sizeof(gdt) - 1, (uptr)gdt};
     gdt_load(&gp);
+    u32 lo,hi;
+    __asm__ volatile("rdmsr" : "=a"(lo),"=d"(hi) : "c"(0xc0000080u));
+    write_msr(0xc0000080u,((u64)hi<<32)|lo|1u); /* EFER.SCE */
+    write_msr(0xc0000081u,8ull<<32); /* Kernel CS=8; return uses IRET. */
+    write_msr(0xc0000082u,(uptr)linux_syscall_entry);
+    write_msr(0xc0000084u,0x47700u); /* IF, TF, DF, IOPL, NT, AC. */
     for (u32 i = 0; i < 48; ++i)
         gate(i, isr_table[i], 0x8e, i == 8 ? 1 : 0);
     gate(0x81, isr_table[48], 0xee, 0);
@@ -64,6 +79,7 @@ void arch_init(void) {
     outb(0x40, (u8)(d >> 8));
 }
 struct frame *interrupt_dispatch(struct frame *f) {
+    if (f->vector == 0x82) return linux_dispatch(f);
     if (f->vector == 0x81)
         return syscall_dispatch(f);
     if (f->vector == 8)

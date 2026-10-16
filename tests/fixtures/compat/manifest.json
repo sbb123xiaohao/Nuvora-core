@@ -1,0 +1,31 @@
+{
+  "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+  "source_archives": {
+    "musl": {
+      "file": "musl-1.2.5.tar.gz",
+      "sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"
+    },
+    "lua": {
+      "file": "lua-5.4.8.tar.gz",
+      "sha256": "4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae"
+    },
+    "quickjs": {
+      "file": "quickjs-2025-09-13-2.tar.xz",
+      "sha256": "996c6b5018fc955ad4d06426d0e9cb713685a00c825aa5c0418bd53f7df8b0b4"
+    }
+  },
+  "elfs": {
+    "runtime_check.elf": "5157515972aaabcf4ae2b18f6de961e56567988ecc844c5bb5d063c722012b2b",
+    "language.elf": "1528cdb2411f24f9748e49294b9c8a2b78944bce25b882f5de4dd9719f99afa4",
+    "lua.elf": "19af546c546c33d583d3a8ba7b4db85158e6f48fc385f6384aad9a0f93916a96",
+    "js.elf": "517cdf1af185d6a982c0743e48d9545f7419a806af131ce0d1a4adbcee93773b"
+  },
+  "wrappers": {
+    "javascript.c": "520a70bd6cc402f002f9236cff0589d07af8081522f10fbe1a8c43d52542a42e",
+    "language.cpp": "5d89d4d6b88ac59966595b5dde1ee2df5acb074ae11a05338280ff39f887d047",
+    "runtime_check.c": "6d81c1f1c9bd64334c6542449278bedab222467e5e1265644224fcf59e17db07",
+    "world.js": "4ebad709fa6744428756d13c686bcd77267a073f900bda5e27ef88054702827b",
+    "world.lua": "ca88b139b2796a251f5e3ae8fd18350d2af16c4a194f0da60624883151a59683"
+  },
+  "limits": "static musl PIE; C++ language core only; QuickJS embedding has print/scriptArgs, no Node.js/DOM/workers; no JVM or Minecraft launch"
+}

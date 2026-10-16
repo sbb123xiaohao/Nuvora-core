@@ -57,8 +57,11 @@ enum nv_call {
     NV_INFO64,
     NV_TASK64,
     NV_CLOCK64,
+    NV_COMPAT_SPAWN, /* native: path, quoted argv, NV_COMPAT_LINUX_X64 */
+    NV_COMPAT_EXEC, /* same arguments; replace this ordinary process */
     NV_CALL_COUNT
 };
+#define NV_COMPAT_LINUX_X64 1u
 enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
 /* NV_DEVCTL convention: eax=NV_DEVCTL, ebx=subsystem (enum nv_subsystem),
  * ecx=subsystem-local op code, edx=user pointer to a fixed-size request/

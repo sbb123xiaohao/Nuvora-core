@@ -22,3 +22,6 @@ __attribute__((weak)) int window_stdio_read(struct task *t, void *p, u32 n) {
 __attribute__((weak)) int window_stdio_write(struct task *t, const void *p, u32 n) {
     (void)t; (void)p; (void)n; return -NV_ENODEV;
 }
+
+__attribute__((weak)) void arch_set_fs(uptr base) { (void)base; }
+__attribute__((weak)) bool cpu_random(void *bytes,u32 count) { (void)bytes;(void)count;return false; }

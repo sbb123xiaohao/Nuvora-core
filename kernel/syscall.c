@@ -163,11 +163,14 @@ struct frame *syscall_dispatch(struct frame *f) {
                 memcpy((void *)(uptr)a, path, strlen(path) + 1);
         }
         break;
+    case NV_COMPAT_SPAWN:
+    case NV_COMPAT_EXEC:
     case NV_SPAWN:
     case NV_EXEC:
+        if ((op==NV_COMPAT_SPAWN || op==NV_COMPAT_EXEC) && (!native || c!=NV_COMPAT_LINUX_X64)) { result=-NV_EINVAL;break; }
         /* A session authority cannot turn an arbitrary ELF into the login
          * manager by keeping its PID. Spawn normal children instead. */
-        if (!test_mode && op==NV_EXEC && (current->pid==1 || account_manager(current))) {
+        if (!test_mode && (op==NV_EXEC || op==NV_COMPAT_EXEC) && (current->pid==1 || account_manager(current))) {
             result=-NV_EACCESS;break;
         }
         result = user_string(a, path, sizeof(path));
@@ -191,7 +194,8 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = fs_path(node, path, sizeof(path));
             if (result == 0)
                 result =
-                    op == NV_EXEC ? task_exec(path, other) : task_spawn(path, other, current);
+                    op == NV_COMPAT_EXEC ? task_exec_linux(path,other) : op == NV_EXEC ? task_exec(path, other) : op==NV_COMPAT_SPAWN ?
+                        task_spawn_linux(path,other,current) : task_spawn(path, other, current);
         }
         break;
     case NV_WAIT:

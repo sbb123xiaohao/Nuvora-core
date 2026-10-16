@@ -1,5 +1,55 @@
 # 测试与复现
 
+## 未发布：共享运行时与 Linux 静态进程
+
+以 GitHub/local 一致的完整 `fba279b` 为基线。Java 主线改为成熟 OpenJDK
+复用系统兼容接口；本轮实现静态进程阶段，准确接口见
+[RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)，结果与依赖检查分别见
+[运行时验证记录](verification/0.15.0/runtime-compat-summary.log) 和
+[真实 OpenJDK ELF 检查](verification/0.15.0/openjdk-runtime-probe.json)。
+
+- Arch GCC **16.2.1 20260810** 构建、**50 组宿主回归**通过。新增 Linux VMA
+  内核测试与实际 Linux ELF 参考运行；旧 Java、文件、账户、网络、媒体和界面
+  回归继续通过。普通 `make` 默认仍为 `all`；可选源码下载仅在显式构建运行库时发生。
+- Linux 内核核心通过 **ASan/UBSan**：分配/元数据失败回滚、映射拆分和复用、
+  R/RW/RX、W+X 拒绝、kernel 指针/高位 fd、errno、FS base 与随机失败检查。
+  实际页表/装载器通过 UBSan，覆盖 Linux TLS 模板、对齐栈、带引号 argv、env、
+  auxv/AT_RANDOM 和 14 类坏 ELF 在映射前拒绝，并保留原生 PIE/RELRO 检查。
+- 同一批静态 ELF 在 Linux 宿主与 Nuvora 客体中执行，C++ 核心、Lua、QuickJS
+  的标准输出分别 **44、119、133 字节逐字节相同**。固定源包 SHA256、包装代码
+  SHA256、编译器与 ELF 摘要在 `tests/fixtures/compat/manifest.json`；许可证随附。
+- **64 MiB BIOS 客体**实际运行 musl C、C++ 核心、Lua 5.4.8 和 QuickJS；验证
+  参数、浮点、GC、协程/Promise、异常、文件、内存、时钟和两个并发进程的 TLS。
+  shell 能终止实际运行时 PID；坏 ELF/动态 ELF 明确拒绝，一次预期用户页错误
+  被隔离，随后原生 Java/PIE 和文件操作正常。缓存稳定后连续三轮 C/Lua/JS
+  启动退出，空闲内存精确为 **40,764 / 40,764 KiB**。
+- **64 MiB UEFI USB** 启动通过 **153 项**断言；新增实际 SYSCALL 进入/IRET
+  返回及原生进程隔离断言。**32 MiB / max CPU** 和 **64 MiB / core2duo CPU**
+  的 BIOS 启动同样各通过 153 项；旧 CPU 检查不声称可运行需要硬件 RNG 的 musl。
+- 旧 `java_boot_test.py` 重新通过多类、package、错误退出与精确回收检查。
+- **正式 UEFI / 256 MiB / q35 / AHCI / USB** 桌面执行真实程序，Linux 进程
+  报告继承的 **UID 1000**，读取受保护账户库返回 EACCES，库的内容摘要不变；
+  C 文件、权限证明与 Lua 文件均持久化。两张 PNG 与原始 QMP PPM 独立解码后
+  逐像素一致，README 引用新图，清单记录内核/ESP/运行时/图像摘要。
+- GCC 14.2.0、`-O2 -mgeneral-regs-only` 的最大单函数静态栈帧：Linux dispatcher
+  **880 字节**，task/exec **2,064 字节**；内核栈为 16 KiB。没有改 ARM64 应用 ABI。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/uefi_media_boot_test.py --memory 64
+python3 tests/compat_boot_test.py
+python3 tests/java_boot_test.py
+python3 tests/compat_desktop_test.py
+# 可选，重建外部静态 ELF 夹具：
+make compat-examples
+```
+
+只读检查真实 OpenJDK 21 launcher/libjvm 仍发现 glibc interpreter 与共享库依赖；
+线程/信号、地址预留、文件映射和图形后端还未完成。**没有在 Nuvora 启动
+OpenJDK 或 Minecraft，没有进入世界、测试游戏帧率或进行实体机认证**。
+Lua/JS 网格仅用于语言语义回归，不是 Minecraft 替代画面。
+
 ## 未发布：Java 21 多类加载与目录类路径
 
 以 GitHub/local 一致的完整 `748210d` 为基线。新增有界多类解释执行和

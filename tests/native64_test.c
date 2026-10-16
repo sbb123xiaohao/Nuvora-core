@@ -10,6 +10,7 @@
 static const uptr physical_base = 0x100200000ull;
 static bool owned[POOL_PAGES];
 static u32 live, budget = POOL_PAGES, page_allocations;
+bool cpu_random(void *out,u32 n) { memset(out,0x7b,n);return true; }
 volatile u64 ticks;
 uptr page_alloc(void) {
     if (!budget) return 0;
@@ -64,6 +65,11 @@ static void mapping_boundaries(void) {
     assert(copy_to_space(pd,0xfffffff0ull,bytes,sizeof(bytes))==0);
     assert(*(u8 *)phys_ptr(vm_translate(pd,0x100000000ull))==0xa7);
     assert(vm_page_count(pd)==ARRAY_LEN(addresses));
+    assert(!vm_protect(pd,NV_USER_HEAP,P_EXEC) && !user_range(pd,NV_USER_HEAP,1,true));
+    assert(!(*leaf(pd,NV_USER_HEAP,false)&NX));
+    assert(vm_protect(pd,NV_USER_HEAP,P_EXEC|P_WRITE)==-NV_EINVAL);
+    assert(!vm_protect(pd,NV_USER_HEAP,P_WRITE) && user_range(pd,NV_USER_HEAP,1,true));
+    assert(*leaf(pd,NV_USER_HEAP,false)&NX);
     vm_destroy(pd); assert(!live);
     for (u32 n=0;n<4;++n) {
         reset(); pd=vm_create(); assert(pd); u32 before=live;
@@ -251,6 +257,56 @@ static void loader_validation_budget(void) {
     assert(task.abi==NV_ABI_VERSION && live>2);
     vm_destroy(task.pd); assert(!live && budget==POOL_PAGES);
 }
+static void linux_fixture(void) {
+    memset(image,0,sizeof(image));
+    struct elf_header *h=(void *)image;memcpy(h->ident,"\177ELF\2\1\1",7);
+    h->type=3;h->machine=62;h->version=1;h->ehsize=sizeof(*h);
+    h->phoff=sizeof(*h);h->phnum=4;h->phentsize=sizeof(struct program_header);h->entry=0x1000;
+    struct program_header *p=(void *)(image+h->phoff);
+    p[0]=(struct program_header){.type=1,.flags=4,.filesz=512,.memsz=PAGE,.align=1};
+    p[1]=(struct program_header){.type=1,.flags=5,.offset=1024,.vaddr=0x1000,.filesz=16,.memsz=PAGE,.align=1};
+    p[2]=(struct program_header){.type=1,.flags=6,.offset=2048,.vaddr=0x2000,.filesz=8,.memsz=PAGE,.align=1};
+    p[3]=(struct program_header){.type=7,.flags=4,.offset=2048,.vaddr=0x2000,.filesz=8,.memsz=16,.align=8};
+}
+static void mapped_text(pte_t *pd,uptr at,const char *expected) {
+    for(u32 i=0;i<=strlen(expected);i++)assert(*(u8 *)phys_ptr(vm_translate(pd,at+i))==(u8)expected[i]);
+}
+static void linux_initial_stack(void) {
+    reset();linux_fixture();struct task t={.uid=42,.linux_compat={.enabled=true}};struct frame frame;
+    const char *args="\"\" \"two words\" \"a\\\"b\" \"C:\\\\path\"";
+    assert(!prepare_image(&t,"/home/program.elf",args,&frame));
+    assert(t.abi==2 && frame.eip==NV_USER_IMAGE+0x1000 && !(frame.useresp&15));
+    assert(mapped_word(t.pd,frame.useresp)==5 && t.linux_compat.brk==NV_USER_HEAP);
+    const char *wanted[]={"/home/program.elf","","two words","a\"b","C:\\path"};
+    for(u32 i=0;i<ARRAY_LEN(wanted);i++)mapped_text(t.pd,mapped_word(t.pd,frame.useresp+(i+1)*8),wanted[i]);
+    uptr at=frame.useresp+6*8;assert(!mapped_word(t.pd,at));at+=8;
+    while(mapped_word(t.pd,at))at+=8;
+    at+=8;u32 seen=0;
+    for(;;at+=16) {
+        u64 key=mapped_word(t.pd,at),value=mapped_word(t.pd,at+8);if(!key)break;
+        if(key==3) {assert(value==NV_USER_IMAGE+64);seen|=1;}
+        if(key==6) {assert(value==PAGE);seen|=2;}
+        if(key==25) {assert(mapped_word(t.pd,value)==0x7b7b7b7b7b7b7b7bull);seen|=4;}
+        if(key==11) {assert(value==42);seen|=8;}
+    }
+    assert(seen==15);vm_destroy(t.pd);assert(!live);
+    for(u32 which=0;which<14;which++) {
+        reset();linux_fixture();struct elf_header *h=(void *)image;
+        struct program_header *p=(void *)(image+h->phoff);
+        switch(which) {
+        case 0:h->type=2;break;case 1:h->phoff=~0ull;break;case 2:h->phnum=33;break;
+        case 3:p[2].offset=sizeof(image);break;case 4:p[2].filesz=PAGE+1;break;
+        case 5:p[2].vaddr=~0ull;break;case 6:p[1].flags=7;break;case 7:p[3].type=3;break;
+        case 8:h->entry=0;break;case 9:p[0].filesz=1;break;case 10:p[2].vaddr=0x1000;break;
+        case 11:p[3].type=2;p[3].filesz=1;break;case 12:p[2].memsz=LINUX_MEMORY_MAX+PAGE;break;
+        case 13:p[2].align=3;break;
+        }
+        struct task bad={.pd=vm_create(),.linux_compat={.enabled=true}};assert(bad.pd);uptr entry=0,phdr=0;
+        u32 before=live;assert(linux_image(&bad,image,sizeof(image),&entry,&phdr)<0);
+        assert(live==before && !vm_page_count(bad.pd));vm_destroy(bad.pd);assert(!live);
+    }
+    puts("PASS Linux ELF: static PIE/TLS template, quoted argv/env/auxv, random seed, aligned stack and malformed-image rejection before mapping");
+}
 static void framebuffer_masks(void) {
     u32 rgb[]={0xff0000,0xff00,0xff,0};
     u32 bgr[]={0xff,0xff00,0xff0000,0};
@@ -266,7 +322,7 @@ int main(void) {
     void *ram=mmap(phys_ptr(physical_base),bytes,PROT_READ|PROT_WRITE,
                   MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
     assert(ram==phys_ptr(physical_base));
-    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); loader_pie(); pie_relocations(); framebuffer_masks();
+    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); loader_pie(); pie_relocations(); linux_initial_stack(); framebuffer_masks();
     assert(!munmap(ram,bytes));
     puts("PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, full validation before allocation, OOM rollback, legacy ELF and GOP masks");
 }

@@ -34,6 +34,7 @@ Loom 是运行在 Ring 3 的用户态命令环境。命令名区分大小写；�
 | `prune PATH` | 删除一个文件或空目录 | `prune /tmp/draft` |
 | `sparks` | 列出进程、状态、计时和用户页数 | `sparks` |
 | `forge APP [ARGS]` | 启动程序并等待退出 | `forge pulse --help` |
+| `compat FILE.elf [ARGS]` | 实验性 Linux x86-64 静态进程，已验证 musl/C++ 核心/Lua/QuickJS；OpenJDK 与 MC 尚未运行 | `compat /home/lua.elf /home/world.lua` |
 | `java FILE.class [ARGS] \| java -cp DIR MAIN [ARGS] \| java --demo [ARGS]` | 目录多类加载与实验性 Java 21 字节码子集；尚不能运行 Minecraft | `java --demo "hello world"` |
 | `scatter APP [ARGS]` | 启动后台程序并返回 PID | `scatter spin` |
 | `gather PID` | 等待并领取子进程退出状态 | `gather 3` |

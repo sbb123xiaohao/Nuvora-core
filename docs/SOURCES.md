@@ -69,3 +69,12 @@ GPL-2.0-or-later）：对照 `js/ui/overview.js` 的模态输入抓取、
 Nuvora 使用自己的窗口协议、应用表和软件合成器独立实现这些操作；
 GNOME Shell 源码未复制、编译、链接或打包，也未引入 GJS/Mutter 运行时。
 当前搜索只覆盖本项目注册的应用，不查询文件内容或互联网。
+
+## 可选静态语言运行时夹具
+
+- musl 1.2.5：<https://musl.libc.org/releases/musl-1.2.5.tar.gz>，MIT 及 COPYRIGHT 内列出的文件许可。
+- Lua 5.4.8：<https://www.lua.org/ftp/lua-5.4.8.tar.gz>，MIT。
+- QuickJS 2025-09-13：<https://bellard.org/quickjs/quickjs-2025-09-13-2.tar.xz>，MIT；使用未修改核心与项目自己的最小嵌入。
+- 源码包 SHA256、编译器、包装代码与静态 ELF 摘要见 tests/fixtures/compat/manifest.json；对应许可在其 licenses/。GCC 支持库按 Runtime Library Exception 链接。
+- scripts/build_compat_runtimes.py 是显式调用的可选构建；正常 OS 构建不联网。二进制夹具不是完整 Linux/OpenJDK/Node.js/桌面应用兼容声明。
+- Minecraft 目标依赖取自 Mojang 官方版本元数据；docs/minecraft-target.json 记录来源与摘要，无客户端、资源或账户内容。

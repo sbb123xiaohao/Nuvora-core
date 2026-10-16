@@ -28,6 +28,18 @@ ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像
   分页或磁盘文件，分配失败不修改原文件；没有通用软件包安装器。
 - 对 ARM64 仍只有独立 QEMU `virt` 移植基线，尚无此应用 ABI。
 
+## Linux 静态运行时入口
+
+`compat FILE.elf [ARGS]` 可运行本轮验证的 musl 静态 PIE；标准 Linux syscall、
+argc/argv/env/auxv、TLS、匿名映射和文件接口形成成熟语言运行时的共用基础。
+新增 `NV_COMPAT_SPAWN` / `NV_COMPAT_EXEC` 原生调用，参数为路径、重新引用的
+参数串、`NV_COMPAT_LINUX_X64`。EXEC 保留 PID 和授权身份；受保护会话管理器
+不能通过它变成任意程序。旧 ABI 1/2 编号与记录保持不变。
+
+`make compat-examples` 可重建 C、C++ 核心、Lua、QuickJS 夹具。尚无动态 loader、
+clone、Linux 信号、文件映射、完整 TTY 或 OpenJDK/Node/Python 支持；接口与
+资源约束见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。
+
 ## Java 实验入口
 
 Java 实验入口已作为普通原生 ELF 接入：`user/java.c` 使用现有读文件、堆、

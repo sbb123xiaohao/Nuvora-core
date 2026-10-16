@@ -1,5 +1,6 @@
 #include "kernel.h"
 #include "elf_loader.h"
+#include "linux_loader.h"
 struct task tasks[NV_TASK_MAX];
 struct task *current;
 static u32 next_pid = 1;
@@ -43,16 +44,17 @@ static int prepare_image(struct task *t, const char *path, const char *args, str
         return r;
     t->pd = vm_create();
     if (!t->pd) { r = -NV_ENOMEM; goto done; }
-    uptr entry;
-    r = load_elf(t, data, len, &entry);
+    uptr entry,phdr=0;
+    r = t->linux_compat.enabled ? linux_image(t,data,len,&entry,&phdr) : load_elf(t, data, len, &entry);
     if (r < 0)
         goto done;
     uptr stack_top = t->abi == NV_ABI_VERSION ? NV_USER_STACK : USER_STACK_TOP;
-    for (u32 i = 1; i <= USER_STACK_PAGES; ++i) {
+    for (u32 i = 1; i <= (t->linux_compat.enabled?LINUX_STACK_PAGES:USER_STACK_PAGES); ++i) {
         r = vm_map(t->pd, stack_top - i * PAGE, P_WRITE);
         if (r < 0)
             goto done;
     }
+    if (t->linux_compat.enabled) { r=linux_stack(t,path,args,data,entry,phdr,frame); goto done; }
     *frame = (struct frame){.cs = 0x1b,
                             .ss = 0x23,
                             .eflags = 0x202,
@@ -79,7 +81,7 @@ static u32 allocate_pid(void) {
             return pid;
     }
 }
-int task_spawn(const char *path, const char *args, struct task *parent) {
+static int spawn(const char *path, const char *args, struct task *parent,bool linux_mode) {
     task_reap();
     struct task *t = NULL;
     for (u32 i = 0; i < NV_TASK_MAX; ++i)
@@ -89,6 +91,7 @@ int task_spawn(const char *path, const char *args, struct task *parent) {
         }
     if (!t)
         return -NV_ENOSPC;
+    t->linux_compat.enabled=linux_mode; t->uid=parent?parent->uid:NV_UID_NONE;
     struct frame frame;
     int r = prepare_image(t, path, args, &frame);
     if (r < 0) {
@@ -115,8 +118,10 @@ int task_spawn(const char *path, const char *args, struct task *parent) {
     t->state = NV_READY;
     return (int)t->pid;
 }
-int task_exec(const char *path, const char *args) {
-    struct task staged = {0};
+int task_spawn(const char *path,const char *args,struct task *parent) { return spawn(path,args,parent,false); }
+int task_spawn_linux(const char *path,const char *args,struct task *parent) { return spawn(path,args,parent,true); }
+static int exec_image(const char *path, const char *args,bool linux_mode) {
+    struct task staged = {.uid=current->uid,.linux_compat={.enabled=linux_mode}};
     struct frame frame;
     int r = prepare_image(&staged, path, args, &frame);
     if (r < 0) {
@@ -132,6 +137,7 @@ int task_exec(const char *path, const char *args) {
     account_task_release(current->pid);
     current->pd = staged.pd;
     current->abi = staged.abi;
+    current->linux_compat=staged.linux_compat; arch_set_fs(0);
     current->heap_end = staged.abi == NV_ABI_VERSION ? NV_USER_HEAP : USER_HEAP;
     *current->frame = frame;
     name_task(current, path);
@@ -142,12 +148,15 @@ int task_exec(const char *path, const char *args) {
     cpu_fp_restore(&current->fp);
     return 0;
 }
+int task_exec(const char *path,const char *args) { return exec_image(path,args,false); }
+int task_exec_linux(const char *path,const char *args) { return exec_image(path,args,true); }
 NORETURN void task_start(int pid) {
     current = by_pid((uptr)pid);
     if (!current)
         panic("initial task missing");
     load_cr3((uptr)current->pd);
     arch_set_stack((uptr)current->kstack + KSTACK_SIZE);
+    arch_set_fs(current->linux_compat.fs_base);
     cpu_fp_restore(&current->fp);
     arch_resume(current->frame);
 }
@@ -174,6 +183,7 @@ struct frame *schedule(struct frame *f) {
             current = t;
             load_cr3((uptr)t->pd);
             arch_set_stack((uptr)t->kstack + KSTACK_SIZE);
+            arch_set_fs(t->linux_compat.fs_base);
             cpu_fp_restore(&t->fp);
             return t->frame;
         }

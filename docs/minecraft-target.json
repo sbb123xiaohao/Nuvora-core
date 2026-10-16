@@ -1,0 +1,23 @@
+{
+  "first_client_target": "Minecraft Java Edition 1.21.1",
+  "metadata_url": "https://piston-meta.mojang.com/v1/packages/499680d659b7a0ccb2fa9a809c345c5baf2ace7d/1.21.1.json",
+  "metadata_sha1": "499680d659b7a0ccb2fa9a809c345c5baf2ace7d",
+  "metadata_sha256": "8047141a4d8de5ce23cc8390df56373b3a6c10f063d47b7bf3ea64e8c84666e9",
+  "java": {
+    "component": "java-runtime-delta",
+    "majorVersion": 21
+  },
+  "lwjgl_coordinates": [
+    "org.lwjgl:lwjgl-freetype:3.3.3",
+    "org.lwjgl:lwjgl-glfw:3.3.3",
+    "org.lwjgl:lwjgl-jemalloc:3.3.3",
+    "org.lwjgl:lwjgl-openal:3.3.3",
+    "org.lwjgl:lwjgl-opengl:3.3.3",
+    "org.lwjgl:lwjgl-stb:3.3.3",
+    "org.lwjgl:lwjgl-tinyfd:3.3.3",
+    "org.lwjgl:lwjgl:3.3.3"
+  ],
+  "client_or_assets_bundled": false,
+  "client_started": false,
+  "strategy": "Run a matching real OpenJDK on the shared Linux ABI, then implement required graphics/audio/input backends."
+}

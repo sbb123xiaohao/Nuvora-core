@@ -1,5 +1,12 @@
 # Java 21 与 Minecraft 兼容进度
 
+当前主线已调整为通过共享平台接口接入成熟 OpenJDK；不同 Java 版本使用相应
+JDK 和类库，避免把这个受限解释器继续扩成独立完整 JVM。新的 Linux 静态进程
+基础已实际运行 musl、Lua 与 QuickJS，但 **OpenJDK / Minecraft 仍未启动**。
+路线、首个游戏目标和当前阻塞项见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。
+
+下面保留 bootstrap 的准确使用说明和已验证范围；它是已有的诊断/回归子集。
+
 当前交付的是 **Nuvora Java bootstrap 0.2**：在 x86-64 Ring 3 中解释真实
 Java `.class` 字节码的实验性子集。它是本项目新写的 freestanding C 解释器，
 **不是 OpenJDK 移植、不是 Java SE 21 实现，也还不能启动 Minecraft Java 版**。

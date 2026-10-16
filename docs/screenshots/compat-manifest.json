@@ -1,0 +1,37 @@
+{
+  "capture": "production UEFI / q35 / 256 MiB / AHCI / USB keyboard",
+  "kernel_sha256": "a20fabea0a21bced16a1ddff70b9d424a9e132ab3aa79c659e4891760d70077f",
+  "esp_sha256": "afd416d7d12bebc8cc7bdaf221a743c0821ba498a73e8ea70682a9c193d99c87",
+  "runtime_elfs": {
+    "js.elf": "517cdf1af185d6a982c0743e48d9545f7419a806af131ce0d1a4adbcee93773b",
+    "language.elf": "1528cdb2411f24f9748e49294b9c8a2b78944bce25b882f5de4dd9719f99afa4",
+    "lua.elf": "19af546c546c33d583d3a8ba7b4db85158e6f48fc385f6384aad9a0f93916a96",
+    "runtime_check.elf": "5157515972aaabcf4ae2b18f6de961e56567988ecc844c5bb5d063c722012b2b"
+  },
+  "screenshots": [
+    {
+      "file": "compat-runtime.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "34bde2771f904811adcdb9900ff0c8dae5f1e1476675edddc1740e5250c64a8b",
+      "commands": [
+        "compat /home/runtime_check.elf \"two words\" \"\"",
+        "compat /home/runtime_check.elf private"
+      ]
+    },
+    {
+      "file": "compat-languages.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "04c7f1e135a2d5b63162984a67cc3559f5f938f788881f654b0c9201e3e2768e",
+      "commands": [
+        "compat /home/language.elf",
+        "compat /home/lua.elf /home/world.lua \"hello world\"",
+        "compat /home/js.elf /home/world.js \"hello world\""
+      ]
+    }
+  ],
+  "protected_account_database_unchanged": true,
+  "uid_from_actual_process": 1000,
+  "note": "Real musl/C++ core/Lua/QuickJS on Nuvora. Minecraft and OpenJDK are not running."
+}

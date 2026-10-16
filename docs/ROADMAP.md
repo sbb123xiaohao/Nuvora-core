@@ -8,10 +8,10 @@
 4. **现代硬件启动**：已有 ACPI/PCIe、x64 UEFI GOP、IDE/AHCI/SATA 与逐控制器扫描的 512B NVMe 单活动盘轮询 I/O、可移动 GPT/ESP 启动镜像。下一步是 ACPI AML 资源/中断路由、多 segment 与 PCI 资源分配、USB 存储与更多主机控制器、4K NVMe namespace、多活动盘与实体 UEFI 固件验证矩阵。
 5. **可靠存储**：块设备层、请求队列、缓存与写回、通用文件系统、完整错误恢复、写入中断故障注入。
 6. **网络**：已加入小范围实体网卡驱动和以太网、ARP、IPv4、DHCP、UDP；下一步是 Intel/Realtek 内置 Wi-Fi 固件与驱动、其他常见有线芯片、实机测试、IPv6、TCP、套接字与访问控制。已实现范围见 [NETWORK.md](NETWORK.md)。
-7. **用户环境与桌面**：x64 已有开放 SDK、UEFI 像素矩形接口、USB Boot 鼠标、文件管理器和 HDA 同步 PCM 短音频；下一步完成 HDA 长流/环形缓冲、混音与设备切换、实机声卡验证，以及 PS/2 鼠标、通用 HID/触控输入、原生窗口协议已提供分块提交、配置和输入事件；下一步是通用 IPC、GPU 合成、窗口资源回收策略，以及 Unicode 字体、剪贴板、无障碍、成熟运行库、动态链接、逐文件/群组权限（已有本地账户与私有目录隔离）、配额、程序安装工具，以及是否实现 POSIX 兼容层的明确决策。已实现范围见 [SDK.md](SDK.md)。
+7. **用户环境与桌面**：x64 已有开放 SDK、UEFI 像素矩形接口、USB Boot 鼠标、文件管理器和 HDA 同步 PCM 短音频；下一步完成 HDA 长流/环形缓冲、混音与设备切换、实机声卡验证，以及 PS/2 鼠标、通用 HID/触控输入、原生窗口协议已提供分块提交、配置和输入事件；下一步是通用 IPC、GPU 合成、窗口资源回收策略，以及 Unicode 字体、剪贴板、无障碍、成熟运行库、动态链接、逐文件/群组权限（已有本地账户与私有目录隔离）、配额、程序安装工具，以及 Linux/POSIX 兼容接口的持续实现。已实现范围见 [SDK.md](SDK.md)。
 8. **CPU 扩展与 NVIDIA**：按 CPU 能力实现 XSAVE/AVX 状态；先完成 framebuffer/GOP 与 PCI/DMA/中断基础，再选择实体 NVIDIA 型号实现驱动，详见 [CPU-GPU.md](CPU-GPU.md)。
 9. **AI 运行架构**：大规模张量缓冲与流式训练数据、DMA/IOMMU、GPU/NPU 设备驱动和运行时、失败恢复与真正模型基准；目前的 NEON 计算自检与 x64 大缓冲测试只是可测基线，详见 [ARM64-AI.md](ARM64-AI.md)。
 10. **生产质量**：模糊测试、长时间运行、故障注入、威胁模型、安全审查和持续集成。
-11. **Java 21 与 Minecraft**：现有 bootstrap 已验证有界多类加载、目录类路径、静态初始化与原生接入；后续先确定成熟 JVM 平台层移植方案，补齐 JAR、类库、GC、线程、JNI、动态库，再接入 LWJGL/GLFW/OpenGL、网络/TLS 和游戏资源流程。以真实客户端进入世界和保存为最终验收；当前仍不能启动游戏，详见 [JAVA.md](JAVA.md)。
+11. **Java 21 与 Minecraft**：已选定成熟 OpenJDK + 共用 Linux 平台接口路线；静态阶段已运行 musl、Lua、QuickJS 与 C++ 核心示例。首个游戏目标 1.21.1 / Java 21 / LWJGL 3.3.3，具体接口与进度见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。现有 bootstrap 已验证有界多类加载、目录类路径、静态初始化与原生接入；后续完成动态 loader、地址预留、线程/futex、信号与 Java 类库/GC 验证，再补齐 JNI、动态库，再接入 LWJGL/GLFW/OpenGL、网络/TLS 和游戏资源流程。以真实客户端进入世界和保存为最终验收；当前仍不能启动游戏，详见 [JAVA.md](JAVA.md)。
 
 这些都不是几个空函数可以替代的功能，需要继续分阶段实现和验证。现有源码不放置声称已完成这些模块的占位实现。

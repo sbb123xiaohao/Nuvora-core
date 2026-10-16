@@ -127,7 +127,7 @@ static int run_app(const char *app, char **argv, int first, int argc, bool backg
             return -NV_E2BIG;
         strlcpy(path + 6, app, sizeof(path) - 6);
     }
-    int r = !strcmp(path,"/apps/java") ? quote_args(args,sizeof(args),argv,first,argc) :
+    int r = (!strcmp(path,"/apps/java") || !strcmp(path,"/apps/compat")) ? quote_args(args,sizeof(args),argv,first,argc) :
             join_args(args, sizeof(args), argv, first, argc);
     if (r < 0)
         return r;
@@ -282,6 +282,7 @@ static int dispatch(int n, char **v) {
     if ((!strcmp(cmd, "forge") || !strcmp(cmd, "scatter")) && n >= 2)
         return run_app(v[1], v, 2, n, !strcmp(cmd, "scatter"));
     if (!strcmp(cmd,"java")) return run_app("java",v,1,n,false);
+    if (!strcmp(cmd,"compat")) return run_app("compat",v,1,n,false);
     if (!strcmp(cmd, "trial") && n == 1) {
         char *args[] = {"forge", "probe"};
         return run_app("probe", args, 2, 2, false);

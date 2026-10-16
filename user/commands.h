@@ -90,6 +90,9 @@ static const struct command_help commands[] = {
      "Run the experimental Java 21 bytecode subset in an isolated process.", "java --demo \"hello world\"",
      "Up to 16 classes with lazy initialization, integer/long arithmetic and arrays. Quoted arguments are preserved.\n"
      "Not a full Java SE runtime: JAR, JNI/LWJGL and Minecraft are not runnable yet."},
+    {"compat", "compat FILE.elf [ARGS]", "Run an experimental Linux x86-64 static PIE process.",
+     "compat /home/lua.elf /home/world.lua", "Real musl C, C++ core, Lua and QuickJS examples are available.\n"
+     "Quoted arguments are preserved; gather/quench control the runtime PID. Dynamic JVMs and Minecraft need more platform support."},
     {"gather", "gather PID", "Wait for one child process and show its exit status.", "gather 2",
      "The PID must identify an unwaited child of this shell."},
     {"quench", "quench PID", "Terminate a process by PID.", "quench 2",

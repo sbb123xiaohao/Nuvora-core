@@ -6,6 +6,29 @@ Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动�
 
 保留 0.14.0 的原生 64 位 ABI：代码、栈、堆及图形/音频缓冲可使用 4 GiB 以上地址，兼容旧 ABI 1 ELF64 二进制。实体 PC 使用 FAT32 UEFI 启动介质、GOP 模式回退、按设备能力选择的 DMA 地址及 ACPI 电源路径；本版修正 UEFI ACPI 1.0 表 GUID，并优先选择 ACPI 2.0。上机步骤与准确边界见[实体机与 64 位说明](docs/NATIVE64-HARDWARE.md)。
 
+## 桌面语言与 Minecraft 兼容路线
+
+新增 Linux x86-64 静态进程兼容基础，已在 Nuvora 用户态实际运行 **musl C、
+C++ 核心语法、Lua 5.4.8 和 QuickJS JavaScript**。Terminal 使用
+`compat /home/lua.elf /home/world.lua` 或 `compat /home/js.elf /home/world.js`；
+导入、构建与准确边界见 [运行时说明](docs/RUNTIME-COMPAT.md)。
+
+Java 主线调整为接入成熟 OpenJDK，让不同 JDK 复用系统接口。首个客户端目标
+为 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3。**目前 Minecraft 仍不能运行**：
+动态库、线程/信号、地址预留、JNI/LWJGL 和 OpenGL 尚需完成。既有 Java
+bootstrap 保留为回归子集，下面的 Java 图片记录此前进度。
+
+正式 UEFI 桌面中运行真实 C++、Lua 和 JavaScript（QMP 原始帧缓冲）：
+
+![Nuvora 实际运行 C++ Lua 和 JavaScript](docs/screenshots/compat-languages.png)
+
+C 运行库、内存、TLS 与受保护账户数据访问检查：
+
+![Nuvora 实际运行 musl 与权限检查](docs/screenshots/compat-runtime.png)
+
+使用 `python3 tests/compat_desktop_test.py` 重拍；哈希与构建来源见
+[截图清单](docs/screenshots/compat-manifest.json)。
+
 ## Java 21 兼容进度
 
 新增实验性 Java 字节码解释器，在 Terminal 输入 `java --demo "hello world"`，
@@ -146,7 +169,7 @@ make iso-uefi   # 需要 mtools 和 xorriso
 make media      # 生成 GPT/ESP 启动镜像，不写宿主磁盘
 ```
 
-当前通过 48 组宿主回归，包括 Java 21 多类加载/初始化/损坏输入/资源上限、内存操作边界、静态 PIE/RELRO、编辑器文件保护、锁屏输入/显示撤权、随机字节 ABI、网络进程归属与报文校验、原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、共享图标、媒体路径、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
+当前通过 50 组宿主回归，包括 Linux ABI/真实语言运行时、Java 21 多类加载/初始化/损坏输入/资源上限、内存操作边界、静态 PIE/RELRO、编辑器文件保护、锁屏输入/显示撤权、随机字节 ABI、网络进程归属与报文校验、原生高地址页表/ELF/堆、账户权限/自动锁屏、界面边界、共享图标、媒体路径、ACPI 电源解析和高地址 DMA。实际启动与桌面测试范围见[测试说明](docs/TESTING.md)。图形输出使用 GOP 软件帧缓冲，壁纸缓存与分块重绘减少输入等待；尚无 GPU 加速或实体机桌面认证。
 
 目前只挂载 Nuvora 自有格式，**不会格式化或写入普通 Windows/Linux 分区**。4Kn 逻辑扇区、USB 存储挂载、笔记本内置 PCI Wi-Fi、USB NCM、VirtIO/SCSI、Secure Boot、多核和 Linux/POSIX 应用兼容尚未实现。完整边界与历史变更见[测试说明](docs/TESTING.md)、[架构](docs/ARCHITECTURE.md)、[路线图](docs/ROADMAP.md)和[更新记录](docs/CHANGELOG.md)。
 

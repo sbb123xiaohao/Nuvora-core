@@ -20,6 +20,9 @@ static void abi_tests(void) {
     struct nv_info s;
     check(info(&s) == 0 && s.abi == NV_ABI_VERSION, "private syscall ABI");
     check(call(0xffff, 0, 0, 0) == -NV_ENOSYS, "unknown syscall rejected");
+    u64 linux_number=~0ull;
+    __asm__ volatile("syscall" : "+a"(linux_number) :: "rcx","r11","memory","cc");
+    check((i64)linux_number==-38,"Linux syscall entry preserves native isolation and returns ENOSYS");
     check(call(NV_EMIT, 1, 0x100000, 16) == -NV_EFAULT, "supervisor pointer rejected");
     check(call(NV_EMIT, 1, 0x7ffffff0, 32) == -NV_EFAULT, "user boundary overflow rejected");
     check(call(NV_EMIT, 1, 0xfffffff0, 32) == -NV_EFAULT, "wrapped pointer rejected");

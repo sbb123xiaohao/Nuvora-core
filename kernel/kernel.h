@@ -122,6 +122,18 @@ struct descriptor {
 struct fp_state {
     u32 words[128];
 } ALIGNED(16);
+#define LINUX_VMAS 32u
+#define LINUX_STACK_PAGES 64u
+#define LINUX_MAP_BASE 0x2000000000ull
+#define LINUX_MAP_END  0x2100000000ull
+#define LINUX_MEMORY_MAX (64u * 1024u * 1024u)
+struct linux_vma { uptr start, end; u32 protection; };
+struct linux_state {
+    bool enabled;
+    u16 closed_stdio, cloexec, nonblock;
+    uptr fs_base, brk;
+    struct linux_vma maps[LINUX_VMAS];
+};
 struct task {
     u32 pid, parent, state, wait_pid;
     u64 wake, cpu_ticks;
@@ -136,6 +148,7 @@ struct task {
     struct descriptor fd[NV_OPEN_MAX];
     char name[32];
     struct fp_state fp;
+    struct linux_state linux_compat;
 };
 _Static_assert(_Alignof(struct task) >= 16 && sizeof(struct fp_state) == 512,
                "each task requires an aligned FXSAVE area");
@@ -271,6 +284,7 @@ pte_t *vm_create(void);
 void vm_destroy(pte_t *);
 int vm_map(pte_t *, uptr, u32);
 int vm_readonly(pte_t *, uptr);
+int vm_protect(pte_t *, uptr, u32);
 uptr vm_translate(pte_t *, uptr);
 void vm_unmap(pte_t *, uptr);
 bool user_range(pte_t *, uptr, usize, bool);
@@ -367,6 +381,10 @@ u32 task_count(void);
 int task_info(u32, struct nv_taskinfo *);
 bool task_cwd_in_use(int);
 struct frame *syscall_dispatch(struct frame *);
+struct frame *linux_dispatch(struct frame *);
+int task_spawn_linux(const char *, const char *, struct task *);
+int task_exec_linux(const char *, const char *);
+void arch_set_fs(uptr);
 void fill_info(struct nv_info *);
 void kernel_start(const struct boot_info *); /* common entry: Multiboot or UEFI */
 NORETURN void machine_poweroff(void);

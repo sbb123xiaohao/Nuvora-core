@@ -1,0 +1,50 @@
+{
+  "files": [
+    {
+      "file": "java",
+      "sha256": "6698f6f10143ed8463b06062281c727152d2e0ae2a3569b1716fbb2c6cedf0ba",
+      "machine": 62,
+      "elf_type": 3,
+      "interpreter": "/lib64/ld-linux-x86-64.so.2",
+      "needed": [
+        "libz.so.1",
+        "libjli.so",
+        "libc.so.6"
+      ],
+      "tls_template": false,
+      "loader_blockers": [
+        "ELF interpreter missing: /lib64/ld-linux-x86-64.so.2",
+        "shared-library loader missing: libz.so.1, libjli.so, libc.so.6"
+      ],
+      "note": "No code executed; an empty blocker list does not prove runtime support."
+    },
+    {
+      "file": "libjvm.so",
+      "sha256": "56a71b907446b53ea9ab0f1599d3c22298f150ac2f9530acc62d5e7fc003e564",
+      "machine": 62,
+      "elf_type": 3,
+      "interpreter": null,
+      "needed": [
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "tls_template": true,
+      "loader_blockers": [
+        "shared-library loader missing: libstdc++.so.6, libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux-x86-64.so.2",
+        "entry does not select executable code"
+      ],
+      "note": "No code executed; an empty blocker list does not prove runtime support."
+    }
+  ],
+  "platform_missing": [
+    "dynamic loader/shared libraries",
+    "clone/threads and blocking synchronization",
+    "Linux signals and exception delivery",
+    "file-backed mappings and reserved address space",
+    "JNI/LWJGL/GLFW/OpenGL backends"
+  ],
+  "minecraft_client_started": false
+}

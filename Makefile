@@ -53,12 +53,14 @@ ASFLAGS := $(BASEFLAGS) -g
 KCS := $(wildcard kernel/*.c) common/string.c common/page_buddy.c common/slab.c common/acpi.c common/power.c common/pci_decode.c common/crypto.c
 KAS := $(wildcard arch/$(ARCHDIR)/*.S)
 KOBJS := $(patsubst %.c,$(BUILD)/%.o,$(KCS)) $(patsubst %.S,$(BUILD)/%.o,$(KAS))
-APPS := session loom terminal pulse spin fault probe folio relay vector desktop wave media abi1 pie java
+APPS := session loom terminal pulse spin fault probe folio relay vector desktop wave media abi1 pie java compat
 UELFS := $(addprefix $(BUILD)/apps/,$(addsuffix .elf,$(APPS)))
 UCOMMON := $(BUILD)/user/runtime.o $(BUILD)/user/$(USTART).o $(BUILD)/user/string.o $(UEXTRA)
 .DELETE_ON_ERROR:
-.PHONY: all diagnostics clean run window test test-host iso iso-uefi esp media disk check FORCE
+.PHONY: all diagnostics clean run window test test-host iso iso-uefi esp media disk check compat-examples FORCE
 all: $(BUILD)/boot.elf $(BUILD)/nuvora-uefi.elf $(BUILD)/BOOTX64.EFI
+compat-examples:
+	$(PYTHON) scripts/build_compat_runtimes.py
 diagnostics: all $(BUILD)/boot-test.elf $(BUILD)/nuvora-uefi-test.elf
 $(BUILD)/kernel/main-test.o: kernel/main.c
 	@mkdir -p $(dir $@)

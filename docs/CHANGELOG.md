@@ -1,5 +1,13 @@
 # Nuvora Core 0.15.0
 
+## 未发布：共享运行时基础与 Linux 静态进程
+
+- 建立受限 Linux x86-64 SYSCALL 入口、静态 PIE/TLS 启动栈、FS base 切换、匿名内存、文件/时钟/随机与错误转换接口。
+- 新增 compat 命令及原生兼容 SPAWN/EXEC；EXEC 保留实际 PID、用户、工作目录和进程控制，旧 ABI 1/2 操作编号不变。
+- 实际运行 musl C、C++ 核心语法、Lua 5.4.8 与 QuickJS 2025-09-13；提供固定源码摘要、重建脚本、ELF 夹具和许可证。
+- 新增映射/OOM/权限边界、ELF/auxv/argv、TLS 并发、语言异常、进程终止、64 MiB 客体回收与正式桌面权限/持久化测试；README 引用真实截图。
+- Java 主线转向成熟 OpenJDK 共用平台接口；核对官方 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3 依赖，并提供真实 ELF 依赖检查工具。OpenJDK、Minecraft 仍未启动；动态库、线程/信号、地址预留和图形接口尚需实现。
+
 ## 未发布：Java 21 多类加载与初始化
 
 - `java -cp DIRECTORY package.Main` / `--class-path` 从真实目录按需加载依赖；直接 `.class` 入口从同目录解析依赖，最多 16 类，沿用 2 MiB arena。
