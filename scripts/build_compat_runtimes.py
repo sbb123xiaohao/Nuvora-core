@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build real musl static PIE examples plus Lua and embedded QuickJS.
+"""Build real musl static PIE examples, Lua, QuickJS and MicroPython.
 
 Optional SDK step; ordinary Nuvora builds/tests use the checked-in ELF fixtures.
 Downloads are pinned, verified before extraction, and never modify host disks.
@@ -24,6 +24,8 @@ SOURCES={
            ['https://www.lua.org/ftp/lua-5.4.8.tar.gz']),
     'quickjs':('quickjs-2025-09-13-2.tar.xz','996c6b5018fc955ad4d06426d0e9cb713685a00c825aa5c0418bd53f7df8b0b4',
                ['https://bellard.org/quickjs/quickjs-2025-09-13-2.tar.xz']),
+    'micropython':('micropython-v1.26.1.tar.gz','10600e844f02a8b448cf176df71031d2eb3d731097a809a963ce9c35cef3d613',
+                  ['https://codeload.github.com/micropython/micropython/tar.gz/refs/tags/v1.26.1']),
 }
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -89,6 +91,17 @@ def main():
         js_flags=['-D_GNU_SOURCE','-DCONFIG_VERSION="2025-09-13"','-I'+str(source['quickjs'])]
         js_sources=[source['quickjs']/(name+'.c') for name in ('quickjs','dtoa','libregexp','libunicode','cutils')]
         groups['js']=list(pool.map(lambda path:compile_one(path,js_flags),js_sources+[ROOT/'examples/compat/javascript.c']))
+    python_build=work/'python-build'
+    with (work/'python-build.log').open('w') as log:
+        # Build unmodified upstream sources with our variant. The intermediate
+        # host-style link is discarded; rcrt1 below produces the delivered PIE.
+        run(['make','-C',source['micropython']/'ports/unix','-j'+str(options.jobs),
+             'VARIANT_DIR='+str(ROOT/'examples/compat/python-port'),'BUILD='+str(python_build),
+             'CC='+str(musl/'bin/musl-gcc'),
+             'CFLAGS_EXTRA=-fPIE -ffile-prefix-map='+str(work)+'=compat-build',
+             'LDFLAGS_EXTRA=-static'],env=dict(os.environ,REALGCC=shlex.join(cc)),stdout=log,stderr=subprocess.STDOUT)
+    groups['python']=sorted(python_build.rglob('*.o'))
+    if not groups['python']:raise ValueError('MicroPython build produced no objects')
     for name,objects in groups.items():
         target=output/(name+'.elf');run([*link,*objects,*libraries,'-o',target])
         run([*shlex.split(os.environ.get('STRIP','strip')),'--strip-all',target])
@@ -97,6 +110,7 @@ def main():
     lua_header=(source['lua']/'src/lua.h').read_text();start=lua_header.index('/******************************************************************************')
     (licenses/'Lua-COPYRIGHT.txt').write_text(lua_header[start:lua_header.index('#endif',start)].rstrip()+'\n')
     shutil.copyfile(source['quickjs']/'LICENSE',licenses/'QuickJS-LICENSE.txt')
+    shutil.copyfile(source['micropython']/'LICENSE',licenses/'MicroPython-LICENSE.txt')
     # GCC runtime support is linked under the Runtime Library Exception; keep
     # the compiler distribution's complete copyright and license notice.
     gcc_notice=pathlib.Path('/usr/share/doc/gcc-14/copyright')
@@ -104,8 +118,9 @@ def main():
         (licenses/'GCC-runtime-notice.txt').write_text('\n'.join(line.rstrip() for line in gcc_notice.read_text().splitlines())+'\n')
     metadata={'compiler':version,'source_archives':{n:{'file':v[0],'sha256':v[1]} for n,v in SOURCES.items()},
               'elfs':{n+'.elf':digest(output/(n+'.elf')) for n in groups},
-              'wrappers':{p.name:digest(p) for p in sorted((ROOT/'examples/compat').glob('*')) if p.is_file()},
-              'limits':'static musl PIE; C++ language core only; QuickJS embedding has print/scriptArgs, no Node.js/DOM/workers; no JVM or Minecraft launch'}
+              'wrappers':{p.relative_to(ROOT/'examples/compat').as_posix():digest(p)
+                          for p in sorted((ROOT/'examples/compat').rglob('*')) if p.is_file() and '__pycache__' not in p.parts},
+              'limits':'static musl PIE; C++ language core only; QuickJS has no Node.js/DOM/workers; MicroPython is not CPython/pip; no JVM or Minecraft launch'}
     (output/'manifest.json').write_text(json.dumps(metadata,indent=2)+'\n')
     print('BUILT REAL STATIC RUNTIMES:',output)
     print(json.dumps(metadata['elfs'],indent=2))

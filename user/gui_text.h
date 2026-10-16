@@ -152,6 +152,37 @@ static inline void desktop_bold_text(struct nv_canvas *c,struct desktop_clip cli
     u32 x,u32 y,const char *value,u32 count,u32 scale,u32 rgb) {
     desktop_text_kind(c,clip,x,y,value,count,scale,rgb,2);
 }
+/* Display headings keep their logical size on HiDPI modes. The large atlas
+ * supplies antialiased coverage; magnification is bounded by desktop_scale. */
+static inline void desktop_heading(struct nv_canvas *c,struct desktop_clip clip,
+    u32 x,u32 y,const char *value,u32 face_size,u32 scale,u32 rgb) {
+    if (scale==1) { desktop_bold_text(c,clip,x,y,value,strlen(value),face_size,rgb);return; }
+    const struct desktop_face *f=desktop_face(2,face_size);
+    u32 top=MAX(MAX(y,clip.top),c->y0),bottom=MIN(MIN(y+f->height*scale,clip.bottom),c->y0+c->rows);
+    if (top>=bottom) return;
+    u32 gx=x,color=nv_display_rgb(c->format,rgb);
+    for (u32 i=0;value[i];++i) {
+        u32 glyph=desktop_glyph((u8)value[i]);
+        i64 ink=(i64)gx+f->bearings[glyph]*(i64)scale;
+        u32 left=(u32)MAX(ink,(i64)clip.left);
+        u32 right=(u32)MIN(MIN(ink+f->stride*scale,(i64)clip.right),(i64)c->width);
+        const u8 *mask=f->mask+(usize)glyph*f->stride*f->height;
+        for (u32 py=top;py<bottom;++py) {
+            u32 sy=(py-y)/scale,fy=(py-y)%scale*256/scale;
+            const u8 *row=mask+sy*f->stride;
+            const u8 *next=sy+1<f->height?row+f->stride:NULL;
+            u32 *out=c->pixels+(usize)(py-c->y0)*c->width;
+            for (u32 px=left;px<right;++px) {
+                u32 sx=(u32)((i64)px-ink)/scale,fx=(u32)((i64)px-ink)%scale*256/scale;
+                u32 a=row[sx],b=sx+1<f->stride?row[sx+1]:0;
+                u32 d=next?next[sx]:0,e=next && sx+1<f->stride?next[sx+1]:0;
+                u32 alpha=((a*(256-fx)+b*fx)*(256-fy)+(d*(256-fx)+e*fx)*fy+32768)>>16;
+                if (alpha) out[px]=desktop_blend(color,out[px],alpha);
+            }
+        }
+        gx+=f->advances[glyph]*scale;
+    }
+}
 static inline void desktop_editor_text(struct nv_canvas *c,struct desktop_clip clip,
     u32 x,u32 y,const char *value,u32 count,u32 scale,u32 rgb) {
     desktop_text_kind(c,clip,x,y,value,count,scale,rgb,3);

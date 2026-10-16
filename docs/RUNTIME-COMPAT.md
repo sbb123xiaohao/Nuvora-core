@@ -3,7 +3,8 @@
 这一阶段把主线改为 **让成熟运行时复用操作系统兼容接口**。已有的 Java
 bootstrap 保留作回归夹具；继续扩充那个受限字节码子集，无法短期替代完整
 OpenJDK、类库与 LWJGL。本轮新建 Linux x86-64 静态进程兼容层，已在 Nuvora
-Ring 3 实际运行 musl C、C++ 核心语法示例、Lua 5.4.8 和 QuickJS 2025-09-13。
+Ring 3 实际运行 musl C、C++ 核心语法示例、Lua 5.4.8、QuickJS 2025-09-13
+和 MicroPython 1.26.1。
 **OpenJDK 与 Minecraft 目前仍未启动**。
 
 ## Java 版本如何兼容
@@ -26,7 +27,8 @@ Ring 3 实际运行 musl C、C++ 核心语法示例、Lua 5.4.8 和 QuickJS 2025
 
 ```sh
 python3 scripts/import_media.py --disk build/x86_64/nuvora-store.img \
-  tests/fixtures/compat/*.elf examples/compat/world.lua examples/compat/world.js
+  tests/fixtures/compat/*.elf examples/compat/world.lua examples/compat/world.js \
+  examples/compat/world.py examples/compat/terrain.py
 ```
 
 在 Nuvora Terminal 或 Loom 运行：
@@ -36,6 +38,7 @@ compat /home/runtime_check.elf "two words" ""
 compat /home/language.elf
 compat /home/lua.elf /home/world.lua "hello world"
 compat /home/js.elf /home/world.js "hello world"
+compat /home/python.elf /home/world.py "hello world"
 ```
 
 `compat` 把自己的进程替换为目标，保留 PID、父进程、用户身份和工作目录。
@@ -49,10 +52,17 @@ compat /home/js.elf /home/world.js "hello world"
 | C++ | 类、模板、构造、musl I/O 与内存 | 示例未链接 libstdc++；STL、RTTI、C++ 异常尚未验证 |
 | Lua 5.4.8 | 原版解释器、表、协程、GC、pcall 异常、浮点/libm、文件 | OS 线程、动态模块、进程控制、完整 TTY 和实时时钟未提供 |
 | JavaScript / QuickJS | 原版引擎、类、TypedArray、BigInt、Map、Promise、异常 | 小型嵌入提供 print/scriptArgs；无 Node.js、DOM、模块加载或 worker |
+| Python / MicroPython 1.26.1 | 原版解释器、Python 模块导入、继承、生成器、UTF-8 字符串、任意精度整数、math、JSON、regex、struct/array、GC、文件与 stat | 不是 CPython；没有 pip、C 扩展、完整标准库、线程、信号或 socket；本轮只验证脚本与 `-c` |
 | Java bootstrap | 原先的有界多类夹具继续通过 | 仅 [JAVA.md](JAVA.md) 子集；它不是 OpenJDK |
-| OpenJDK / Python / Node / Go / Rust 标准运行时 | 尚未完成接入 | 需要动态链接、线程、信号、文件映射等后续能力 |
+| OpenJDK / CPython / Node / Go / Rust 标准运行时 | 尚未完成接入 | 需要动态链接、线程、信号、文件映射等后续能力 |
 
-Lua/JS 的 16×16 整数网格只是语言回归夹具，不能作为 Minecraft 运行证据。
+Lua/JS/Python 的 16×16 整数网格只是语言回归夹具，不能作为 Minecraft 运行证据。
+MicroPython 使用独立配置的 Unix 端口：关闭 native emitter、FFI、线程和外部库，
+采用 bytecode、double 浮点和 MPZ 大整数，x86-64 默认 GC 堆 2 MiB。内存不足会抛出
+MemoryError，脚本递归仍受运行时栈检查限制；没有执行步数配额，可通过 shell 终止。
+当前 Python 文件验证覆盖 `open`、上下文管理器和 `os.stat`；Linux 侧的目录列举、
+chdir、mkdir、删除/重命名尚未接入，可先用原生 Loom 管理目录。未验收交互 REPL，
+Ctrl-C 信号和完整终端控制仍缺失，不能据此宣称任意 Python 项目可直接运行。
 QuickJS 嵌入设 16 MiB 引擎堆、128 KiB 引擎栈、执行中断与待处理任务预算；
 没有开放阻塞 Atomics.wait。Lua 使用原版 GC；native/C/Lua 进程由调度器抢占，
 可通过 shell 终止，没有为所有本地程序实现指令配额。
@@ -79,6 +89,7 @@ QuickJS 嵌入设 16 MiB 引擎堆、128 KiB 引擎栈、执行中断与待处�
 | Linux 接口 | 实现范围 |
 | --- | --- |
 | read/write/readv/writev、open/openat、close、lseek、fstat | 使用现有文件/Terminal 路径；openat 仅 AT_FDCWD，最大 16 descriptors；短 I/O 保留 |
+| stat/lstat/newfstatat、readlink/readlinkat | 路径元数据无需占用 fd；复用账户授权；at 接口仅 AT_FDCWD，fstatat 支持 0/AT_SYMLINK_NOFOLLOW；原生文件系统没有符号链接，readlink 对已存在的授权路径返回 EINVAL，缺失/私有路径保留相应错误 |
 | fcntl | GETFD/SETFD、GETFL/SETFL 的 CLOEXEC、APPEND、NONBLOCK；没有 dup 或文件锁；Linux execve 未实现 |
 | ioctl | 无 TTY 模拟；有效 fd 返回 ENOTTY，非法 fd 返回 EBADF |
 | mmap/brk/munmap/mprotect | 上述有界匿名映射与权限；每次范围操作最大 64 MiB |
@@ -103,10 +114,13 @@ python3 tests/compat_boot_test.py
 python3 tests/compat_desktop_test.py
 ```
 
-构建脚本使用 musl 的静态 PIE rcrt1、未修改的 Lua 源码与未修改的 QuickJS 核心。
+构建脚本使用 musl 的静态 PIE rcrt1、未修改的 Lua/QuickJS/MicroPython 源码。
+MicroPython 的 Nuvora 构建配置位于 `examples/compat/python-port`，没有自行重写 Python 语义。
 C/C++ 示例和 QuickJS 嵌入在 [examples/compat](../examples/compat)。清单保存源码包
 摘要、包装代码摘要、编译器与 ELF 摘要；许可证随夹具提供。正常构建不需要宿主
-JDK 或联网。宿主回归实际运行同一个 Lua/JS/C++ ELF，再与客体输出核对。
+JDK 或联网。宿主回归实际运行同一个 Lua/JS/C++/Python ELF，再与客体输出核对；
+Python 示例还与宿主 CPython 的输出和持久化文件逐字节比对。源包使用固定 SHA256，
+首次可选重建需要联网，普通构建直接使用已提交的夹具。
 
 本轮还提供只读诊断工具，能检查真正的 JDK launcher / libjvm：
 

@@ -6,6 +6,7 @@ struct task tasks[NV_TASK_MAX],*current;
 volatile u64 ticks;
 static struct {uptr address;u32 flags;} pages[256];
 static u32 count,available=256,polls,fs_calls;
+static int path_error=-NV_EACCESS;
 static uptr buffer;static usize buffer_size;static bool writable=true,random_ok=true;
 static bool accepted(uptr address,usize size) {
     if (!size) return true;
@@ -56,6 +57,14 @@ int user_string(uptr address,char *out,u32 capacity) {
 int fs_open(struct task *t,const char *name,u32 flags){(void)t;(void)name;(void)flags;fs_calls++;return -NV_EACCESS;}
 int fs_close(struct task *t,int fd){(void)t;(void)fd;fs_calls++;return -NV_EBADF;}
 int fs_stat64(struct task *t,int fd,struct nv_stat64 *st){(void)t;(void)fd;(void)st;fs_calls++;return -NV_EBADF;}
+int fs_stat_path64(struct task *t,const char *name,struct nv_stat64 *st) {
+    (void)t;(void)name;fs_calls++;if(path_error)return path_error;
+    *st=(struct nv_stat64){.size=513,.allocated=4096,.kind=NV_FILE};return 0;
+}
+int fs_lookup(int cwd,const char *name){(void)cwd;(void)name;return 3;}
+int fs_authorize(const struct task *t,int cwd,const char *name,u32 op) {
+    (void)t;(void)cwd;(void)name;(void)op;fs_calls++;return path_error;
+}
 int fs_write(struct task *t,int fd,const void *data,u32 n){(void)t;(void)fd;(void)data;fs_calls++;return n;}
 int fs_read(struct task *t,int fd,void *data,u32 n){(void)t;(void)fd;(void)data;fs_calls++;return n;}
 int fs_seek64(struct task *t,int fd,struct nv_seek64 *io){(void)t;(void)fd;(void)io;fs_calls++;return -NV_EBADF;}
@@ -110,5 +119,22 @@ int main(void) {
     random_ok=true;assert(invoke(318,buffer,32,0)==32 && bytes[31]==0x7b && bytes[32]==0x55);
     assert(!invoke(3,1,0,0) && invoke(1,1,buffer,1)==-L_EBADF && invoke(3,1,0,0)==-L_EBADF);
     puts("PASS Linux ABI: native process gate, errno translation, wide descriptor/pointer checks, FS-base isolation, random errors and closed stdio");
+    reset();struct {char path[192];struct linux_stat st;char link[32];} io={.path="/home/private"};
+    buffer=(uptr)&io;buffer_size=sizeof(io);memset(&io.st,0x55,sizeof(io.st));
+    assert(invoke(4,buffer,1,0)==-L_EFAULT && !fs_calls);
+    assert(invoke(4,buffer,(uptr)&io.st,0)==-L_EACCES && io.st.mode==0x55555555);
+    path_error=-NV_ENOENT;assert(invoke(6,buffer,(uptr)&io.st,0)==-L_ENOENT);
+    path_error=0;assert(!invoke(4,buffer,(uptr)&io.st,0));
+    assert(io.st.mode==(0100000|0600) && io.st.size==513 && io.st.blocks==8 && io.st.inode==4 && io.st.uid==current->uid);
+    struct frame f={.cs=0x1b,.eax=262,.edi=(u64)-100,.esi=buffer,.edx=(uptr)&io.st,.r10=256};
+    assert(linux_dispatch(&f)==&f && !(i64)f.eax);
+    f.eax=262;f.r10=4096;linux_dispatch(&f);assert((i64)f.eax==-L_EINVAL);
+    f.eax=262;f.edi=0x100000000ull-100;f.r10=0;linux_dispatch(&f);assert((i64)f.eax==-L_ENOTSUP);
+    assert(invoke(89,buffer,(uptr)io.link,0)==-L_EINVAL);
+    assert(invoke(89,buffer,1,32)==-L_EFAULT);
+    memset(io.link,0x66,sizeof(io.link));assert(invoke(89,buffer,(uptr)io.link,32)==-L_EINVAL && io.link[0]==0x66);
+    path_error=-NV_EACCESS;assert(invoke(89,buffer,(uptr)io.link,32)==-L_EACCES);
+    path_error=-NV_ENOENT;assert(invoke(89,buffer,(uptr)io.link,32)==-L_ENOENT);
+    puts("PASS Linux path metadata: stat/lstat/fstatat, exact ABI fields, denied/missing paths, readlink semantics and invalid pointers/flags");
     return 0;
 }

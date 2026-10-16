@@ -38,7 +38,7 @@ struct desktop_view {
     u32 overview_selected, snap_preview;
     const struct desktop_window *windows;
     const u8 *order;
-    u32 active, hover_kind, hover_window;
+    u32 active, hover_kind, hover_window, hover_index;
     const char *editor_path, *editor_text, *editor_input;
     u32 editor_length, editor_cursor, editor_scroll, editor_mode;
     bool editor_dirty;
@@ -117,7 +117,7 @@ enum { DESKTOP_HIT_NONE, DESKTOP_HIT_START, DESKTOP_HIT_MENU,
        DESKTOP_HIT_LOCK, DESKTOP_HIT_LOGOUT, DESKTOP_HIT_SETTINGS,
        DESKTOP_HIT_FILE_SEARCH, DESKTOP_HIT_FILE_VIEW, DESKTOP_HIT_FILE_SORT,
        DESKTOP_HIT_FILE_HIDDEN, DESKTOP_HIT_FILE_PARENT, DESKTOP_HIT_SETTINGS_VOLUME,
-       DESKTOP_HIT_VOLUME_PANEL };
+       DESKTOP_HIT_VOLUME_PANEL, DESKTOP_HIT_HOME };
 struct desktop_hit { u32 kind, index, window; };
 static struct desktop_rect desktop_file_place_rect(const struct desktop_window *w,u32 index) {
     struct files_layout g=desktop_files_layout(w,0);
@@ -201,7 +201,13 @@ static u32 desktop_dock_width(u32 sw,const struct desktop_view *v) {
     return 48+desktop_tasks(v)*desktop_task_width(sw,v)+(sw>=640?70:0)+8;
 }
 static u32 desktop_dock_x(u32 sw,const struct desktop_view *v) {
-    return (sw-desktop_dock_width(sw,v))/2;
+    return MIN(sw>=900?40u:16u,(sw-desktop_dock_width(sw,v))/2);
+}
+static bool desktop_home_visible(const struct desktop_view *v) {
+    if (v->menu || v->overview) return false;
+    for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i)
+        if (v->windows[i].open && !v->windows[i].minimized) return false;
+    return true;
 }
 static struct desktop_rect desktop_volume_rect(u32 sw,u32 sh,const struct desktop_view *v) {
     u32 right=desktop_dock_x(sw,v)+desktop_dock_width(sw,v);
@@ -377,6 +383,11 @@ static struct desktop_hit desktop_hit(u32 width, u32 height,
         } else return (struct desktop_hit){DESKTOP_HIT_TERMINAL, 0, id};
         return (struct desktop_hit){DESKTOP_HIT_NONE, 0, id};
     }
+    if (!v->volume_open && desktop_home_visible(v)) for (u32 i=0;i<3;++i) {
+        struct desktop_rect r=desktop_home_rect(sw,sh,i);
+        if (desktop_inside(r,x,y) && desktop_round_coverage(px-r.x*s,py-r.y*s,r.w*s,r.h*s,12*s))
+            return (struct desktop_hit){DESKTOP_HIT_HOME,i,DESKTOP_WINDOW_COUNT};
+    }
     if (desktop_inside(desktop_apps_button(sw),x,y))
         return (struct desktop_hit){DESKTOP_HIT_START,0,0};
     return (struct desktop_hit){DESKTOP_HIT_NONE, 0, 0};
@@ -408,7 +419,8 @@ static void desktop_window_content(struct nv_canvas *c, u32 s,
     desktop_box(c,clip,x+s,y+14*s,width-2*s,height-15*s,UI_BG);
     desktop_round(c,screen,x+s,y+s,width-2*s,27*s,desktop_window_radius(w)?13*s:0,UI_WHITE);
     desktop_box(c,clip,x+s,y+14*s,width-2*s,14*s,UI_WHITE);
-    desktop_label(c,clip,x+14*s,y+6*s,desktop_window_name(w,id),desktop_chars(width-102*s,s),s,focus?0x283752:0x748198);
+    desktop_round(c,clip,x+12*s,y+10*s,4*s,9*s,2*s,focus?0x317c70:0xb6c2c4);
+    desktop_label(c,clip,x+24*s,y+6*s,desktop_window_name(w,id),desktop_chars(width-112*s,s),s,focus?0x283e46:0x748198);
     for (u32 i = 0; i < 3; ++i) {
         u32 bx = x + width - (84 - i*28)*s;
         u32 kind=i==0?DESKTOP_HIT_MINIMIZE:i==1?DESKTOP_HIT_MAXIMIZE:DESKTOP_HIT_CLOSE;
@@ -739,26 +751,53 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_pointer_render(c,screen,s,v);return;
     }
     desktop_background(c,screen,height,v,false);
-    desktop_round_alpha(c,screen,12*s,8*s,(sw-24)*s,30*s,12*s,UI_WHITE,210);
-    desktop_bold_text(c,screen,27*s,13*s,"Nuvora",6,s,UI_TEXT);
-    desktop_text(c,screen,102*s,14*s,"Workspace",9,s,UI_MUTED);
+    desktop_round_alpha(c,screen,12*s,8*s,(sw-24)*s,30*s,10*s,0x10232c,220);
+    desktop_round(c,screen,26*s,18*s,8*s,8*s,3*s,0xb9dba9);
+    desktop_bold_text(c,screen,44*s,13*s,"Nuvora",6,s,0xf0f5ef);
+    desktop_text(c,screen,118*s,14*s,"/  Personal",11,s,0xa1b9bd);
     struct desktop_rect apps=desktop_apps_button(sw);
     desktop_round(c,screen,apps.x*s,apps.y*s,apps.w*s,apps.h*s,8*s,
-        v->menu?UI_BLUE:0xe9f0ff);
+        v->menu?0x457d70:0x29434b);
     ui_line_icon(c,screen,(apps.x+10)*s,(apps.y+5)*s,14*s,UI_ICON_APP,
-        v->menu?UI_WHITE:UI_BLUE);
-    desktop_text(c,screen,(apps.x+32)*s,(apps.y+3)*s,"Apps",4,s,v->menu?UI_WHITE:UI_BLUE);
-    desktop_text(c,screen,(apps.x+76)*s,(apps.y+3)*s,"F10",3,s,v->menu?0xd6e4ff:UI_MUTED);
+        0xcce3cd);
+    desktop_text(c,screen,(apps.x+32)*s,(apps.y+3)*s,"Apps",4,s,0xf0f5ef);
+    desktop_text(c,screen,(apps.x+76)*s,(apps.y+3)*s,"F10",3,s,0xa1b9bd);
     if (sw>=800 && v->account) {
         const char *name=v->account->info.display_name;
         u32 count=strlen(name);
         while (count && desktop_text_width(name,count,s)>160*s) --count;
         desktop_text(c,screen,(sw*s-desktop_text_width(name,count,s))/2,14*s,
-            name,count,s,UI_MUTED);
+            name,count,s,0xb2c6c7);
     }
     char uptime[32]="Up ";number(uptime+3,v->uptime_minutes,10);
     strlcpy(uptime+strlen(uptime)," min",sizeof(uptime)-strlen(uptime));
-    desktop_label(c,screen,(sw-116)*s,14*s,uptime,16,s,UI_MUTED);
+    desktop_label(c,screen,(sw-116)*s,14*s,uptime,16,s,0xa1b9bd);
+    if (desktop_home_visible(v)) {
+        u32 left=sw>=900?64:32,top=(u32)MAX(76,((i32)sh-360)/2);
+        u32 headline=sw>=1000?4:sw>=640?3:2;
+        desktop_text(c,screen,left*s,top*s,"P E R S O N A L   S P A C E",sizeof("P E R S O N A L   S P A C E")-1,s,0xa7c9bc);
+        desktop_heading(c,screen,(left-3)*s,(top+24)*s,"Nuvora",headline,s,0xf1f4ea);
+        desktop_text(c,screen,left*s,(top+(sh>=600?108:82))*s,
+            "A place for your next idea.",27,s,0xa9c0c0);
+        static const u32 ids[]={0,2,6};
+        static const char *names[]={"Files","Terminal","Settings"};
+        static const char *details[]={"Your collections","Build and explore","Make it yours"};
+        for (u32 i=0;i<3;++i) {
+            struct desktop_rect r=desktop_home_rect(sw,sh,i);
+            bool hover=v->hover_kind==DESKTOP_HIT_HOME && v->hover_index==i;
+            desktop_round_alpha(c,screen,r.x*s,r.y*s,r.w*s,r.h*s,12*s,
+                hover?0x47675f:0x30464a,hover?235:205);
+            ui_line_icon(c,screen,(r.x+16)*s,(r.y+15)*s,18*s,
+                ids[i]==0?UI_ICON_FOLDER:ids[i]==2?UI_ICON_TERMINAL:UI_ICON_SETTINGS,0xc6dfbe);
+            desktop_bold_text(c,screen,(r.x+44)*s,(r.y+15)*s,names[i],strlen(names[i]),s,0xf1f4ea);
+            if (r.w>=140) desktop_text(c,screen,(r.x+16)*s,(r.y+48)*s,
+                details[i],strlen(details[i]),s,0xacc3be);
+        }
+        if (sw>=900) {
+            desktop_text(c,screen,(sw-200)*s,(sh-46)*s,"01  /  YOUR WORKSPACE",sizeof("01  /  YOUR WORKSPACE")-1,s,0x91aaa7);
+            desktop_box(c,screen,(sw-200)*s,(sh-58)*s,32*s,2*s,0xa7c9bc);
+        }
+    }
     for (u32 z=0;z<DESKTOP_WINDOW_COUNT;++z) {
         u32 id=v->order[z];
         if (!v->overview && v->windows[id].open && !v->windows[id].minimized)
@@ -787,33 +826,33 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_text(c,screen,(x+46)*s,(y+13)*s,v->message,count,s,UI_TEXT);
     }
     u32 dock_x=desktop_dock_x(sw,v)*s,dock_w=desktop_dock_width(sw,v)*s;
-    desktop_shadow(c,screen,dock_x,(sh-52)*s,dock_w,48*s,16*s,s);
-    desktop_round_alpha(c,screen,dock_x,(sh-52)*s,dock_w,48*s,16*s,0xedf3ff,235);
+    desktop_shadow(c,screen,dock_x,(sh-52)*s,dock_w,48*s,12*s,s);
+    desktop_round_alpha(c,screen,dock_x,(sh-52)*s,dock_w,48*s,12*s,0x132a33,245);
     desktop_round(c,screen,dock_x+10*s,(sh-40)*s,28*s,28*s,8*s,
-        v->overview || v->hover_kind==DESKTOP_HIT_OVERVIEW_BUTTON?0xc5d5f6:0xe3ebfa);
-    desktop_round(c,screen,dock_x+16*s,(sh-33)*s,12*s,9*s,2*s,0x5973a5);
-    desktop_round(c,screen,dock_x+21*s,(sh-28)*s,12*s,9*s,2*s,0x5973a5);
-    desktop_round(c,screen,dock_x+23*s,(sh-26)*s,8*s,5*s,s,0xe3ebfa);
+        v->overview || v->hover_kind==DESKTOP_HIT_OVERVIEW_BUTTON?0x3b625d:0x29434b);
+    desktop_round(c,screen,dock_x+16*s,(sh-33)*s,12*s,9*s,2*s,0xb3cfbf);
+    desktop_round(c,screen,dock_x+21*s,(sh-28)*s,12*s,9*s,2*s,0xb3cfbf);
+    desktop_round(c,screen,dock_x+23*s,(sh-26)*s,8*s,5*s,s,0x29434b);
     u32 task_w=desktop_task_width(sw,v);
     for (u32 i=0;i<desktop_tasks(v);++i) {
         u32 id=desktop_task_id(v,i),x=dock_x+(48+i*task_w)*s;
         const struct desktop_window *w=&v->windows[id];
         bool selected=id==v->active && w->open && !w->minimized;
         if (selected || (v->hover_kind==DESKTOP_HIT_TASK && v->hover_window==id))
-            desktop_round(c,screen,x,(sh-47)*s,(task_w-2)*s,39*s,10*s,0xd3e0fa);
+            desktop_round(c,screen,x,(sh-47)*s,(task_w-2)*s,39*s,10*s,0x3a5d5b);
         if (task_w>=44) desktop_icon(c,screen,x+(task_w-40)*s/2,(sh-48)*s,40*s,
             id<4?id:id==DESKTOP_ACCOUNTS?5:id==DESKTOP_SETTINGS?6:4);
         else desktop_label(c,screen,x+4*s,(sh-33)*s,desktop_window_name(w,id),(task_w-8)/6,s,0x3f5987);
-        if (w->open) desktop_round(c,screen,x+(task_w/2-5)*s,(sh-7)*s,10*s,2*s,s,selected?0x446fd3:0x92a5ca);
+        if (w->open) desktop_round(c,screen,x+(task_w/2-5)*s,(sh-7)*s,10*s,2*s,s,selected?0xb9dba9:0x739998);
     }
     if (sw>=640) {
         u32 sx=dock_x+dock_w-70*s;
-        desktop_box(c,screen,sx-4*s,(sh-37)*s,s,25*s,0xc8d5eb);
-        desktop_round(c,screen,sx+5*s,(sh-32)*s,7*s,10*s,2*s,0x5973a5);
-        desktop_box(c,screen,sx+12*s,(sh-35)*s,3*s,16*s,0x5973a5);
+        desktop_box(c,screen,sx-4*s,(sh-37)*s,s,25*s,0x36525a);
+        desktop_round(c,screen,sx+5*s,(sh-32)*s,7*s,10*s,2*s,0xa9c8ba);
+        desktop_box(c,screen,sx+12*s,(sh-35)*s,3*s,16*s,0xa9c8ba);
         char level[8];number(level,v->volume_percent,10);
         strlcpy(level+strlen(level),"%",sizeof(level)-strlen(level));
-        desktop_text(c,screen,sx+22*s,(sh-34)*s,v->audio_ready?level:"--",v->audio_ready?strlen(level):2,s,0x5973a5);
+        desktop_text(c,screen,sx+22*s,(sh-34)*s,v->audio_ready?level:"--",v->audio_ready?strlen(level):2,s,0xa9c8ba);
     }
     if (v->menu) {
         const struct desktop_launcher *l=v->launcher;

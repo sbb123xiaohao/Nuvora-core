@@ -52,7 +52,7 @@ struct client_cache {
 };
 static struct client_cache client_cache[DESKTOP_WINDOW_COUNT];
 static u32 child_pids[NV_TASK_MAX];
-static u32 hover_kind, hover_window = DESKTOP_WINDOW_COUNT, captured = DESKTOP_WINDOW_COUNT;
+static u32 hover_kind, hover_index, hover_window = DESKTOP_WINDOW_COUNT, captured = DESKTOP_WINDOW_COUNT;
 static u32 drag_edges;
 static struct desktop_clip damage;
 static bool damaged;
@@ -306,6 +306,7 @@ static struct desktop_view view(void) {
     v.volume_open=volume_open; v.volume_percent=volume_percent;
     v.windows=windows; v.order=order; v.active=active;
     v.hover_kind=hover_kind; v.hover_window=hover_window;
+    v.hover_index=hover_index;
     v.editor_path=*editor_path?editor_path:"Untitled.txt";
     v.editor_text=editor_text; v.editor_input=editor_input;
     v.editor_length=editor_length; v.editor_cursor=editor_cursor;
@@ -1237,14 +1238,15 @@ int user_main(const char *args) {
                        overview_selected!=hover.index) { overview_selected=hover.index; dirty=true; }
             else if (switcher.open && hover.kind==DESKTOP_HIT_SWITCH &&
                      switcher.selected!=hover.index) { switcher.selected=hover.index; dirty=true; }
-            if (hover_kind!=hover.kind || hover_window!=hover.window) {
+            if (hover_kind!=hover.kind || hover_window!=hover.window || hover_index!=hover.index) {
+                if (hover_kind==DESKTOP_HIT_HOME || hover.kind==DESKTOP_HIT_HOME) dirty=true;
                 if (hover_kind==DESKTOP_HIT_OVERVIEW_BUTTON || hover.kind==DESKTOP_HIT_OVERVIEW_BUTTON)
                     dirty=true;
                 if (hover_kind==DESKTOP_HIT_TASK || hover.kind==DESKTOP_HIT_TASK ||
                     hover_kind==DESKTOP_HIT_MEDIA || hover.kind==DESKTOP_HIT_MEDIA) dirty=true;
                 if (hover_window<DESKTOP_WINDOW_COUNT && windows[hover_window].open)
                     damage_window(&windows[hover_window]);
-                hover_kind=hover.kind; hover_window=hover.window;
+                hover_kind=hover.kind; hover_window=hover.window; hover_index=hover.index;
                 if (hover_window<DESKTOP_WINDOW_COUNT && windows[hover_window].open)
                     damage_window(&windows[hover_window]);
             }
@@ -1360,6 +1362,10 @@ int user_main(const char *args) {
                 }
                 else if (hit.kind==DESKTOP_HIT_MENU) {
                     r=start_app(hit.index);
+                    if (r<0) note_error("Start",r);
+                } else if (hit.kind==DESKTOP_HIT_HOME) {
+                    static const u32 apps[]={0,2,6};
+                    if (hit.index<ARRAY_LEN(apps)) r=start_app(apps[hit.index]);
                     if (r<0) note_error("Start",r);
                 } else if (hit.kind==DESKTOP_HIT_LOCK) {
                     r=session_lock();if (r<0) note_error("Lock",r);

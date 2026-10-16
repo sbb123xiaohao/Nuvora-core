@@ -2,16 +2,30 @@
 
 Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动、Loom 命令环境、图形桌面、自有数据卷和基础驱动；ARM64 版本目前是独立的引导与 EL0 计算基线。项目尚未完成实体机兼容认证。
 
-0.15.0 默认进入图形登录与桌面：浅色渐变工作区、顶部 Apps 入口、居中应用面板、紧凑应用栏和圆角窗口。应用图标由程序绘制，圆角外保留背景；操作通知位于应用栏上方，六秒后自动消失。浮动窗口的四角统一裁剪客户区，阴影沿圆角连续绘制；透明角落可点击后方窗口，最大化和平铺使用直角贴合屏幕。Files、Music 和 Settings 使用统一的白色面板、蓝色线条图标与选中状态。Files 提供文件卡片、即时搜索、排序和选中项详情；Music 分开设置文字和按钮大小，提供专辑画面、圆形播放按钮和真实播放列表；设置包含外观、声音、网络、安全和系统五页。正常启动隐藏屏幕上的内核日志，命令操作通过 Terminal 窗口完成；桌面退出后由会话监督程序恢复登录界面。内核提供自动锁屏、可信会话入口校验、管理员电源/网络配置权限、可用 CPU 上的 SMEP，以及独立诊断内核。行为与安全边界见[桌面与安全](docs/DESKTOP-SECURITY.md)。
+0.15.0 默认进入图形登录与桌面。本轮重做工作区：深海色弧线背景、清晰的大标题、靠左应用栏，以及可直接打开 Files、Terminal、Settings 的三个入口。提供 Tide、Glacier、Ember 三种配色；大标题随高分屏缩放，图标和圆角均由原生程序绘制。Apps 搜索、窗口总览、平铺、多账户与偏好保存继续可用。
+
+![Nuvora 新桌面，正式 UEFI 系统实际截图](docs/screenshots/desktop.png)
+
+Files 提供文件卡片、搜索、排序和详情；Music 提供真实播放列表与共享音量；设置包含外观、声音、网络、安全和系统五页。浮动窗口统一裁剪四角，透明角落可点击后方窗口，最大化和平铺使用直角。内核继续执行账户隔离、自动锁屏和管理员权限；行为与准确边界见[桌面与安全](docs/DESKTOP-SECURITY.md)。
 
 保留 0.14.0 的原生 64 位 ABI：代码、栈、堆及图形/音频缓冲可使用 4 GiB 以上地址，兼容旧 ABI 1 ELF64 二进制。实体 PC 使用 FAT32 UEFI 启动介质、GOP 模式回退、按设备能力选择的 DMA 地址及 ACPI 电源路径；本版修正 UEFI ACPI 1.0 表 GUID，并优先选择 ACPI 2.0。上机步骤与准确边界见[实体机与 64 位说明](docs/NATIVE64-HARDWARE.md)。
 
 ## 桌面语言与 Minecraft 兼容路线
 
 新增 Linux x86-64 静态进程兼容基础，已在 Nuvora 用户态实际运行 **musl C、
-C++ 核心语法、Lua 5.4.8 和 QuickJS JavaScript**。Terminal 使用
+C++ 核心语法、Lua 5.4.8、QuickJS JavaScript 和 MicroPython 1.26.1**。Terminal 使用
 `compat /home/lua.elf /home/world.lua` 或 `compat /home/js.elf /home/world.js`；
 导入、构建与准确边界见 [运行时说明](docs/RUNTIME-COMPAT.md)。
+
+Python 已验证模块导入、继承、生成器、中文字符串、大整数、浮点、JSON/正则、
+垃圾回收和文件持久化。同一示例与 CPython 输出一致；**这仍是 MicroPython，
+不代表完整 CPython、pip 或第三方桌面库可用**。
+
+```text
+compat /home/python.elf /home/world.py "hello world"
+```
+
+![Nuvora 实际运行 Python 与账户访问隔离检查](docs/screenshots/compat-python.png)
 
 Java 主线调整为接入成熟 OpenJDK，让不同 JDK 复用系统接口。首个客户端目标
 为 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3。**目前 Minecraft 仍不能运行**：
@@ -43,7 +57,7 @@ C 运行库、内存、TLS 与受保护账户数据访问检查：
 ![Nuvora Java 21 字节码实际运行](docs/screenshots/java21-multiclass.png)
 
 可用 `python3 tests/java_desktop_test.py` 重拍，校验值见
-[Java 截图清单](docs/screenshots/java21-multiclass-manifest.json)。下面保留此前桌面回归截图。
+[Java 截图清单](docs/screenshots/java21-multiclass-manifest.json)。下面是本轮重新拍摄的桌面回归截图。
 
 ## 运行截图
 
@@ -57,10 +71,6 @@ C 运行库、内存、TLS 与受保护账户数据访问检查：
 256 MiB 内存、AHCI 数据盘、USB 键盘/鼠标、e1000e 网卡和 HDA 声音。
 直接截取客体帧缓冲并无损
 转换为 PNG，未合成界面；这是模拟 PC 的运行结果。
-
-桌面工作区与紧凑应用栏：
-
-![Nuvora Core 实际运行的桌面](docs/screenshots/desktop.png)
 
 居中的 Apps 面板，支持搜索、方向键和真实鼠标启动：
 

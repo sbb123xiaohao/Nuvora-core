@@ -12,20 +12,29 @@
     "quickjs": {
       "file": "quickjs-2025-09-13-2.tar.xz",
       "sha256": "996c6b5018fc955ad4d06426d0e9cb713685a00c825aa5c0418bd53f7df8b0b4"
+    },
+    "micropython": {
+      "file": "micropython-v1.26.1.tar.gz",
+      "sha256": "10600e844f02a8b448cf176df71031d2eb3d731097a809a963ce9c35cef3d613"
     }
   },
   "elfs": {
     "runtime_check.elf": "5157515972aaabcf4ae2b18f6de961e56567988ecc844c5bb5d063c722012b2b",
     "language.elf": "1528cdb2411f24f9748e49294b9c8a2b78944bce25b882f5de4dd9719f99afa4",
     "lua.elf": "19af546c546c33d583d3a8ba7b4db85158e6f48fc385f6384aad9a0f93916a96",
-    "js.elf": "517cdf1af185d6a982c0743e48d9545f7419a806af131ce0d1a4adbcee93773b"
+    "js.elf": "517cdf1af185d6a982c0743e48d9545f7419a806af131ce0d1a4adbcee93773b",
+    "python.elf": "ef066f4999ed11a96b2f5f5e7212e3cfb92f07354924140471702f3dd936246f"
   },
   "wrappers": {
     "javascript.c": "520a70bd6cc402f002f9236cff0589d07af8081522f10fbe1a8c43d52542a42e",
     "language.cpp": "5d89d4d6b88ac59966595b5dde1ee2df5acb074ae11a05338280ff39f887d047",
+    "python-port/mpconfigvariant.h": "566a866e17733383d68fd08054aef11ed83f86c6f1ff92465ed3b747557df927",
+    "python-port/mpconfigvariant.mk": "902079001c68ba8b61cdf1ec01e24face827141f1ee26945044a9fda9bd6bbde",
     "runtime_check.c": "6d81c1f1c9bd64334c6542449278bedab222467e5e1265644224fcf59e17db07",
+    "terrain.py": "7b3010847c57856275177456d7a85093121d5c311715afb677f7ac0d599f6c34",
     "world.js": "4ebad709fa6744428756d13c686bcd77267a073f900bda5e27ef88054702827b",
-    "world.lua": "ca88b139b2796a251f5e3ae8fd18350d2af16c4a194f0da60624883151a59683"
+    "world.lua": "ca88b139b2796a251f5e3ae8fd18350d2af16c4a194f0da60624883151a59683",
+    "world.py": "ad304a644df2f2de44a178e75dc13032de0d6d5b8d2800d9f0305fbdff3be32e"
   },
-  "limits": "static musl PIE; C++ language core only; QuickJS embedding has print/scriptArgs, no Node.js/DOM/workers; no JVM or Minecraft launch"
+  "limits": "static musl PIE; C++ language core only; QuickJS has no Node.js/DOM/workers; MicroPython is not CPython/pip; no JVM or Minecraft launch"
 }

@@ -73,6 +73,18 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
         assert(!memcmp(full+1,tiled+1,(usize)n*sizeof(u32)));
         assert(full[0]==0x9173ace4 && full[n+1]==0x27607845);
         assert(tiled[0]==0x9173ace4 && tiled[n+1]==0x27607845);
+        for (u32 i=0;i<3;++i) {
+            struct desktop_rect r=desktop_home_rect(sw,sh,i);
+            assert(r.x+r.w<=sw && r.y+r.h<sh-DESKTOP_BAR_HEIGHT);
+            struct desktop_hit h=desktop_hit(width,height,&v,(r.x+r.w/2)*s,(r.y+r.h/2)*s);
+            assert(h.kind==DESKTOP_HIT_HOME && h.index==i);
+            h=desktop_hit(width,height,&v,r.x*s,r.y*s);
+            assert(h.kind==DESKTOP_HIT_NONE); /* Transparent card corner. */
+        }
+        windows[0].open=true;
+        struct desktop_rect home=desktop_home_rect(sw,sh,0);
+        assert(desktop_hit(width,height,&v,(home.x+home.w/2)*s,(home.y+home.h/2)*s).kind!=DESKTOP_HIT_HOME);
+        windows[0].open=false;
         struct desktop_hit home_hit=desktop_hit(width,height,&v,45*s,48*s);
         assert(home_hit.kind==DESKTOP_HIT_NONE);
         home_hit=desktop_hit(width,height,&v,45*s,(46+3*78+20)*s);

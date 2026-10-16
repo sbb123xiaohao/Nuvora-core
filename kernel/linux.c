@@ -126,6 +126,28 @@ static iptr linux_stat_fd(u64 fd,uptr output) {
     }
     memcpy((void *)output,&out,sizeof(out)); return 0;
 }
+static iptr linux_stat_path(uptr name,uptr output) {
+    if (!user_range(current->pd,output,sizeof(struct linux_stat),true)) return -L_EFAULT;
+    char path[NV_PATH_MAX];int r=user_string(name,path,sizeof(path));
+    struct nv_stat64 st;
+    if (r>=0) r=fs_stat_path64(current,path,&st);
+    if (r<0) return linux_error(r);
+    struct linux_stat out={.nlink=1,.uid=current->uid,.gid=current->uid,.blksize=PAGE,
+        .inode=(u64)fs_lookup(current->cwd,path)+1,
+        .mode=(st.kind==NV_DIR?0040000:st.kind==NV_DEVICE?0020000:0100000)|0600,
+        .size=st.size,.blocks=(st.allocated+511)/512};
+    memcpy((void *)output,&out,sizeof(out));return 0;
+}
+static iptr linux_readlink(uptr name,uptr output,u64 size) {
+    if (!size) return -L_EINVAL;
+    char path[NV_PATH_MAX];int r=user_string(name,path,sizeof(path));
+    if (r<0) return linux_error(r);
+    if (!user_range(current->pd,output,MIN(size,(u64)NV_PATH_MAX),true)) return -L_EFAULT;
+    r=fs_authorize(current,current->cwd,path,0);
+    /* The native filesystem has no symbolic links. Existing authorized
+     * paths return EINVAL; missing/private paths retain their real errors. */
+    return r<0?linux_error(r):-L_EINVAL;
+}
 static iptr linux_open(uptr name,u64 flags) {
     if (flags&~(3ull|64|128|256|512|1024|2048|32768|524288)) return -L_EINVAL;
     if ((flags&3)==3 || (flags&256)) return -L_EINVAL; /* no O_NOCTTY devices */
@@ -199,6 +221,7 @@ struct frame *linux_dispatch(struct frame *f) {
             current->linux_compat.cloexec&=~(1u<<a); current->linux_compat.nonblock&=~(1u<<a);
         }
         break;
+    case 4: case 6: result=linux_stat_path(a,b);break;
     case 5: result=linux_stat_fd(a,b);break;
     case 8: {
         if (a>=NV_OPEN_MAX) { result=-L_EBADF;break; }
@@ -269,6 +292,7 @@ struct frame *linux_dispatch(struct frame *f) {
         if (!user_range(current->pd,a,n,true)) { result=-L_EFAULT;break; }
         memcpy((void *)a,path,n);result=n;break;
     }
+    case 89: result=linux_readlink(a,b,c);break;
     case 102: case 104: case 107: case 108: result=current->uid;break;
     case 158:
         if (a==0x1002) {
@@ -287,6 +311,13 @@ struct frame *linux_dispatch(struct frame *f) {
     case 228: result=linux_clock(a,b);break;
     case 257:
         if ((i64)a!=-100) result=-L_ENOTSUP;else result=linux_open(b,c);break;
+    case 262:
+        if ((i64)a!=-100) result=-L_ENOTSUP;
+        else if (d&~256ull) result=-L_EINVAL;
+        else result=linux_stat_path(b,c);
+        break;
+    case 267:
+        if ((i64)a!=-100) result=-L_ENOTSUP;else result=linux_readlink(b,c,d);break;
     case 302:
         if (a && a!=current->pid) result=-L_EPERM;
         else if (b!=3 || c) result=-L_ENOTSUP;

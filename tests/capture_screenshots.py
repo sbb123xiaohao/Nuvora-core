@@ -16,7 +16,7 @@ import time
 import zlib
 import wave
 
-from desktop_boot_test import Monitor, first_account, desktop_visible, ui_scale, qemu, create
+from desktop_boot_test import Monitor, first_account, desktop_visible, ui_scale, color_count, qemu, create
 from mkmedia import create as create_media
 from session_boot_test import wait_saved_file, settings_page, drag_volume
 from import_media import import_files
@@ -102,7 +102,7 @@ def volume_popup_check(monitor,output,width,height,capture):
     """Exercise the shelf's actual popup, including rounded hit boundaries."""
     scale=ui_scale(width,height);sw=width//scale;sh=height//scale
     # Four launch buttons are present before any application window is open.
-    dock_width=48+4*56+70+8;right=(sw-dock_width)//2+dock_width
+    dock_width=48+4*56+70+8;right=min(40 if sw>=900 else 16,(sw-dock_width)//2)+dock_width
     x,y=right-175,sh-147;slider_x=x+19;slider_w=137
     def color(pixels,lx,ly):
         at=((ly*scale)*width+lx*scale)*3
@@ -197,6 +197,27 @@ def main():
                     return width,height
 
                 width,height=capture('desktop')
+                # Launch the actual clients from the workspace cards. The
+                # Terminal writes through the real account's mounted volume.
+                scale=ui_scale(width,height);sw=width//scale;sh=height//scale
+                left=64 if sw>=900 else 32;cell=min(174,(sw-2*left-24)//3)
+                card_y=max(76,(sh-360)//2)+(154 if sh>=600 else 116)+39
+                for index in (0,2,1):
+                    card_x=left+index*(cell+12)+cell//2
+                    monitor.pointer(width,height,card_x*scale,card_y*scale,True)
+                    time.sleep(.8)
+                    monitor.pointer(width,height,card_x*scale,card_y*scale,False)
+                    deadline=time.monotonic()+15
+                    while True:
+                        pixels=monitor.shot(output,'workspace-card')[2]
+                        expected=0x15222b if index==1 else 0xffffff
+                        if color_count(pixels,expected)>10000*scale*scale:break
+                        if time.monotonic()>=deadline:raise AssertionError('Workspace card did not launch its application')
+                    if index==1:
+                        monitor.type('weave home-action.txt native-home-card\nanchor\n')
+                        wait_saved_file(monitor,disk,'/home/users/tester/home-action.txt',b'native-home-card\n')
+                    monitor.key('alt','f4');time.sleep(.6)
+                print('PASS workspace cards: real Files, Settings and Terminal pointer launch, native file persisted',flush=True)
                 monitor.key('f10')
                 capture('apps')
                 monitor.key('esc')

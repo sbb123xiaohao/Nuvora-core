@@ -1,5 +1,39 @@
 # 测试与复现
 
+## 未发布：工作区重绘与 Python 脚本
+
+以本地和 GitHub 一致的完整 `42fdc75` 为基线。桌面新增三种深色弧线背景、
+靠左应用栏、分层标题与真实 Files/Terminal/Settings 工作区入口，保留现有
+窗口几何、账户偏好与圆角边界。语言部分接入 **MicroPython 1.26.1**，同时补齐
+复用原有授权的 stat/lstat/newfstatat/readlink/readlinkat；没有改原生 ABI 布局。
+
+- Arch GCC **16.2.1 20260810** 构建，**50 组宿主回归**通过；真实桌面渲染器
+  在两种像素格式、多种分辨率及缩放下整帧/分块结果一致，新增入口中心可点击、
+  透明圆角不可点击、有窗口时入口不可用；HiDPI 大标题保持逻辑尺寸。
+- Linux 核心通过 ASan/UBSan，路径接口检查用户指针、高位目录 fd、flags、
+  元数据布局、缺失路径与权限错误；原生账户测试覆盖私有账户库、其他用户目录。
+- 同一个 MicroPython 静态 ELF 在宿主 Linux 和 **64 MiB Nuvora BIOS 客体**
+  运行；继承、模块导入、生成器、UTF-8 字符串、任意精度整数、浮点/math、
+  JSON/regex、struct/array、异常和 GC 均实际执行。示例 **160 字节输出**与
+  CPython 一致，文件内容逐字节相同。内存不足、语法错误和未捕获异常正确退出。
+- 缓存稳定后连续三轮 C/Lua/JS/Python 启动退出，空闲内存精确为
+  **40,752 / 40,752 KiB**；两个并发 TLS、shell 终止、坏 ELF/动态 ELF 拒绝、
+  一次预期用户页错误隔离及随后的原生 Java/PIE 操作继续通过。
+- **64 MiB UEFI USB**、**32 MiB BIOS/max CPU**、**64 MiB BIOS/core2duo**
+  分别通过 **153 项**原生/旧 ABI 断言；旧 Java 多类磁盘回归通过。
+- 正式 UEFI/q35/256 MiB/AHCI/USB 桌面中，真实 Python 模块与文件持久化成功，
+  读取账户库与查询其 stat 均返回 EACCES，数据库摘要前后不变；账户身份仍是
+  真实进程报告的 UID 1000。截图来自 QMP 帧缓冲，见
+  [运行时清单](screenshots/compat-manifest.json)。
+
+复现：`make -j4 diagnostics esp && make test-host`，随后运行
+`tests/compat_boot_test.py`、`tests/compat_desktop_test.py`、
+`tests/capture_screenshots.py` 与 `tests/uefi_media_boot_test.py --memory 64`。
+外部语言引擎可选重建：`make compat-examples`；固定源码摘要和许可证随夹具保存。
+MicroPython 不是完整 CPython/pip，OpenJDK、Minecraft 仍未启动；这是模拟硬件
+验证，没有进行实体机认证。详细记录见
+[工作区与 Python 验证](verification/0.15.0/workspace-python-summary.log)。
+
 ## 未发布：共享运行时与 Linux 静态进程
 
 以 GitHub/local 一致的完整 `fba279b` 为基线。Java 主线改为成熟 OpenJDK

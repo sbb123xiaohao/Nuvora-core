@@ -303,6 +303,7 @@ int fs_write(struct task *, int, const void *, u32);
 int fs_seek(struct task *, int, i32, u32);
 int fs_seek64(struct task *, int, struct nv_seek64 *);
 int fs_stat64(struct task *, int, struct nv_stat64 *);
+int fs_stat_path64(struct task *, const char *, struct nv_stat64 *);
 int fs_list64(int, const char *, u32, struct nv_dirent64 *);
 int fs_list(int, const char *, u32, struct nv_dirent *);
 int fs_mkdir(int, const char *);

@@ -36,8 +36,9 @@ argc/argv/env/auxv、TLS、匿名映射和文件接口形成成熟语言运行�
 参数串、`NV_COMPAT_LINUX_X64`。EXEC 保留 PID 和授权身份；受保护会话管理器
 不能通过它变成任意程序。旧 ABI 1/2 编号与记录保持不变。
 
-`make compat-examples` 可重建 C、C++ 核心、Lua、QuickJS 夹具。尚无动态 loader、
-clone、Linux 信号、文件映射、完整 TTY 或 OpenJDK/Node/Python 支持；接口与
+`make compat-examples` 可重建 C、C++ 核心、Lua、QuickJS、MicroPython 夹具。
+Python 脚本可使用模块、继承、大整数和文件接口；它不是完整 CPython/pip。
+尚无动态 loader、clone、Linux 信号、文件映射、完整 TTY 或 OpenJDK/Node/CPython 支持；接口与
 资源约束见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。
 
 ## Java 实验入口

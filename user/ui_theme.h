@@ -15,20 +15,32 @@ static inline void desktop_wallpaper(struct nv_canvas *c,struct desktop_clip cli
     u32 height,u32 theme,bool dim) {
     u32 left=MIN(clip.left,c->width),right=MIN(clip.right,c->width);
     u32 top=MAX(clip.top,c->y0),bottom=MIN(MIN(clip.bottom,height),c->y0+c->rows);
-    static const u32 base[]={0xe8ebf1,0xe6edf1,0xede7ef};
-    static const u32 blue[]={0xdbe7f7,0xcbdff1,0xdcd9f1};
-    static const u32 mint[]={0xf8fbff,0xe1f3f3,0xf8edf1};
-    static const u32 violet[]={0xebe5f7,0xdce6f6,0xe8daf0};
+    static const u32 base[]={0x101f29,0x152237,0x2a202a};
+    static const u32 glow[]={0x28594e,0x304f72,0x70483f};
+    static const u32 ribbon[]={0x80bfa9,0x8bb7de,0xdca58b};
     theme=MIN(theme,2u);
     for (u32 py=top;py<bottom;++py) {
         i32 ny=(i32)((u64)py*1024/height);
         u32 *out=c->pixels+(usize)(py-c->y0)*c->width;
         for (u32 px=left;px<right;++px) {
             i32 nx=(i32)((u64)px*1024/c->width);
-            u32 rgb=desktop_blend(blue[theme],base[theme],desktop_glow(nx,ny,270,730,830));
-            rgb=desktop_blend(violet[theme],rgb,desktop_glow(nx,ny,1020,950,770));
-            rgb=desktop_blend(mint[theme],rgb,desktop_glow(nx,ny,690,450,500)*3/4);
-            if (dim) rgb=desktop_blend(0x0b1123,rgb,75);
+            u32 rgb=desktop_blend(glow[theme],base[theme],desktop_glow(nx,ny,1020,760,1050));
+            /* Tilted orbital bands use squared distances, without floating
+             * point, bitmap assets or resolution-dependent seams. */
+            i64 dx=nx-1000+(ny-600)/3,dy=ny-630;
+            u64 orbit=(u64)(dx*dx+dy*dy*2);
+            u32 fade=(u32)MAX(0,MIN(nx-370,255));
+            if (orbit>105000 && orbit<230000) {
+                u32 edge=(u32)MIN(orbit-105000,230000-orbit);
+                rgb=desktop_blend(ribbon[theme],rgb,MIN(edge/400,105u)*fade/255);
+            }
+            if (orbit>265000 && orbit<345000) {
+                u32 edge=(u32)MIN(orbit-265000,345000-orbit);
+                rgb=desktop_blend(ribbon[theme],rgb,MIN(edge/500,54u)*fade/255);
+            }
+            if (orbit>70000 && orbit<540000 && orbit%42000<1200)
+                rgb=desktop_blend(ribbon[theme],rgb,28*fade/255);
+            if (dim) rgb=desktop_blend(0x08101c,rgb,90);
             out[px]=nv_display_rgb(c->format,rgb);
         }
     }

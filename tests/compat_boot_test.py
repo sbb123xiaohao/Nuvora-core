@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run real musl C/C++, Lua and QuickJS in private 64 MiB Nuvora guests."""
+"""Run real musl C/C++, Lua, QuickJS and MicroPython in private guests."""
 import pathlib
 import re
 import struct
@@ -28,7 +28,12 @@ def main():
         loop=private/'loop.js';loop.write_text('for (;;) {}\n')
         js_error=private/'error.js';js_error.write_text('throw new Error("expected JavaScript error");\n')
         lua_error=private/'error.lua';lua_error.write_text('error("expected Lua error")\n')
-        import_files(disk,[*sorted(fixtures.glob('*.elf')),ROOT/'examples/compat/world.lua',ROOT/'examples/compat/world.js',bad,dynamic,loop,js_error,lua_error])
+        py_error=private/'error.py';py_error.write_text('raise ValueError("expected Python error")\n')
+        py_syntax=private/'syntax.py';py_syntax.write_text('def invalid(:\n')
+        py_limit=private/'limit.py';py_limit.write_text('try:\n    blob = bytearray(8 * 1024 * 1024)\nexcept MemoryError:\n    print("PYTHON MEMORY LIMIT PASS")\nelse:\n    raise AssertionError("heap limit ignored")\n')
+        scripts=ROOT/'examples/compat'
+        import_files(disk,[*sorted(fixtures.glob('*.elf')),*[scripts/name for name in ('world.lua','world.js','world.py','terrain.py')],
+                           bad,dynamic,loop,js_error,lua_error,py_error,py_syntax,py_limit])
         vm=VM('linux-runtime',disk=disk,memory=64,boot_timeout=30)
         try:
             c=vm.send('compat /home/runtime_check.elf "two words" ""','LINUX ABI C PASS',timeout=30)
@@ -42,6 +47,10 @@ def main():
                 out=vm.send(f'compat /home/{name}.elf /home/world.{extension} "hello world"',marker,timeout=30)
                 assert 'checksum=8064' in out and 'arg=hello world' in out
                 print(f'PASS real {name} engine: parser, objects, GC, exceptions and floating point',flush=True)
+            out=vm.send('compat /home/python.elf /home/world.py "hello world"','PYTHON RUNTIME PASS',timeout=30)
+            assert 'checksum=8064' in out and 'bigint=1208925819614629174706176' in out and 'arg=hello world' in out
+            vm.send('compat /home/python.elf /home/limit.py','PYTHON MEMORY LIMIT PASS',timeout=30)
+            print('PASS real MicroPython: module import, inheritance, generators, Unicode, big integers, math, JSON/regex, GC, files and bounded heap',flush=True)
             # compat replaces its own PID, so the shell owns the actual runtime.
             pids=[]
             for _ in range(2):
@@ -53,7 +62,9 @@ def main():
             assert vm.text().count('TLS CONTEXT PASS')==2
             print('PASS Linux/native scheduling: two concurrent TLS processes retain independent FS bases and waitable PIDs',flush=True)
             for command,marker in [('compat /home/js.elf /home/error.js','expected JavaScript error'),
-                                   ('compat /home/lua.elf /home/error.lua','expected Lua error')]:
+                                   ('compat /home/lua.elf /home/error.lua','expected Lua error'),
+                                   ('compat /home/python.elf /home/error.py','expected Python error'),
+                                   ('compat /home/python.elf /home/syntax.py','SyntaxError')]:
                 out=vm.send(command,'C:/ :: ',timeout=30)
                 assert marker in out and 'exited 1' in out
             out=vm.send('scatter compat /home/js.elf /home/loop.js','C:/ :: ',timeout=20)
@@ -80,8 +91,10 @@ def main():
                 vm.send('compat /home/runtime_check.elf','LINUX ABI C PASS',timeout=30)
                 vm.send('compat /home/lua.elf /home/world.lua','LUA RUNTIME PASS',timeout=30)
                 vm.send('compat /home/js.elf /home/world.js','JAVASCRIPT RUNTIME PASS',timeout=30)
+                vm.send('compat /home/python.elf /home/world.py','PYTHON RUNTIME PASS',timeout=30)
             after=free();assert before==after,(before,after)
             vm.send('unfold lua-world.txt','Lua persistence: 8064',timeout=20)
+            vm.send('unfold python-world.txt','Python persistence: 8064',timeout=20)
             vm.send('weave compat-survived.txt survived','C:/ :: ',timeout=20)
             vm.send('unfold compat-survived.txt','survived',timeout=20)
             assert vm.text().count('[isolate x64]')==1 and 'PANIC' not in vm.text()

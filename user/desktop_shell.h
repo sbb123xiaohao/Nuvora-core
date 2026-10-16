@@ -93,6 +93,11 @@ static inline void desktop_launcher_move(struct desktop_launcher *l,i32 step) {
 static inline struct desktop_rect desktop_apps_button(u32 sw) {
     return (struct desktop_rect){sw-244,11,114,24};
 }
+static inline struct desktop_rect desktop_home_rect(u32 sw,u32 sh,u32 index) {
+    u32 left=sw>=900?64:32,width=MIN(174u,(sw-2*left-24)/3);
+    u32 top=(u32)MAX(76,((i32)sh-360)/2)+(sh>=600?154:116);
+    return (struct desktop_rect){left+index*(width+12),top,width,78};
+}
 static inline void desktop_raise(u8 *order, u32 id) {
     for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) if (order[i]==id) {
         for (;i+1<DESKTOP_WINDOW_COUNT;++i) order[i]=order[i+1];

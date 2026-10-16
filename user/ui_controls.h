@@ -11,7 +11,7 @@ enum { UI_ICON_SEARCH, UI_ICON_HOME, UI_ICON_FOLDER, UI_ICON_DOCUMENT,
        UI_ICON_CLOSE, UI_ICON_NETWORK, UI_ICON_SPEAKER, UI_ICON_SHIELD,
        UI_ICON_SETTINGS, UI_ICON_PLAY, UI_ICON_PAUSE, UI_ICON_PREVIOUS,
        UI_ICON_NEXT, UI_ICON_REPEAT, UI_ICON_SHUFFLE, UI_ICON_MORE,
-       UI_ICON_CHECK, UI_ICON_COUNT };
+       UI_ICON_CHECK, UI_ICON_TERMINAL, UI_ICON_COUNT };
 
 /* Rounded strokes use signed coordinates so icons may be safely clipped at
  * window edges. Every tile visits the same coverage as a complete frame. */
@@ -94,6 +94,8 @@ static inline void ui_line_icon(struct nv_canvas *c,struct desktop_clip clip,
     case UI_ICON_SETTINGS:
         UI_SEG(5,4,5,20);UI_SEG(12,4,12,20);UI_SEG(19,4,19,20);
         UI_SEG(2,8,8,8);UI_SEG(9,16,15,16);UI_SEG(16,10,22,10);break;
+    case UI_ICON_TERMINAL:
+        UI_SEG(4,6,10,12);UI_SEG(10,12,4,18);UI_SEG(13,18,21,18);break;
     case UI_ICON_PLAY:
         UI_SEG(7,3,7,21);UI_SEG(7,21,21,12);UI_SEG(21,12,7,3);break;
     case UI_ICON_PAUSE:

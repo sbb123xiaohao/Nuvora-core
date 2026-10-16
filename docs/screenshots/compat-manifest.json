@@ -1,11 +1,12 @@
 {
   "capture": "production UEFI / q35 / 256 MiB / AHCI / USB keyboard",
-  "kernel_sha256": "a20fabea0a21bced16a1ddff70b9d424a9e132ab3aa79c659e4891760d70077f",
-  "esp_sha256": "afd416d7d12bebc8cc7bdaf221a743c0821ba498a73e8ea70682a9c193d99c87",
+  "kernel_sha256": "a69f80e6217b251b0ce509cd8d4f4df62889109ba9b8f9763adee1412169ebd4",
+  "esp_sha256": "1571d322682fd5667b290098221560b362a2f956f7e42cc1eb0efcc4ca236b2b",
   "runtime_elfs": {
     "js.elf": "517cdf1af185d6a982c0743e48d9545f7419a806af131ce0d1a4adbcee93773b",
     "language.elf": "1528cdb2411f24f9748e49294b9c8a2b78944bce25b882f5de4dd9719f99afa4",
     "lua.elf": "19af546c546c33d583d3a8ba7b4db85158e6f48fc385f6384aad9a0f93916a96",
+    "python.elf": "ef066f4999ed11a96b2f5f5e7212e3cfb92f07354924140471702f3dd936246f",
     "runtime_check.elf": "5157515972aaabcf4ae2b18f6de961e56567988ecc844c5bb5d063c722012b2b"
   },
   "screenshots": [
@@ -13,7 +14,7 @@
       "file": "compat-runtime.png",
       "width": 1280,
       "height": 800,
-      "sha256": "34bde2771f904811adcdb9900ff0c8dae5f1e1476675edddc1740e5250c64a8b",
+      "sha256": "efea4b6792c315c9530474eb9d6eec145b1d4e86e713ebab279642c59faf1fe9",
       "commands": [
         "compat /home/runtime_check.elf \"two words\" \"\"",
         "compat /home/runtime_check.elf private"
@@ -23,15 +24,26 @@
       "file": "compat-languages.png",
       "width": 1280,
       "height": 800,
-      "sha256": "04c7f1e135a2d5b63162984a67cc3559f5f938f788881f654b0c9201e3e2768e",
+      "sha256": "8e1a30fed8984556d7d8855b61940ab02c5edb9ddd2d78221af36120cd89c636",
       "commands": [
         "compat /home/language.elf",
         "compat /home/lua.elf /home/world.lua \"hello world\"",
         "compat /home/js.elf /home/world.js \"hello world\""
       ]
+    },
+    {
+      "file": "compat-python.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "b0d33354d9f8f46ba6c32c5a056f7c90ef0beb279e058d6edea9550b4be84598",
+      "commands": [
+        "compat /home/python.elf /home/world.py \"hello world\"",
+        "compat /home/python.elf /home/privacy.py"
+      ]
     }
   ],
   "protected_account_database_unchanged": true,
   "uid_from_actual_process": 1000,
-  "note": "Real musl/C++ core/Lua/QuickJS on Nuvora. Minecraft and OpenJDK are not running."
+  "python_private_open_and_stat_denied": true,
+  "note": "Real musl/C++ core/Lua/QuickJS/MicroPython on Nuvora. Minecraft and OpenJDK are not running."
 }

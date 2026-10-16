@@ -603,16 +603,25 @@ int fs_seek(struct task *t, int fd, i32 offset, u32 origin) {
     if (io.position > 0x7fffffffu) { t->fd[fd].offset = old; return -NV_E2BIG; }
     return (int)io.position;
 }
-int fs_stat64(struct task *t, int fd, struct nv_stat64 *out) {
-    if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0) return -NV_EBADF;
+static int fs_stat_node64(struct task *t,int node,struct nv_stat64 *out) {
     char path[NV_PATH_MAX];
-    if (fs_path(t->fd[fd].node,path,sizeof(path))<0 || !account_path_allowed(t,path,0)) return -NV_EACCESS;
-    struct node *n = &nodes[t->fd[fd].node];
+    if (fs_path(node,path,sizeof(path))<0 || !account_path_allowed(t,path,0)) return -NV_EACCESS;
+    struct node *n = &nodes[node];
     *out = (struct nv_stat64){.size = n->size, .kind = n->kind};
     for (struct file_extent *e = n->extents; e; e = e->next) out->allocated += e->blocks * PAGE;
     if (n->data) out->allocated += n->capacity;
     for (u32 i = 0; i < n->page_count; ++i) if (n->pages[i]) out->allocated += PAGE;
     return 0;
+}
+int fs_stat64(struct task *t,int fd,struct nv_stat64 *out) {
+    if (fd<3 || fd>=NV_OPEN_MAX || t->fd[fd].node<0) return -NV_EBADF;
+    return fs_stat_node64(t,t->fd[fd].node,out);
+}
+int fs_stat_path64(struct task *t,const char *path,struct nv_stat64 *out) {
+    int r=fs_authorize(t,t->cwd,path,0);
+    if (r<0) return r;
+    int node=fs_lookup(t->cwd,path);
+    return node<0?node:fs_stat_node64(t,node,out);
 }
 int fs_list64(int cwd, const char *path, u32 index, struct nv_dirent64 *out) {
     int p = fs_lookup(cwd, path);

@@ -26,7 +26,10 @@ def main():
         private=pathlib.Path(directory);disk,esp,media=private/'data.img',private/'esp.img',private/'boot.img'
         create(disk,size_mib=128,partitions=1)
         fixtures=qemu.ROOT/'tests/fixtures/compat'
-        import_files(disk,[*sorted(fixtures.glob('*.elf')),qemu.ROOT/'examples/compat/world.lua',qemu.ROOT/'examples/compat/world.js'])
+        privacy=private/'privacy.py'
+        privacy.write_text('import os\nfor action in (lambda: open("/home/.system/accounts.db"), lambda: os.stat("/home/.system/accounts.db")):\n    try:\n        action()\n    except OSError as error:\n        assert error.args[0] == 13\n    else:\n        raise AssertionError("private account data exposed")\nwith open("python-privacy.txt", "w") as stream:\n    stream.write("PYTHON PRIVATE ACCESS DENIED\\n")\nprint("PYTHON PRIVATE ACCESS DENIED")\n')
+        scripts=qemu.ROOT/'examples/compat'
+        import_files(disk,[*sorted(fixtures.glob('*.elf')),*[scripts/name for name in ('world.lua','world.js','world.py','terrain.py')],privacy])
         shutil.copyfile(qemu.BUILD/'esp.img',esp);create_media(esp,media)
         original=qemu.BUILD
         try:
@@ -66,18 +69,23 @@ def main():
                                     'commands':commands.strip().splitlines()})
                 capture('compat-runtime','compat /home/runtime_check.elf "two words" ""\ncompat /home/runtime_check.elf private\n')
                 capture('compat-languages','compat /home/language.elf\ncompat /home/lua.elf /home/world.lua "hello world"\ncompat /home/js.elf /home/world.js "hello world"\n')
+                capture('compat-python','compat /home/python.elf /home/world.py "hello world"\ncompat /home/python.elf /home/privacy.py\n')
                 type_command(monitor,'weave compat-finished.txt finished\nanchor\n')
                 wait_saved_file(monitor,disk,'/home/users/tester/lua-world.txt',b'Lua persistence: 8064\n',timeout=20)
+                wait_saved_file(monitor,disk,'/home/users/tester/python-world.txt',b'Python persistence: 8064\n',timeout=20)
+                wait_saved_file(monitor,disk,'/home/users/tester/python-privacy.txt',b'PYTHON PRIVATE ACCESS DENIED\n',timeout=20)
+                assert before==account_digest(),'Python changed protected account data'
                 wait_saved_file(monitor,disk,'/home/users/tester/compat-finished.txt',b'finished\n',timeout=20)
                 text=serial.read_text(errors='replace');assert 'PANIC' not in text and '[isolate' not in text and 'PROBE RESULT:' not in text
                 manifest={'capture':'production UEFI / q35 / 256 MiB / AHCI / USB keyboard',
                           'kernel_sha256':digest(qemu.BUILD/'nuvora-uefi.elf'),'esp_sha256':digest(qemu.BUILD/'esp.img'),
                           'runtime_elfs':{p.name:digest(p) for p in sorted(fixtures.glob('*.elf'))},'screenshots':records,
                           'protected_account_database_unchanged':True,'uid_from_actual_process':1000,
-                          'note':'Real musl/C++ core/Lua/QuickJS on Nuvora. Minecraft and OpenJDK are not running.'}
+                          'python_private_open_and_stat_denied':True,
+                          'note':'Real musl/C++ core/Lua/QuickJS/MicroPython on Nuvora. Minecraft and OpenJDK are not running.'}
                 (output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
                 print('PASS production compatibility: inherited uid=1000, protected database denied/unchanged, native file writes and Lua persistence',flush=True)
-                print('CAPTURE compat-runtime.png + compat-languages.png: actual framebuffer, original PPM retained',flush=True)
+                print('CAPTURE compat-runtime.png + compat-languages.png + compat-python.png: actual framebuffer, original PPM retained',flush=True)
             finally:
                 if process.poll() is None:
                     process.terminate()

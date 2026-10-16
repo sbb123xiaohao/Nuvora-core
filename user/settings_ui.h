@@ -130,7 +130,7 @@ static void desktop_settings_render(struct nv_canvas *c,struct desktop_clip clip
     if (tab==SETTINGS_APPEARANCE) {
         settings_card(c,clip,dx,y+114*s,g.width,84,s);
         desktop_bold_text(c,clip,dx+16*s,y+127*s,"Wallpaper",9,s,UI_TEXT);
-        buttons[0]="Aurora";buttons[1]="Ocean";buttons[2]="Dusk";
+        buttons[0]="Tide";buttons[1]="Glacier";buttons[2]="Ember";
         settings_card(c,clip,dx,y+218*s,g.width,154,s);
         desktop_bold_text(c,clip,dx+16*s,y+234*s,"File browser",12,s,UI_TEXT);
         buttons[3]="Space cards";buttons[4]="Compact list";

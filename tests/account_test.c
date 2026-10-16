@@ -120,6 +120,10 @@ int main(void) {
     assert(fs_open(current,ACCOUNT_DATABASE,NV_READ)==-NV_EACCESS);
     assert(fs_open(current,"C:/.system/accounts.db",NV_READ)==-NV_EACCESS);
     assert(fs_open(current,"/home/users/alice/../../.system/accounts.db",NV_READ)==-NV_EACCESS);
+    struct nv_stat64 path_stat={.size=0x12345678};
+    assert(fs_stat_path64(current,ACCOUNT_DATABASE,&path_stat)==-NV_EACCESS && path_stat.size==0x12345678);
+    assert(fs_stat_path64(current,"C:/.system/accounts.db",&path_stat)==-NV_EACCESS);
+    assert(!fs_stat_path64(current,"/home/users/alice",&path_stat) && path_stat.kind==NV_DIR);
     assert(fs_authorize(current,0,"C:/.system",2)==-NV_EACCESS);
     assert(run(NV_ACCOUNT_SETUP,&admin)==-NV_EACCESS);
     struct nv_account_request bob=credentials("bob","another long password");assert(!run(NV_ACCOUNT_ADD,&bob));
@@ -177,6 +181,8 @@ int main(void) {
     assert(!account_admin_allowed(current) && account_session_allowed(current));
     assert(fs_open(current,"/home/users/alice",NV_READ)==-NV_EACCESS);
     assert(fs_authorize(current,0,"/home/users/bob/../alice/private",1)==-NV_EACCESS);
+    assert(fs_stat_path64(current,"/home/users/bob/../alice",&path_stat)==-NV_EACCESS);
+    assert(!fs_stat_path64(current,"/home/users/bob",&path_stat) && path_stat.kind==NV_DIR);
     assert(fs_authorize(current,0,"/home/users/bob/own",1)==0);
     assert(fs_authorize(current,0,"/home/users",1)==-NV_EACCESS);
     edit=(struct nv_account_request){.uid=1001};strlcpy(edit.display_name,"Bob",64);

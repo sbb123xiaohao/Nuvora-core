@@ -1,0 +1,109 @@
+Nuvora / native workspace and MicroPython verification
+Baseline: 42fdc757bdd7abc84a3f23b460649864e4a1c0cb (local and remote main matched before editing).
+OS build: Arch GCC 16.2.1 20260810; QEMU 11.1.1; OVMF. Production UEFI and diagnostic images are separate.
+External static PIE fixtures: GCC 14.2.0; musl 1.2.5, Lua 5.4.8, QuickJS 2025-09-13 and MicroPython 1.26.1.
+MicroPython uses unmodified upstream sources and the checked-in Nuvora Unix variant, with native emitters/FFI/threads/socket disabled.
+All rebuilt fixture binaries, manifests and licenses match the delivered fixture directory byte for byte.
+
+[Complete host suite]
+ALL 50 HOST REGRESSION GROUPS PASSED (including Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, static PIE/RELRO, editor large-file/error handling and failed-save protection, account commit/lock races, session client suspension, lock input/display revocation, random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)
+
+[Native compositor / AddressSanitizer + UBSan]
+PASS display: tiled compositor, windows, controls, menu and editor dialog
+All tested scale/pixel-format/tile combinations and guarded buffers passed, including new home hit regions and HiDPI headings.
+
+[Linux path core / AddressSanitizer + UBSan]
+PASS Linux VMA: allocation rollback, split/reuse, R/RW/RX permissions, W+X denial and supervisor rejection
+PASS Linux quotas: 32 mappings, split failure is atomic, fixed mappings rejected and byte brk rollback
+PASS Linux ABI: native process gate, errno translation, wide descriptor/pointer checks, FS-base isolation, random errors and closed stdio
+PASS Linux path metadata: stat/lstat/fstatat, exact ABI fields, denied/missing paths, readlink semantics and invalid pointers/flags
+Native account regressions passed for protected account metadata, alternate paths and other users homes.
+
+[Independent actual runtime output]
+language: 44 stdout bytes identical in real Linux ELF reference and Nuvora guest.
+lua: 119 stdout bytes identical in real Linux ELF reference and Nuvora guest.
+js: 133 stdout bytes identical in real Linux ELF reference and Nuvora guest.
+python: 160 stdout bytes identical in real Linux ELF reference and Nuvora guest.
+MicroPython and CPython stdout and persisted file bytes are identical.
+
+[64 MiB BIOS guest]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-compat-99o0osif/data.img
+PASS real musl C: TLS, allocation, mmap split/protection, errno, bounds, clocks, descriptors and file I/O
+PASS real lua engine: parser, objects, GC, exceptions and floating point
+PASS real js engine: parser, objects, GC, exceptions and floating point
+PASS real MicroPython: module import, inheritance, generators, Unicode, big integers, math, JSON/regex, GC, files and bounded heap
+PASS Linux/native scheduling: two concurrent TLS processes retain independent FS bases and waitable PIDs
+PASS language exceptions and shell cancellation of the actual compatibility process
+PASS malformed/dynamic ELF rejection, isolated user fault, native Java/PIE recovery and exact reclamation: 40752/40752 KiB
+LINUX RUNTIME GUEST TEST PASSED
+Independent serial counts: C=4, C++=1, Lua=4, JS=4, Python=4, TLS=2, expected isolated page fault=1.
+Python: adjacent module import, classes/inheritance, comprehensions/generators, UTF-8, MPZ, double/libm, JSON/regex, array/struct, GC, files/stat, MemoryError, syntax and uncaught exception exits.
+
+[UEFI removable media / 64 MiB]
+Created UEFI system partition image: build/x86_64/esp.img
+Created UEFI GPT boot image: /tmp/nuvora-removable-hxo9s92d/boot.img (66 MiB)
+PASS removable UEFI GPT/FAT32 (64 MiB): BOOTX64.EFI, USB xHCI and 153 native/legacy Ring 3 assertions; QEMU exit 33
+
+[BIOS CPU/memory checks]
+PASS BIOS 32 MiB / max: 153 assertions, real SYSCALL native gate and IRET return
+PASS BIOS 64 MiB / core2duo: 153 assertions, real SYSCALL native gate and IRET return
+
+[Existing Java regression]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-java-guest-qksvxpoj/data.img
+PASS Ring 3: java --demo "two words"
+PASS Ring 3: java "/home/Java Demo.class" "two words"
+PASS Ring 3: forge java "/home/Java Demo.class" "two words"
+PASS isolated guest failure: bounds -> ArrayIndexOutOfBoundsException
+PASS isolated guest failure: null -> NullPointerException
+PASS isolated guest failure: memory -> Java array exceeds arena
+PASS isolated guest failure: recursive -> Java call-depth limit
+PASS isolated guest failure: forever -> Java instruction budget exhausted
+PASS isolated guest failure: library -> Java library method is not implemented
+PASS Ring 3 multi-class: java /home/MultiMain.class "two words" ""
+PASS Ring 3 multi-class: java -cp /home MultiMain "two words" ""
+PASS Ring 3 multi-class: forge java --class-path /home MultiMain "two words" ""
+PASS packaged classpath: pkg.Entry -> pkg.Value from real nested files
+PASS multi-class guest failure: store -> ArrayStoreException
+PASS multi-class guest failure: cast -> ClassCastException
+PASS multi-class guest failure: missing -> Class not found or unreadable
+PASS multi-class guest failure: init-fail -> ArithmeticException
+PASS Java guest exit reclamation, multi-class reclamation, malformed/JAR rejection, shell and filesystem recovery
+JAVA21 GUEST DISK TEST PASSED
+
+[Actual production workspace interactions and captures]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-screenshots-bjcr_6ft/data.img
+Created UEFI GPT boot image: /tmp/nuvora-screenshots-bjcr_6ft/boot.img (66 MiB)
+CAPTURE desktop.png: 1280x800
+PASS workspace cards: real Files, Settings and Terminal pointer launch, native file persisted
+CAPTURE apps.png: 1280x800
+CAPTURE volume.png: 1280x800
+PASS shelf volume popup: title retained, live slider drag/saturation and transparent-corner dismissal
+CAPTURE files.png: 1280x800
+CAPTURE notification.png: 1280x800
+PASS real desktop notification expires
+CAPTURE files-terminal.png: 1280x800
+CAPTURE files-editor.png: 1280x800
+CAPTURE settings.png: 1280x800
+CAPTURE settings-sound.png: 1280x800
+CAPTURE settings-network.png: 1280x800
+CAPTURE music.png: 1280x800
+PASS production captures: Files search/open/save, Music pause/next/previous/minimize/restore/close, live HDA waveform and shared volume, Settings DHCP
+
+[Actual production language processes and isolation]
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-compat-desktop-etb5c44n/data.img
+Created UEFI GPT boot image: /tmp/nuvora-compat-desktop-etb5c44n/boot.img (66 MiB)
+PASS production compatibility: inherited uid=1000, protected database denied/unchanged, native file writes and Lua persistence
+CAPTURE compat-runtime.png + compat-languages.png + compat-python.png: actual framebuffer, original PPM retained
+Actual Python open and os.stat of protected account database returned EACCES, the database digest stayed unchanged and Python output/proof files persisted.
+All 14 PNG captures independently decoded against original QMP PPM: exact 1280x800 RGB pixel equality; README references every captured image.
+Production kernel SHA256: a69f80e6217b251b0ce509cd8d4f4df62889109ba9b8f9763adee1412169ebd4
+Production ESP SHA256: 1571d322682fd5667b290098221560b362a2f956f7e42cc1eb0efcc4ca236b2b
+Native desktop ELF SHA256: a91142077dc96aecc500d74e99b3a3379083ff55a49c67c3462974660aa3bdd9
+Runtime fixture SHA256: {"js.elf": "517cdf1af185d6a982c0743e48d9545f7419a806af131ce0d1a4adbcee93773b", "language.elf": "1528cdb2411f24f9748e49294b9c8a2b78944bce25b882f5de4dd9719f99afa4", "lua.elf": "19af546c546c33d583d3a8ba7b4db85158e6f48fc385f6384aad9a0f93916a96", "python.elf": "ef066f4999ed11a96b2f5f5e7212e3cfb92f07354924140471702f3dd936246f", "runtime_check.elf": "5157515972aaabcf4ae2b18f6de961e56567988ecc844c5bb5d063c722012b2b"}
+Screenshot SHA256: {"apps.png": "cf7764218594cce3c2024d2fd4bd8261b9a005a8def8fab8d826779dca9e7684", "compat-languages.png": "8e1a30fed8984556d7d8855b61940ab02c5edb9ddd2d78221af36120cd89c636", "compat-python.png": "b0d33354d9f8f46ba6c32c5a056f7c90ef0beb279e058d6edea9550b4be84598", "compat-runtime.png": "efea4b6792c315c9530474eb9d6eec145b1d4e86e713ebab279642c59faf1fe9", "desktop.png": "c909a585245e4e01b537ffb11eb22bee78c3f408104c6f7f518b50f871476a0c", "files-editor.png": "0fcf46ee0da4679906ef3f2f910a3c9a82351c459b911de2743735f736209b1c", "files-terminal.png": "9f721d42f56a09679562c4087d5eab0f6d0c3da4f2a28b9b8f8a66d42e9b8a03", "files.png": "f5b9a0aef0da8bc37fc02ef374a123241c770f5e3bda001d2d85356949dee853", "music.png": "c5b4c48bb47de4edc52e57c9d50b40ae3b0362186fcac5caf04abf76a136730d", "notification.png": "6ff0d2f961ff58d8155e95fd8ef5426bfe92c33893e72caa49dffe6f0fde1f21", "settings-network.png": "739a3d508d5e27fca90a62cfb89f2ff89616528638c9ab1dfd9226bb270e7e89", "settings-sound.png": "f6cbae6d81d46800d141b0d64ad8a135dc8c0ae50e574a26344793aa4a4c87e4", "settings.png": "5ad1628f383d77c7a11ffb7c588927ac4870b06370470da6b4282d051fa3e3fc", "volume.png": "a35994cd4e8f23200ba9605c98ad17aeeddfede6fb11c3a0402a7877ffa0dd73"}
+All 276 current source/build/test/fixture paths match final tested copy byte for byte.
+Tested source fingerprint SHA256: 6fb169da89d443e0d3b33aaeede59eeea5913c0be0480f18745205b659b740ae
+GCC 14 freestanding general-register-only largest Linux C stack frame remains 880 bytes; kernel stack is 16 KiB.
+
+Limits: MicroPython is not CPython/pip or desktop Python library compatibility; no Linux directory enumeration/chdir/mkdir/rename/unlink, threads, signals, dynamic loader, JNI/LWJGL/OpenGL or complete POSIX.
+No OpenJDK/Minecraft execution, world entry, game FPS measurement, Java TCK or physical hardware certification was performed.
