@@ -8,6 +8,18 @@ Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动�
 
 Files 提供文件卡片、搜索、排序和详情；Music 提供真实播放列表与共享音量；设置包含外观、声音、网络、安全和系统五页。浮动窗口统一裁剪四角，透明角落可点击后方窗口，最大化和平铺使用直角。内核继续执行账户隔离、自动锁屏和管理员权限；行为与准确边界见[桌面与安全](docs/DESKTOP-SECURITY.md)。
 
+Terminal 现在随窗口宽高调整字符行列，最大化、半屏和还原会重排已有输出，
+保持字号和输入位置。最大化使用整个工作区，底部应用栏保留；旧原生应用的
+80×25 字符接口保持兼容。以下是 1920×1080 正式系统的实际截图：
+
+![Nuvora Terminal 最大化，内容随窗口分辨率铺开](docs/screenshots/terminal-1920x1080.png)
+
+QEMU 可指定客体分辨率并全屏启动，例如
+`python3 start.py --uefi --fullscreen --resolution 1920x1080`。
+Windows 使用 `./start.ps1 run -Uefi -Fullscreen -Resolution 1920x1080`。
+分辨率在启动时确定；运行中拖动模拟器外层窗口尚不会切换客体显示模式。
+多分辨率验证与重拍步骤见[测试说明](docs/TESTING.md)。
+
 保留 0.14.0 的原生 64 位 ABI：代码、栈、堆及图形/音频缓冲可使用 4 GiB 以上地址，兼容旧 ABI 1 ELF64 二进制。实体 PC 使用 FAT32 UEFI 启动介质、GOP 模式回退、按设备能力选择的 DMA 地址及 ACPI 电源路径；本版修正 UEFI ACPI 1.0 表 GUID，并优先选择 ACPI 2.0。上机步骤与准确边界见[实体机与 64 位说明](docs/NATIVE64-HARDWARE.md)。
 
 ## 桌面语言与 Minecraft 兼容路线

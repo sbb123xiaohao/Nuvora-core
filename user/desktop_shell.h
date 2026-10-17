@@ -2,6 +2,7 @@
 #define NV_DESKTOP_SHELL_H
 #include <nv/abi.h>
 #include <nv/string.h>
+#include <nv/terminal.h>
 
 enum { DESKTOP_FILES, DESKTOP_EDITOR, DESKTOP_TERMINAL, DESKTOP_MEDIA,
        DESKTOP_ACCOUNTS, DESKTOP_SETTINGS, DESKTOP_CLIENT_FIRST,
@@ -18,6 +19,7 @@ struct desktop_window {
     u32 client, pid, generation, pixel_width, pixel_height;
     const u32 *pixels;
     const struct nv_surface *text;
+    const struct nv_terminal_view *grid;
     char title[64];
 };
 struct desktop_rect { u32 x, y, w, h; };

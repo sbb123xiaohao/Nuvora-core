@@ -7,9 +7,14 @@ import subprocess
 import sys
 
 root = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(root / 'scripts'))
+from qemu import display_resolution
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--arch', choices=['x86_64', 'aarch64'], default='x86_64')
 parser.add_argument('--window', action='store_true', help='Use a graphics window with virtual USB input')
+parser.add_argument('--fullscreen', action='store_true', help='Start fullscreen (implies --window)')
+parser.add_argument('--resolution', type=display_resolution, metavar='WIDTHxHEIGHT',
+                    help='Preferred UEFI mode, for example 1920x1080')
 parser.add_argument('--audio', action='store_true', help='Attach Intel HDA audio (x86-64 only)')
 parser.add_argument('--uefi', action='store_true', help='Boot via the UEFI stub (x86_64 only; needs OVMF and mtools-built ESP)')
 parser.add_argument('--no-usb', action='store_true', help='Boot without virtual USB devices')
@@ -24,10 +29,13 @@ parser.add_argument('--disk-bus', choices=['ide', 'ahci', 'nvme'], default='ide'
 parser.add_argument('--network', action='store_true', help='Attach an Intel e1000e virtual NIC with QEMU user networking')
 parser.add_argument('--no-ecam', action='store_true', help='Disable PCIe ECAM and use CF8/CFC fallback')
 args = parser.parse_args()
+args.window = args.window or args.fullscreen
 if args.memory < 32:
     parser.error('--memory must be at least 32 MiB')
 if args.uefi and args.arch != 'x86_64':
     parser.error('UEFI boot is only implemented for x86_64')
+if args.resolution and not args.uefi:
+    parser.error('--resolution requires --uefi')
 if args.arch == 'aarch64':
     if (args.window or args.audio or args.no_ecam or args.machine != 'pc' or args.cpu or
             args.disk_size not in (64, 512, 8192) or args.partitions != 1 or
@@ -50,6 +58,10 @@ if args.cpu:
     cmd += ['--cpu', args.cpu]
 if args.window:
     cmd.append('--window')
+if args.fullscreen:
+    cmd.append('--fullscreen')
+if args.resolution:
+    cmd += ['--resolution', args.resolution]
 if args.audio:
     cmd.append('--audio')
 if args.disk_bus != 'ide':

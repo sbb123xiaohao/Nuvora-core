@@ -1,11 +1,11 @@
 {
   "capture": "production UEFI / q35 / 512 MiB / NVMe / USB keyboard / authenticated Terminal",
-  "kernel_sha256": "88de84c59fe2384263ed03db66e03c683e0ec32e7ea5e105d8146f905171f70e",
-  "esp_sha256": "ce8d9ad41f5262e7653423881a8fa9da690860f89f4167b23954d884c066cad8",
+  "kernel_sha256": "ce048b91e530c25eb91e2f929ad728dc8649fa275b3924b232f2c7c3978b1579",
+  "esp_sha256": "d67c8984f5b5cd782a27c42a1facebb705d26614a2527d39d015454b97487ffd",
   "file": "openjdk21.png",
   "width": 1280,
   "height": 800,
-  "sha256": "05ae00967c0c5f4e955d9a88614f820dbb8b25cd51121b158b419c1d5ab11781",
+  "sha256": "70a1c01330aeba13fa7fe4a2db1e940b2e5f54908fcc6e83ac78650f41824fc1",
   "commands": [
     "compat --trace --jit /home/jdk/bin/java @/home/java-private.args"
   ],

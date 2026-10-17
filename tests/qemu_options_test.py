@@ -87,6 +87,17 @@ def main():
             esp = root / 'esp.img'
             esp.touch()
             with mock.patch.object(qemu, 'qemu_binary', return_value='/bin/true'):
+                assert qemu.display_resolution('1920X1080') == '1920x1080'
+                cmd = qemu.command(resolution='1920x1080')
+                assert 'VGA,xres=1920,yres=1080,vgamem_mb=64' in cmd and '-vga' in cmd
+                for invalid in ('640x479', '639x480', '8192x8192', '0x0',
+                                '1920,foo=barx1080', '1920x1080\n', '1920.0x1080'):
+                    try:
+                        qemu.command(resolution=invalid)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError('Invalid display mode accepted: '+repr(invalid))
                 for bus in ('ide', 'ahci', 'nvme'):
                     cmd = qemu.command(disk=disk, esp=esp, disk_bus=bus)
                     assert ('ich9-ahci,id=nuvora_sata' in cmd) == (bus == 'ahci')

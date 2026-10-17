@@ -1,12 +1,24 @@
 """Shared QEMU invocation. Environment overrides allow an ordinary local install."""
 import os
 import pathlib
+import re
 import shutil
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARCH = os.environ.get('NV_ARCH', 'x86_64')
 BUILD = ROOT / 'build' / ARCH
+
+
+def display_resolution(value):
+    """Validate a bounded preferred VGA/EDID mode before constructing options."""
+    match = re.fullmatch(r'([0-9]{3,4})[xX]([0-9]{3,4})', value)
+    if not match:
+        raise ValueError('resolution must be WIDTHxHEIGHT, for example 1920x1080')
+    width, height = map(int, match.groups())
+    if not (640 <= width <= 4096 and 480 <= height <= 2160):
+        raise ValueError('resolution must be between 640x480 and 4096x2160')
+    return f'{width}x{height}'
 
 OVMF_CODE_FILES = ('OVMF_CODE_4M.fd', 'OVMF_CODE.4m.fd', 'OVMF_CODE.fd', 'edk2-x86_64-code.fd')
 OVMF_COMBINED_FILES = ('OVMF.fd', 'OVMF.4m.fd')
@@ -89,7 +101,7 @@ def firmware_arguments(firmware):
 
 
 def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,
-            disk_bus='ide', diagnostics=False):
+            disk_bus='ide', diagnostics=False, resolution=None):
     if disk_bus not in ('ide', 'ahci', 'nvme'):
         raise ValueError(f'Unsupported data-disk bus: {disk_bus}')
     binary = qemu_binary()
@@ -97,6 +109,9 @@ def command(memory=64, disk=None, cpu=None, machine='pc', kernel=True, esp=None,
         raise RuntimeError('Install qemu-system-x86 (Debian/Ubuntu) or qemu-system-x86 (Arch).')
     cmd = [binary, '-accel', 'tcg', '-machine', machine, '-cpu', cpu or 'max',
            '-m', str(memory), '-smp', '1', '-nic', 'none']
+    if resolution is not None:
+        width, height = display_resolution(resolution).split('x')
+        cmd += ['-vga', 'none', '-device', f'VGA,xres={width},yres={height},vgamem_mb=64']
     if kernel:
         cmd += ['-kernel', str(BUILD / ('boot-test.elf' if diagnostics else 'boot.elf'))]
     if os.environ.get('NV_QEMU_DATA'):

@@ -1,0 +1,12 @@
+PASS production and diagnostic builds, no stale source/kernel/ESP
+PASS 53 host regression groups with UBSan
+PASS responsive Terminal host checks with ASan/UBSan
+PASS 640x480, 1280x800 and 1920x1080 production UEFI/q35/256 MiB/NVMe/USB desktops
+PASS maximized content/glyph bounds, half-screen/floating/maximize exact content restoration, USB input and file persistence
+PASS nine source captures verified against original PPM RGB bytes
+PASS same production kernel: real OpenJDK 21 JAR, threads/NIO/crypto/GC, native shell recovery and unchanged private account database
+PASS OpenJDK screenshot verified against original PPM RGB bytes
+PASS 32/256 MiB BIOS, 64 MiB core2duo, fragmented 32 MiB heap, UEFI save/reload and native trial
+LIMIT TCG SSE #XM delivery: one explicit SKIP per native probe
+LIMIT mode selected at boot; resizing the host QEMU window does not switch the guest mode
+LIMIT Folio retains its 80x25 document model; Minecraft is not running

@@ -16,8 +16,13 @@ static bool console_owned(u32 pid) { return pid == 2; }
 static bool interactive=true;
 static bool account_interactive_allowed(const struct task *t) { (void)t;return interactive; }
 static bool account_session_allowed(const struct task *t) { (void)t;return interactive; }
-static void *kmalloc(usize n) { return malloc(n); }
-static void kfree(void *p) { free(p); }
+static u32 heap_allocations, heap_fail_after=~0u;
+static void *kmalloc(usize n) {
+    if (!heap_fail_after) return NULL;
+    --heap_fail_after;
+    void *p=malloc(n); if (p) ++heap_allocations; return p;
+}
+static void kfree(void *p) { if (p) { assert(heap_allocations); --heap_allocations; free(p); } }
 static uptr page_alloc(void) {
     if (!fail_after) return 0;
     --fail_after;
@@ -51,6 +56,84 @@ static void frame(u32 id, u32 serial, u32 width, u32 height, u32 value) {
         .stride=width*4,.pixels=(uptr)data};
     assert(io(NV_WINDOW_UPLOAD64,&p,sizeof(p))==0);
     struct nv_window_id c={id}; assert(io(NV_WINDOW_COMMIT,&c,sizeof(c))==0);
+}
+static void responsive_terminal(void) {
+    use(1); u32 id=create("Responsive Terminal",1278,715);
+    struct nv_window_terminal bind={id,0};
+    assert(io(NV_WINDOW_BIND_TERMINAL,&bind,sizeof(bind))==-NV_EINVAL);
+    bind.scale=2;
+    heap_fail_after=0;
+    assert(io(NV_WINDOW_BIND_TERMINAL,&bind,sizeof(bind))==-NV_ENOMEM && !heap_allocations);
+    heap_fail_after=1;
+    assert(io(NV_WINDOW_BIND_TERMINAL,&bind,sizeof(bind))==-NV_ENOMEM && !heap_allocations);
+    heap_fail_after=~0u;
+    assert(io(NV_WINDOW_BIND_TERMINAL,&bind,sizeof(bind))==0);
+    assert(io(NV_WINDOW_BIND_TERMINAL,&bind,sizeof(bind))==-NV_EBUSY);
+    struct native_window *w=window_find(id); struct window_terminal *t=w->terminal;
+    assert(t->columns==104 && t->rows==28);
+    assert(window_stdio_write(&tasks[2],"header\n",7)==7);
+    char line[180]; for (u32 i=0;i<sizeof(line);++i) line[i]=(char)('a'+i%26);
+    assert(window_stdio_write(&tasks[2],line,sizeof(line))==sizeof(line));
+    assert(w->row==2 && w->column==76 && (t->cells[104+90]&255)==line[90]);
+    struct nv_window_grid q={.id=id,.generation=w->generation};
+    assert(io(NV_WINDOW_GRID_READ,&q,sizeof(q))==-NV_EACCESS);
+    use(0); assert(io(NV_WINDOW_GRID_READ,&q,sizeof(q))==0);
+    q=*(struct nv_window_grid *)user;
+    assert(q.columns==104 && q.rows==28 && q.scale==2 && q.cursor==284);
+    q.capacity=NV_TERMINAL_MAX_CELLS; q.cells=(uptr)(user+8192);
+    assert(io(NV_WINDOW_GRID_READ,&q,sizeof(q))==0);
+    u16 original[104*28]; memcpy(original,user+8192,sizeof(original));
+    q.capacity=1; assert(io(NV_WINDOW_GRID_READ,&q,sizeof(q))==-NV_E2BIG);
+    q.capacity=NV_TERMINAL_MAX_CELLS; q.cells=1;
+    assert(io(NV_WINDOW_GRID_READ,&q,sizeof(q))==-NV_EFAULT);
+    q.cells=(uptr)(user+8192); q.reserved=1;
+    assert(io(NV_WINDOW_GRID_READ,&q,sizeof(q))==-NV_EINVAL); q.reserved=0;
+    struct nv_window_configure cfg={id,638,715,3};
+    u16 *previous=t->cells; u32 generation=w->generation, serial=w->serial;
+    heap_fail_after=0;
+    assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==-NV_ENOMEM);
+    assert(w->width==1278 && w->generation==generation && w->serial==serial && t->cells==previous);
+    assert(!memcmp(t->cells,original,sizeof(original))); heap_fail_after=~0u;
+    assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    assert(t->columns==51 && t->rows==28 && w->row==4 && w->column==27);
+    assert((t->cells[51+50]&255)==line[50] && (t->cells[102]&255)==line[51]);
+    assert(io(NV_WINDOW_GRID_READ,&q,sizeof(q))==-NV_EAGAIN);
+    cfg.width=1278; assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    assert(!memcmp(t->cells,original,sizeof(original)) && w->row==2 && w->column==76);
+    struct nv_window_text legacy={.id=id,.generation=w->generation};
+    assert(io(NV_WINDOW_TEXT_READ,&legacy,sizeof(legacy))==0);
+    assert((((struct nv_window_text *)user)->surface.cells[80+50]&255)==line[50]);
+    assert(window_stdio_clear(&tasks[2])==0);
+    for (u32 i=0;i<104;++i) text_character(w,'x');
+    assert(w->row==0 && t->pending_wrap);
+    text_character(w,'\n'); assert(w->row==1 && !w->column); /* No extra blank line. */
+    assert(window_stdio_clear(&tasks[2])==0);
+    for (u32 i=0;i<105;++i) text_character(w,'a');
+    const char *erase="\b \b\b \b";
+    window_stdio_write(&tasks[2],erase,6);
+    assert(w->row==0 && w->column==103 && (t->cells[103]&255)==' ' && (t->cells[104]&255)==' ');
+    text_character(w,'Z'); cfg.width=638; assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    cfg.width=1278; assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    assert((t->cells[103]&255)=='Z' && w->row==0 && t->pending_wrap);
+    for (u32 i=0;i<100;++i) window_stdio_write(&tasks[2],"\nrow",4);
+    assert(w->row==t->rows-1 && w->column==3 && (t->cells[0]&255)=='r');
+    assert(window_stdio_clear(&tasks[2])==0);
+    for (u32 i=0;i<TERMINAL_HISTORY+17;++i) text_character(w,'q');
+    assert(t->used<=TERMINAL_HISTORY);
+    cfg.width=1916; cfg.height=910; assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    assert(t->columns==157 && t->rows==36 && (t->cells[(t->rows-1)*t->columns]&255)=='q');
+    assert(window_stdio_clear(&tasks[2])==0);
+    cfg.width=1;cfg.height=1;assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    assert(t->columns==1 && t->rows==1 && t->cells[0]==0x0720 && !t->used);
+    window_stdio_write(&tasks[2],"xy\b \bZ\n",7);
+    assert(w->row<t->rows && w->column<t->columns);
+    cfg.width=8192;cfg.height=8192;assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    assert(t->columns*t->rows<=NV_TERMINAL_MAX_CELLS);
+    assert(window_stdio_clear(&tasks[2])==0);
+    cfg.width=1278;cfg.height=715;assert(io(NV_WINDOW_CONFIGURE,&cfg,sizeof(cfg))==0);
+    for (u32 i=0;i<t->columns*t->rows;++i) assert(t->cells[i]==0x0720);
+    struct nv_window_id destroy={id};use(1);assert(io(NV_WINDOW_DESTROY,&destroy,sizeof(destroy))==0);
+    assert(!heap_allocations);
 }
 int main(int argc,char **argv) {
     user=mmap(NULL,2*NV_DISPLAY_MAX_COPY,PROT_READ|PROT_WRITE,
@@ -183,9 +266,12 @@ int main(int argc,char **argv) {
     assert(io(NV_WINDOW_POLL,&q,sizeof(q))==1 && ((struct nv_window_event *)user)->type==NV_WINDOW_EVENT_CONFIGURE);
     assert(io(NV_WINDOW_POLL,&q,sizeof(q))==1 && ((struct nv_window_event *)user)->type==NV_WINDOW_EVENT_FOCUS);
     assert(io(NV_WINDOW_POLL,&q,sizeof(q))==0);
+    c.id=terminal;assert(io(NV_WINDOW_DESTROY,&c,sizeof(c))==0);
+    responsive_terminal();
     window_task_release(2); assert(!allocations && !window_server && !window_find(terminal));
+    assert(!heap_allocations);
     use(1); assert(io(NV_WINDOW_POLL,&q,sizeof(q))==-NV_ENODEV);
     munmap(user,2*NV_DISPLAY_MAX_COPY);
-    puts("window: complete-frame publication, fragmented pages, stale snapshots/configures, allocation rollback, access control, locked input, input flushing with lifecycle retention, inherited terminal stdio and cleanup passed");
+    puts("window: complete frames, fragmented pages, stale snapshots, OOM rollback, access control, locked input, inherited stdio, responsive text reflow/erase/scroll, legacy projection and cleanup passed");
     return 0;
 }

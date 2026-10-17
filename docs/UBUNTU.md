@@ -16,6 +16,11 @@ python3 start.py --uefi --window --audio --network --disk-bus ahci --memory 1024
 修改内核后须重新运行 `make -j"$(nproc)" all && make esp`，再启动虚拟机；
 UEFI 固件从 `esp.img` 读取新生成的内核。BIOS 测试可去掉启动命令中的 `--uefi`。
 
+全屏可使用 `python3 start.py --uefi --fullscreen --resolution 1920x1080`，
+按宿主显示器选择宽高。`--fullscreen` 自动启用图形窗口；`--resolution` 设置
+虚拟 VGA 的首选 UEFI 显示模式，支持 640×480 至 4096×2160 的参数范围，
+实际模式仍取决于固件。运行中调整 QEMU 外层窗口尚不改变客体分辨率。
+
 没有图形窗口时去掉 `--window`，在终端串口输入 Loom 命令。启动后可输入
 `net`、`net dhcp`，检查 e1000e 的链路及 DHCP；输入 `partitions` 和
 `volumes` 查看数据盘。第一次创建数据盘可以加 `--disk-size 16384`

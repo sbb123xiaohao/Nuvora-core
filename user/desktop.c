@@ -49,6 +49,9 @@ struct client_cache {
     u32 capacity;
     u32 *front, *back;
     struct nv_surface text;
+    u32 text_capacity;
+    u16 *text_front, *text_back;
+    struct nv_terminal_view grid;
 };
 static struct client_cache client_cache[DESKTOP_WINDOW_COUNT];
 static u32 child_pids[NV_TASK_MAX];
@@ -85,7 +88,27 @@ static void sync_clients(void) {
 static int client_snapshot(u32 id,const struct nv_window_entry *e) {
     struct desktop_window *w=&windows[id];
     struct client_cache *cache=&client_cache[id];
-    if (e->flags&NV_WINDOW_TEXT) {
+    if (e->flags&NV_WINDOW_TEXT_GRID) {
+        struct nv_window_grid io={.id=e->id,.generation=e->generation};
+        int r=nv_window_call(NV_WINDOW_GRID_READ,&io);
+        if (r<0) return r;
+        u32 cells=io.columns*io.rows;
+        if (!cells || cells>NV_TERMINAL_MAX_CELLS) return -NV_EINVAL;
+        if (cache->text_capacity<cells) {
+            u32 pages=1;
+            while (pages*NV_PAGE<cells*sizeof(u16)) pages*=2;
+            u16 *p=grow((i32)(2*pages));
+            if ((iptr)p<0) return (int)(iptr)p;
+            cache->text_front=p; cache->text_back=p+(uptr)pages*NV_PAGE/sizeof(u16);
+            cache->text_capacity=pages*NV_PAGE/sizeof(u16);
+        }
+        io.capacity=cache->text_capacity; io.cells=(uptr)cache->text_back;
+        r=nv_window_call(NV_WINDOW_GRID_READ,&io);
+        if (r<0) return r;
+        u16 *old=cache->text_front; cache->text_front=cache->text_back; cache->text_back=old;
+        cache->grid=(struct nv_terminal_view){cache->text_front,io.columns,io.rows,io.cursor,io.scale};
+        w->grid=&cache->grid;
+    } else if (e->flags&NV_WINDOW_TEXT) {
         struct nv_window_text io={.id=e->id,.generation=e->generation};
         int r=nv_window_call(NV_WINDOW_TEXT_READ,&io);
         if (r<0) return r;
@@ -788,8 +811,11 @@ static int session_signout(void) {
         if (cache->front) account_wipe(cache->front,(usize)cache->capacity*4);
         if (cache->back) account_wipe(cache->back,(usize)cache->capacity*4);
         account_wipe(&cache->text,sizeof(cache->text));
+        if (cache->text_front) account_wipe(cache->text_front,cache->text_capacity*sizeof(u16));
+        if (cache->text_back) account_wipe(cache->text_back,cache->text_capacity*sizeof(u16));
+        account_wipe(&cache->grid,sizeof(cache->grid));
         w->open=w->minimized=false;w->client=w->pid=w->generation=0;
-        w->pixels=NULL;w->text=NULL;w->title[0]=0;order[i]=(u8)i;
+        w->pixels=NULL;w->text=NULL;w->grid=NULL;w->title[0]=0;order[i]=(u8)i;
     }
     memset(child_pids,0,sizeof(child_pids));account_wipe(editor_text,sizeof(editor_text));
     account_wipe(editor_scratch,sizeof(editor_scratch));

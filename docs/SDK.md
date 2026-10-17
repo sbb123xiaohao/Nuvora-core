@@ -272,6 +272,13 @@ USB 移除也会更新状态。字符 stdin 跳过修饰键事件和 Alt/Meta �
 | ENUM / READ64 | `nv_window_entry` / `nv_window_pixels` | 仅服务可枚举并复制已提交画面 |
 | CONFIGURE / SEND | `nv_window_configure` / `nv_window_event` | 仅服务可更改内容尺寸、可见/焦点状态并投递输入 |
 | BIND_STDIO / TEXT_READ | `nv_window_id` / `nv_window_text` | 窗口进程绑定继承的字符控制台；仅服务读取字符表面 |
+| BIND_TERMINAL / GRID_READ | `nv_window_terminal` / `nv_window_grid` | 追加的自适应 Terminal；按配置宽高重排，仅服务可读取网格 |
+
+`BIND_TERMINAL`（操作 18）接受 `scale=1..4`，使用窗口的像素内容尺寸计算行列。
+`GRID_READ`（操作 19，40 字节）先以 `cells=capacity=0` 查询；再提供以 u16 单元计的
+capacity 和 u64 cells 地址，generation 必须与 ENUM 的快照一致。复制不足返回 E2BIG，
+代数失效返回 EAGAIN，应重新枚举和读取；reserved 必须为零。上限与历史重排边界见
+[架构说明](ARCHITECTURE.md)。旧操作号、`nv_surface` 的 80×25 布局和像素窗口接口保持不变。
 
 原生 `nv_window_pixels` 为 40 字节，reserved 为零；旧 UPLOAD/READ 保留
 32 字节的 `nv_window_pixels32`。旧源码若直接使用旧操作号，应使用对应

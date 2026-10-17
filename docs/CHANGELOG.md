@@ -1,5 +1,12 @@
 # Nuvora Core 0.15.0
 
+## 未发布：窗口分辨率与 Terminal 适配
+
+- Terminal 改用按窗口像素尺寸计算的字符网格，字号随显示模式确定；最大化、半屏和还原不再居中缩放固定的 80×25 内容。
+- 有界输出历史在调整大小时重新排版，保留回车覆盖、软换行、退格和滚屏；修复恰好填满一行后换行产生额外空行的问题。
+- 追加原生 Terminal 绑定与带 generation 校验的网格快照操作；保留旧字符接口、像素窗口协议与原有 ABI 编号，分配失败不发布半更新的尺寸。
+- Python 与 PowerShell 启动器增加全屏和 UEFI 分辨率参数；增加网格边界、OOM、旧接口兼容、分块绘制及正式 UEFI 多分辨率测试。
+
 ## 未发布：真实 OpenJDK 21、线程与动态运行时
 
 - 真正的 Alpine musl OpenJDK 21.0.11 / HotSpot 在 Nuvora 运行版本查询、Java JAR、多线程与标准类库测试；解释执行和 HotSpot JIT 均通过，Minecraft 客户端仍不可运行。

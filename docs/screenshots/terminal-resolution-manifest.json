@@ -1,0 +1,41 @@
+{
+  "capture": "production UEFI / q35 / 256 MiB / NVMe / USB keyboard",
+  "kernel_sha256": "ce048b91e530c25eb91e2f929ad728dc8649fa275b3924b232f2c7c3978b1579",
+  "esp_sha256": "d67c8984f5b5cd782a27c42a1facebb705d26614a2527d39d015454b97487ffd",
+  "images": [
+    {
+      "file": "terminal-640x480.png",
+      "width": 640,
+      "height": 480,
+      "sha256": "513c6836a80cb2c8ba56b6af85557cb5e078198c0b568f68701edf8f44b147c6",
+      "source_capture": "640x480/maximized.png"
+    },
+    {
+      "file": "terminal-1280x800.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "c4f458b2e20aaeebfabef7b8cab90bf7b6659f78b67e6d9890bb9e239efe85dd",
+      "source_capture": "1280x800/maximized.png"
+    },
+    {
+      "file": "terminal-1920x1080.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "dc01486930bf536f51c87b917c065db57b7c57c4b741bdb792ac469d5dec16e7",
+      "source_capture": "1920x1080/maximized.png"
+    },
+    {
+      "file": "terminal-half-1920x1080.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "8b0df878ff8ad3b84e8430c5c49f7b39062fac5e78af5f2ffb34a68b15ad2e32",
+      "source_capture": "1920x1080/half-screen.png"
+    }
+  ],
+  "checks": [
+    "requested GOP mode and content/glyph bounds",
+    "half-screen and floating reflow returns identical pixels",
+    "USB input and saved user file after resize",
+    "all nine source PNGs equal original PPM RGB bytes"
+  ]
+}

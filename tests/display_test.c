@@ -513,7 +513,52 @@ static void volume_popup_hits(void) {
         assert(hit.kind==DESKTOP_HIT_VOLUME_PANEL);
     }
 }
+static void responsive_terminal_render(u32 width,u32 height,u32 format) {
+    u32 s=desktop_scale(width,height),ts=nv_terminal_scale(width,height);
+    struct desktop_window windows[DESKTOP_WINDOW_COUNT]={0};
+    struct desktop_window *w=&windows[DESKTOP_TERMINAL];
+    *w=(struct desktop_window){.w=400,.h=300,.open=true,.client=4};
+    desktop_place(w,width/s,height/s-DESKTOP_BAR_HEIGHT,DESKTOP_TILE_MAX);
+    assert(w->x==0 && w->y==0 && w->w==width/s && w->h==height/s-DESKTOP_BAR_HEIGHT);
+    u32 cw=(w->w-2)*s,ch=(w->h-29)*s;
+    struct nv_terminal_layout l=nv_terminal_layout(cw,ch,ts);
+    assert(l.columns>0 && l.rows>0 && l.columns*l.rows<=NV_TERMINAL_MAX_CELLS);
+    assert(cw-2*l.padding-l.columns*l.cell_w<l.cell_w);
+    assert(ch-2*l.padding-l.rows*l.cell_h<l.cell_h);
+    u16 *cells=malloc((usize)l.columns*l.rows*sizeof(u16));assert(cells);
+    for (u32 i=0;i<l.columns*l.rows;++i) cells[i]=0x1720;
+    cells[l.columns*l.rows-1]=0x4720;
+    struct nv_terminal_view grid={cells,l.columns,l.rows,l.columns*l.rows,ts};
+    w->grid=&grid;
+    u32 n=width*height,*full=malloc(((usize)n+2)*4),*tiled=malloc(((usize)n+2)*4);
+    assert(full && tiled);full[0]=full[n+1]=tiled[0]=tiled[n+1]=0xdecafbad;
+    for (u32 i=1;i<=n;++i) full[i]=tiled[i]=0x102030;
+    struct desktop_view v={.windows=windows,.active=DESKTOP_TERMINAL};
+    struct desktop_clip clip={0,0,width,height};
+    struct nv_canvas c={full+1,width,0,height,format};
+    desktop_window_render(&c,s,&v,DESKTOP_TERMINAL,clip);
+    for (u32 y=0;y<height;y+=29) {
+        struct nv_canvas tile={tiled+1+(uptr)y*width,width,y,MIN(29u,height-y),format};
+        desktop_window_render(&tile,s,&v,DESKTOP_TERMINAL,clip);
+    }
+    assert(!memcmp(full+1,tiled+1,(usize)n*4));
+    u32 left=s+l.padding,top=28*s+l.padding;
+    assert(full[1+(uptr)top*width+left]==nv_display_rgb(format,0x244755));
+    u32 right=left+l.columns*l.cell_w,bottom=top+l.rows*l.cell_h;
+    assert(full[1+(uptr)(bottom-1)*width+right-1]==nv_display_rgb(format,0x9b4b40));
+    assert(full[1+(uptr)top*width+left-1]==nv_display_rgb(format,0x15222b));
+    assert(full[1+(uptr)bottom*width+right]==nv_display_rgb(format,0x15222b));
+    assert(full[0]==0xdecafbad && full[n+1]==0xdecafbad && tiled[0]==0xdecafbad && tiled[n+1]==0xdecafbad);
+    free(cells);free(full);free(tiled);
+}
 int main(void) {
+    for (u32 format=NV_DISPLAY_BGRX8;format<=NV_DISPLAY_RGBX8;++format) {
+        responsive_terminal_render(640,480,format);
+        responsive_terminal_render(1280,800,format);
+        responsive_terminal_render(1365,767,format);
+        responsive_terminal_render(1920,1080,format);
+        responsive_terminal_render(3840,2160,format);
+    }
     volume_popup_hits();
     switcher_preview_corners();
     rounded_window_edges();

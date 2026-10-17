@@ -1,5 +1,43 @@
 # 测试与复现
 
+## 未发布：窗口分辨率与 Terminal 重排
+
+2026-10-17，从本地/GitHub 一致的完整 `320c6e7` 继续。使用 Arch GCC 16.2.1、
+QEMU 11.1.1 TCG、OVMF；本轮属于模拟 PC 验证，没有实体机测试。
+
+- `make -j4 diagnostics esp` 通过；53 组宿主回归继续通过。窗口夹具还单独通过
+  ASan/UBSan，覆盖重新分配失败、尺寸/代数回滚、无权限快照、容量和指针校验、
+  长行重排、软换行退格、滚屏、历史上限、清屏与旧 80×25 接口投影。
+- 宿主合成器在 640×480、1280×800、1365×767、1920×1080、3840×2160 两种
+  像素格式下检查网格首尾单元、留白边界、分块绘制一致性和内存哨兵。
+- 正式 UEFI/q35/256 MiB/NVMe/USB 桌面分别以 **640×480、1280×800、
+  1920×1080** 启动；以实际 GOP 截图确认最大化内容边界和文字覆盖范围。
+  半屏→最大化、浮动→最大化后的内容逐像素一致，随后键盘输入及文件保存成功。
+- 同一生产内核在 512 MiB 客体运行真实 OpenJDK 21/JAR，线程、NIO、SHA-256、
+  GC 和退出后的 shell 命令成功，账户数据库摘要保持不变；README 的 OpenJDK
+  截图已重拍，长命令和结果使用新的自适应网格。
+- 32/256 MiB BIOS、64 MiB core2duo 和 32 MiB 碎片堆仍完成 153 项断言，
+  每轮保留一项 TCG SSE #XM SKIP；UEFI 启动、数据重载和 native trial 通过。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/resolution_desktop_test.py
+# 使用已由 prepare_openjdk_probe.py 创建的独立 JDK 测试盘：
+python3 tests/openjdk_desktop_test.py --disk build/openjdk-probe/data.img
+python3 start.py --uefi --fullscreen --resolution 1920x1080
+```
+
+多分辨率测试只使用临时数据盘和固件副本，原始 PPM 留在
+`build/x86_64/resolution-desktop/`。PNG 与 PPM 的 RGB 数据逐像素核对；见
+[截图清单](screenshots/terminal-resolution-manifest.json)和
+[本轮测试摘要](verification/0.15.0/terminal-resolution-summary.log)。
+源码指纹、当前内核/ESP 摘要和原始输出的摘要保存在同目录。
+
+全屏启动参数设置 QEMU 的首选 UEFI 模式；本轮验证上述三种实际模式。
+运行中拖动模拟器外层窗口尚不会切换客体分辨率。Folio 仍使用自身的
+80×25 文档模型；此次自适应字符网格适用于 Terminal。
+
 ## 未发布：真实 OpenJDK 21 与线程运行时
 
 2026-10-17，从本地/GitHub 一致的完整 `ed2ada8` 继续；原生 ABI、桌面和已有

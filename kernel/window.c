@@ -1,4 +1,14 @@
 #include "kernel.h"
+#include <nv/terminal.h>
+
+#define TERMINAL_HISTORY 32768u
+struct window_terminal {
+    u16 *cells;
+    u32 columns, rows, scale, used;
+    bool pending_wrap;
+    u8 wrapped[NV_TERMINAL_MAX_ROWS];
+    u8 history[TERMINAL_HISTORY];
+};
 
 /* Page vectors let large surfaces survive fragmented physical RAM. Only the
  * small vectors live in the kernel heap. The front is immutable until COMMIT;
@@ -15,6 +25,7 @@ struct native_window {
     struct nv_window_event events[32];
     u32 head, tail, queued;
     bool stdio;
+    struct window_terminal *terminal;
     struct nv_surface text;
     u32 row, column;
 };
@@ -63,6 +74,7 @@ static void buffer_copy(struct window_buffer *b, u32 offset, void *user, u32 byt
 }
 static void window_free(struct native_window *w) {
     buffer_free(&w->front); buffer_free(&w->back);
+    if (w->terminal) { kfree(w->terminal->cells); kfree(w->terminal); }
     memset(w, 0, sizeof(*w));
 }
 void window_task_release(u32 pid) {
@@ -98,7 +110,70 @@ static struct native_window *stdio_window(struct task *t) {
     }
     return NULL;
 }
+static void terminal_blank(struct window_terminal *t) {
+    for (u32 i = 0; i < t->columns * t->rows; ++i) t->cells[i] = 0x0720;
+    memset(t->wrapped, 0, sizeof(t->wrapped));
+    t->pending_wrap = false;
+}
+static void terminal_next_row(struct native_window *w, bool wrapped) {
+    struct window_terminal *t = w->terminal;
+    if (++w->row == t->rows) {
+        memmove(t->cells, t->cells + t->columns,
+                (t->rows - 1) * t->columns * sizeof(u16));
+        for (u32 i = (t->rows - 1) * t->columns; i < t->rows * t->columns; ++i)
+            t->cells[i] = 0x0720;
+        memmove(t->wrapped, t->wrapped + 1, t->rows - 1);
+        w->row = t->rows - 1;
+    }
+    t->wrapped[w->row] = wrapped;
+    w->column = 0; t->pending_wrap = false;
+}
+static void terminal_character(struct native_window *w, u8 ch) {
+    struct window_terminal *t = w->terminal;
+    if (ch == '\r') { w->column = 0; t->pending_wrap = false; }
+    else if (ch == '\n') terminal_next_row(w, false);
+    else if (ch == '\b') {
+        if (t->pending_wrap) t->pending_wrap = false;
+        else if (w->column) --w->column;
+        else if (w->row && t->wrapped[w->row]) { --w->row; w->column = t->columns - 1; }
+    } else if (ch == '\t') {
+        for (u32 n = 4 - (w->column + (t->pending_wrap ? 1u : 0u)) % 4; n; --n)
+            terminal_character(w, ' ');
+    } else if (ch >= 32) {
+        if (t->pending_wrap) terminal_next_row(w, true);
+        t->cells[w->row * t->columns + w->column] = 0x0700u | ch;
+        if (w->column + 1 == t->columns) t->pending_wrap = true;
+        else ++w->column;
+    }
+}
+/* Allocate before publishing a new size. Replaying a bounded output transcript
+ * preserves logical lines, carriage-return edits and the shell's erase bytes. */
+static int terminal_resize(struct native_window *w, u32 width, u32 height) {
+    struct window_terminal *t = w->terminal;
+    struct nv_terminal_layout l = nv_terminal_layout(width, height, t->scale);
+    if (l.columns == t->columns && l.rows == t->rows) return 0;
+    u16 *cells = kmalloc((usize)l.columns * l.rows * sizeof(u16));
+    if (!cells) return -NV_ENOMEM;
+    kfree(t->cells); t->cells = cells; t->columns = l.columns; t->rows = l.rows;
+    w->row = w->column = 0; terminal_blank(t);
+    for (u32 i = 0; i < t->used; ++i) terminal_character(w, t->history[i]);
+    if (!++w->generation) ++w->generation;
+    return 0;
+}
 static void text_character(struct native_window *w, u8 ch) {
+    if (w->terminal) {
+        struct window_terminal *t = w->terminal;
+        if (t->used == TERMINAL_HISTORY) {
+            u32 drop = TERMINAL_HISTORY / 4;
+            while (drop < t->used && t->history[drop - 1] != '\n') ++drop;
+            if (drop == t->used && t->history[drop - 1] != '\n') drop = TERMINAL_HISTORY / 4;
+            memmove(t->history, t->history + drop, t->used - drop);
+            t->used -= drop;
+        }
+        t->history[t->used++] = ch;
+        terminal_character(w, ch);
+        return;
+    }
     if (ch == '\r') w->column = 0;
     else if (ch == '\n') { w->column = 0; ++w->row; }
     else if (ch == '\b') {
@@ -121,6 +196,10 @@ int window_stdio_clear(struct task *t) {
     if (!w) return -NV_ENODEV;
     for (u32 i=0;i<2000;++i) w->text.cells[i]=0x0720;
     w->row=w->column=w->text.cursor=0;
+    if (w->terminal) {
+        terminal_blank(w->terminal); w->terminal->used = 0;
+        memset(w->terminal->history, 0, sizeof(w->terminal->history));
+    }
     if (!++w->generation) ++w->generation;
     return 0;
 }
@@ -208,7 +287,9 @@ int window_ioctl(u32 op, uptr pointer) {
     case NV_WINDOW_BEGIN: size = sizeof(struct nv_window_frame); break;
     case NV_WINDOW_DESTROY: case NV_WINDOW_COMMIT: size = sizeof(struct nv_window_id); break;
     case NV_WINDOW_BIND_STDIO: size = sizeof(struct nv_window_id); break;
+    case NV_WINDOW_BIND_TERMINAL: size = sizeof(struct nv_window_terminal); break;
     case NV_WINDOW_TEXT_READ: size = sizeof(struct nv_window_text); output = true; break;
+    case NV_WINDOW_GRID_READ: size = sizeof(struct nv_window_grid); output = true; break;
     case NV_WINDOW_READ: case NV_WINDOW_UPLOAD: size = sizeof(struct nv_window_pixels32); break;
     case NV_WINDOW_READ64: case NV_WINDOW_UPLOAD64: size = sizeof(struct nv_window_pixels); break;
     case NV_WINDOW_POLL: case NV_WINDOW_SEND: size = sizeof(struct nv_window_event);
@@ -234,7 +315,8 @@ int window_ioctl(u32 op, uptr pointer) {
         if (!w->id) return 0;
         struct nv_window_entry out = {.index = index, .id = w->id, .pid = w->pid,
             .width = w->front.width, .height = w->front.height, .generation = w->generation,
-            .serial = w->serial, .flags = w->flags | (w->stdio ? NV_WINDOW_TEXT : 0),
+            .serial = w->serial, .flags = w->flags | (w->stdio ? NV_WINDOW_TEXT : 0) |
+                (w->terminal ? NV_WINDOW_TEXT_GRID : 0),
             .requested_width = w->width, .requested_height = w->height};
         memcpy(out.title, w->title, sizeof(out.title));
         memcpy(user, &out, sizeof(out)); return 1;
@@ -260,26 +342,68 @@ int window_ioctl(u32 op, uptr pointer) {
     struct native_window *w = window_find(id);
     if (!w) return -NV_ENOENT;
     bool server_op = op == NV_WINDOW_READ || op == NV_WINDOW_READ64 || op == NV_WINDOW_CONFIGURE ||
-                     op == NV_WINDOW_SEND || op == NV_WINDOW_TEXT_READ;
+                     op == NV_WINDOW_SEND || op == NV_WINDOW_TEXT_READ || op == NV_WINDOW_GRID_READ;
     if (server_op ? !server : w->pid != current->pid) return -NV_EACCESS;
     if (op == NV_WINDOW_DESTROY) { window_free(w); return 0; }
     if (op == NV_WINDOW_BIND_STDIO) {
-        if (w->uploading || w->front.pages) return -NV_EBUSY;
+        if (w->uploading || w->front.pages || w->terminal) return -NV_EBUSY;
         w->stdio = true; w->generation = 1;
         for (u32 i = 0; i < 2000; ++i) w->text.cells[i] = 0x0720;
         return 0;
+    }
+    if (op == NV_WINDOW_BIND_TERMINAL) {
+        struct nv_window_terminal io; memcpy(&io, user, sizeof(io));
+        if (io.scale < 1 || io.scale > 4) return -NV_EINVAL;
+        if (w->uploading || w->front.pages || w->stdio) return -NV_EBUSY;
+        struct window_terminal *t = kmalloc(sizeof(*t));
+        if (!t) return -NV_ENOMEM;
+        memset(t, 0, sizeof(*t)); t->scale = io.scale; w->terminal = t;
+        int result = terminal_resize(w, w->width, w->height);
+        if (result < 0) { w->terminal = NULL; kfree(t); return result; }
+        w->stdio = true;
+        return 0;
+    }
+    if (op == NV_WINDOW_GRID_READ) {
+        struct nv_window_grid io; memcpy(&io, user, sizeof(io));
+        struct window_terminal *t = w->terminal;
+        if (!t || io.reserved) return -NV_EINVAL;
+        if (io.generation != w->generation) return -NV_EAGAIN;
+        u32 count = t->columns * t->rows;
+        if (io.cells || io.capacity) {
+            if (io.capacity < count) return -NV_E2BIG;
+            if (!user_range(current->pd, io.cells, (usize)count * sizeof(u16), true)) return -NV_EFAULT;
+            memcpy((void *)(uptr)io.cells, t->cells, (usize)count * sizeof(u16));
+        }
+        io.columns = t->columns; io.rows = t->rows; io.scale = t->scale;
+        io.cursor = w->row * t->columns + w->column;
+        memcpy(user, &io, sizeof(io)); return 0;
     }
     if (op == NV_WINDOW_TEXT_READ) {
         struct nv_window_text io; memcpy(&io, user, sizeof(io));
         if (!w->stdio) return -NV_EINVAL;
         if (io.generation != w->generation) return -NV_EAGAIN;
-        io.surface = w->text; memcpy(user, &io, sizeof(io)); return 0;
+        io.surface = w->text;
+        if (w->terminal) {
+            struct window_terminal *t = w->terminal;
+            u32 first = w->row >= 25 ? w->row - 24 : 0;
+            for (u32 i = 0; i < 2000; ++i) io.surface.cells[i] = 0x0720;
+            for (u32 row = first; row < MIN(t->rows, first + 25); ++row)
+                memcpy(io.surface.cells + (row - first) * 80, t->cells + row * t->columns,
+                       MIN(t->columns, 80u) * sizeof(u16));
+            io.surface.cursor = w->row >= first && w->column < 80 ?
+                (w->row - first) * 80 + w->column : 2000;
+        }
+        memcpy(user, &io, sizeof(io)); return 0;
     }
     if (op == NV_WINDOW_CONFIGURE) {
         struct nv_window_configure io; memcpy(&io, user, sizeof(io));
         if (!window_dimensions(io.width, io.height) || (io.flags & ~3u) ||
             ((io.flags & NV_WINDOW_FOCUSED) && !(io.flags & NV_WINDOW_VISIBLE))) return -NV_EINVAL;
         if (w->width != io.width || w->height != io.height) {
+            if (w->terminal) {
+                int result = terminal_resize(w, io.width, io.height);
+                if (result < 0) return result;
+            }
             w->width = io.width; w->height = io.height;
             if (!++w->serial) ++w->serial;
             w->configure_pending = true;

@@ -450,7 +450,8 @@ static void desktop_window_content(struct nv_canvas *c, u32 s,
     if (w->client) {
         u32 left=x+s,top=y+28*s,cw=width-2*s,ch=height-29*s;
         desktop_box(c,clip,left,top,cw,ch,0x19252b);
-        if (w->text) gui_surface_render(c,clip,left,top,cw,ch,w->text);
+        if (w->grid) gui_terminal_render(c,clip,left,top,cw,ch,w->grid);
+        else if (w->text) gui_surface_render(c,clip,left,top,cw,ch,w->text);
         else if (w->pixels && w->pixel_width && w->pixel_height) {
             u32 start=MAX(MAX(top,clip.top),c->y0),end=MIN(MIN(top+ch,clip.bottom),c->y0+c->rows);
             u32 begin=MAX(left,clip.left),finish=MIN(left+cw,clip.right);

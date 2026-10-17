@@ -6,6 +6,9 @@ param(
     [switch]$Native,
     [switch]$Uefi,
     [switch]$Window,
+    [switch]$Fullscreen,
+    [ValidatePattern('^[0-9]{3,4}[xX][0-9]{3,4}$')]
+    [string]$Resolution,
     [switch]$Audio,
     [switch]$NoUsb,
     [switch]$NoEcam,
@@ -165,6 +168,8 @@ try {
             $Arguments = @('--memory', "$Memory", '--disk-size', "$DiskSize", '--partitions', "$Partitions", '--disk-bus', $DiskBus)
             if ($Uefi) { $Arguments += '--uefi' }
             if ($Window) { $Arguments += '--window' }
+            if ($Fullscreen) { $Arguments += '--fullscreen' }
+            if ($Resolution) { $Arguments += @('--resolution', $Resolution) }
             if ($Audio) { $Arguments += '--audio' }
             if ($NoUsb) { $Arguments += '--no-usb' }
             if ($NoEcam) { $Arguments += '--no-ecam' }

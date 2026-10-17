@@ -9,6 +9,7 @@ Windows 10/11 在 PowerShell 中使用同一源码。默认通过 WSL2 调用 GN
 .\start.ps1 iso -Uefi
 .\start.ps1 media
 .\start.ps1 run -Uefi -Window -Audio -Network
+.\start.ps1 run -Uefi -Fullscreen -Resolution 1920x1080
 ```
 
 `iso` 产出可挂载到 UEFI 虚拟机光驱的 ISO；`media` 产出可用于 GPT 虚拟磁盘
@@ -33,6 +34,10 @@ wsl --install -d Ubuntu
 
 `-Window` 需要 WSLg 或 Windows QEMU 的图形后端；没有图形后端时去掉该
 参数使用串口控制台。`doctor` 分别检查工具是否存在，不会配置某款虚拟机。
+
+`-Fullscreen` 自动启用图形窗口；`-Resolution` 选择首选 UEFI 显示模式，
+应与宿主显示器宽高匹配。分辨率在启动时确定，运行中拖动模拟器外层窗口
+尚不会触发客体显示模式切换。普通窗口最大化、半屏与内容重排由客体桌面处理。
 
 UEFI 启动器未签名，需要关闭 Secure Boot。已有内核路径包括 GOP 显示、
 AHCI SATA、标准 512B NVMe、USB xHCI Boot 键盘/鼠标与部分 Intel 有线网卡；

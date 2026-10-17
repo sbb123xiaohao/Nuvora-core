@@ -6,6 +6,9 @@ param(
     [switch]$Native,
     [switch]$Uefi,
     [switch]$Window,
+    [switch]$Fullscreen,
+    [ValidatePattern('^[0-9]{3,4}[xX][0-9]{3,4}$')]
+    [string]$Resolution,
     [switch]$Audio,
     [switch]$NoUsb,
     [switch]$NoEcam,

@@ -135,9 +135,10 @@ enum { NV_WINDOW_INFO = 1, NV_WINDOW_SERVER_ACQUIRE, NV_WINDOW_SERVER_RELEASE,
        NV_WINDOW_CREATE, NV_WINDOW_DESTROY, NV_WINDOW_BEGIN, NV_WINDOW_UPLOAD,
        NV_WINDOW_COMMIT, NV_WINDOW_POLL, NV_WINDOW_ENUM, NV_WINDOW_READ,
        NV_WINDOW_CONFIGURE, NV_WINDOW_SEND, NV_WINDOW_BIND_STDIO, NV_WINDOW_TEXT_READ,
-       NV_WINDOW_UPLOAD64, NV_WINDOW_READ64 };
+       NV_WINDOW_UPLOAD64, NV_WINDOW_READ64,
+       NV_WINDOW_BIND_TERMINAL, NV_WINDOW_GRID_READ };
 enum { NV_WINDOW_VISIBLE = 1, NV_WINDOW_FOCUSED = 2 };
-enum { NV_WINDOW_TEXT = 4 };
+enum { NV_WINDOW_TEXT = 4, NV_WINDOW_TEXT_GRID = 8 };
 enum { NV_WINDOW_EVENT_CONFIGURE = 1, NV_WINDOW_EVENT_FOCUS,
        NV_WINDOW_EVENT_KEY, NV_WINDOW_EVENT_POINTER, NV_WINDOW_EVENT_CLOSE };
 struct nv_window_info { u32 api_version, server_pid, max_windows, max_copy_bytes; };
@@ -152,6 +153,16 @@ struct nv_window_entry {
     char title[64];
 };
 struct nv_window_configure { u32 id, width, height, flags; };
+/* Appended operations: legacy BIND_STDIO/TEXT_READ and nv_surface stay intact.
+ * A Terminal chooses a stable font scale (1..4); CONFIGURE reflows its text.
+ * GRID_READ is server-only and checks generation. cells=capacity=0 queries
+ * metadata; otherwise capacity counts u16 cells at the 64-bit user address. */
+struct nv_window_terminal { u32 id, scale; };
+struct nv_window_grid {
+    u32 id, generation, columns, rows, cursor, scale, capacity, reserved;
+    u64 cells;
+};
+_Static_assert(sizeof(struct nv_window_grid) == 40, "terminal grid ABI");
 struct nv_window_event {
     u32 id, type, serial, width, height, key;
     i32 x, y, wheel;

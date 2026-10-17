@@ -1,0 +1,7 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-resolution-embz08xk/data.img
+PASS 640x480: full content bounds, glyph bounds (9, 36, 629, 409), half-screen/floating/maximize reflow exact, USB input and saved file
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-resolution-w0c4u9l_/data.img
+PASS 1280x800: full content bounds, glyph bounds (15, 44, 1258, 709), half-screen/floating/maximize reflow exact, USB input and saved file
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-resolution-lf3oii0e/data.img
+PASS 1920x1080: full content bounds, glyph bounds (16, 72, 1895, 929), half-screen/floating/maximize reflow exact, USB input and saved file
+PASS responsive Terminal: actual GOP captures; original PPM files retained

@@ -4,6 +4,7 @@
 #include "hardware.h"
 #include "network.h"
 #include "net_tools.h"
+#include <nv/terminal.h>
 #ifndef NV_WINDOW_TERMINAL
 #include "account_console.h"
 #endif
@@ -349,8 +350,9 @@ int user_main(const char *args) {
     strlcpy(terminal.title, "Terminal", sizeof(terminal.title));
     opened = nv_window_create(&terminal);
     if (opened < 0) return 1;
-    struct nv_window_id binding = {terminal.id};
-    opened = nv_window_call(NV_WINDOW_BIND_STDIO, &binding);
+    struct nv_window_terminal binding = {terminal.id,
+        nv_terminal_scale(terminal_mode.width, terminal_mode.height)};
+    opened = nv_window_call(NV_WINDOW_BIND_TERMINAL, &binding);
     if (opened < 0) { nv_window_destroy(terminal.id); return 1; }
     terminal_session = true;
 #endif
