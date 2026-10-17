@@ -1,0 +1,43 @@
+Read-only inspection; no native library bytes are bundled.
+Alpine APK SHA256: 66487bbb57861b06482a53868c8c7a37ac7e838c748b2cf696f63df5154a6e09
+libnio.so SHA256: 3650e7d14e62ae2e391418574ff6e15833d61c7fd2ed0bf328ffb78b82850c5b
+The initializer calls socketpair(AF_UNIX, SOCK_STREAM, 0, pair), then closes one end.
+It needs real endpoint/EOF/close semantics; no fake descriptors are supplied.
+
+
+libnio.so (original pinned Alpine JDK package):     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .text:
+
+000000000000a370 <Java_sun_nio_ch_UnixDispatcher_init>:
+    a370:	55                   	push   %rbp
+    a371:	31 d2                	xor    %edx,%edx
+    a373:	be 01 00 00 00       	mov    $0x1,%esi
+    a378:	48 89 e5             	mov    %rsp,%rbp
+    a37b:	53                   	push   %rbx
+    a37c:	48 89 fb             	mov    %rdi,%rbx
+    a37f:	bf 01 00 00 00       	mov    $0x1,%edi
+    a384:	48 8d 4d e8          	lea    -0x18(%rbp),%rcx
+    a388:	48 83 ec 18          	sub    $0x18,%rsp
+    a38c:	ff 15 ae 9b 00 00    	call   *0x9bae(%rip)        # 13f40 <socketpair>
+    a392:	85 c0                	test   %eax,%eax
+    a394:	78 1a                	js     a3b0 <Java_sun_nio_ch_UnixDispatcher_init+0x40>
+    a396:	8b 45 e8             	mov    -0x18(%rbp),%eax
+    a399:	8b 7d ec             	mov    -0x14(%rbp),%edi
+    a39c:	89 05 66 9c 00 00    	mov    %eax,0x9c66(%rip)        # 14008 <_fini+0x5e89>
+    a3a2:	ff 15 40 9c 00 00    	call   *0x9c40(%rip)        # 13fe8 <close>
+    a3a8:	48 8b 5d f8          	mov    -0x8(%rbp),%rbx
+    a3ac:	c9                   	leave
+    a3ad:	c3                   	ret
+    a3ae:	66 90                	xchg   %ax,%ax
+    a3b0:	48 89 df             	mov    %rbx,%rdi
+    a3b3:	48 8d 35 0c 51 00 00 	lea    0x510c(%rip),%rsi        # f4c6 <_fini+0x1347>
+    a3ba:	ff 15 90 98 00 00    	call   *0x9890(%rip)        # 13c50 <JNU_ThrowIOExceptionWithLastError>
+    a3c0:	48 8b 5d f8          	mov    -0x8(%rbp),%rbx
+    a3c4:	c9                   	leave
+    a3c5:	c3                   	ret
+
+Disassembly of section .fini:

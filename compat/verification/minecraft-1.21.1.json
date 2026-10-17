@@ -1,0 +1,24 @@
+{
+  "version": "1.21.1",
+  "elapsed_seconds": 255.15,
+  "guest_exit_status": 254,
+  "native_shell_recovered": true,
+  "markers": [
+    "net.minecraft.client.main.Main",
+    "Render thread",
+    "LWJGL",
+    "GLFW",
+    "UnknownHostException"
+  ],
+  "failure": null,
+  "crash_description": "Initializing game",
+  "crash_exception": "java.lang.IllegalStateException: Failed to initialize GLFW, errors: GLFW error during init: [0x1000E]Failed to detect any supported platform",
+  "playable": false,
+  "acceptance": {
+    "world": "not verified",
+    "rendering": "not verified",
+    "input": "not verified",
+    "save_reload": "not verified"
+  },
+  "note": "Real guest output recorded. Client initialization/exit is not a gameplay acceptance."
+}

@@ -1,15 +1,15 @@
 {
   "capture": "production UEFI / q35 / 512 MiB / NVMe / USB keyboard / authenticated Terminal",
-  "kernel_sha256": "ce048b91e530c25eb91e2f929ad728dc8649fa275b3924b232f2c7c3978b1579",
-  "esp_sha256": "d67c8984f5b5cd782a27c42a1facebb705d26614a2527d39d015454b97487ffd",
+  "kernel_sha256": "0aff285589c5576d9a8d5c80c7d8fe88eb8ddd3baa53585cebbffaf7a6301533",
+  "esp_sha256": "ca8402b187b27651496b4554cecc5f1506f87014ac1484a9b022b3fdf9a24e62",
   "file": "openjdk21.png",
   "width": 1280,
   "height": 800,
-  "sha256": "70a1c01330aeba13fa7fe4a2db1e940b2e5f54908fcc6e83ac78650f41824fc1",
+  "sha256": "a5af2e7f44f4865ef3f6242f07139e18aaddfc0490ce43346b45b9bfd69cf497",
   "commands": [
     "compat --trace --jit /home/jdk/bin/java @/home/java-private.args"
   ],
   "account_database_unchanged": true,
-  "class_sha256": "0e249c57f4b1afe69246d1bc52eee45dcc3da66f4b36f03caa231266a7932501",
+  "class_sha256": "068a268a871d9743a9dd9d6dc7459ba4e23227f629e9d2e510003d911ea89a4d",
   "note": "Real OpenJDK 21 application, pthreads, Java standard libraries and protected-account access denial; Minecraft is not running."
 }

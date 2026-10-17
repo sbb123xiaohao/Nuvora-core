@@ -283,7 +283,13 @@ static int dispatch(int n, char **v) {
     if ((!strcmp(cmd, "forge") || !strcmp(cmd, "scatter")) && n >= 2)
         return run_app(v[1], v, 2, n, !strcmp(cmd, "scatter"));
     if (!strcmp(cmd,"java")) return run_app("java",v,1,n,false);
-    if (!strcmp(cmd,"compat")) return run_app("compat",v,1,n,false);
+    if (!strcmp(cmd,"compat")) {
+#if defined(NV_ENABLE_COMPAT) && !NV_ENABLE_COMPAT
+        println("Compatibility module is disabled in this native-only build.");return -NV_ENOSYS;
+#else
+        return run_app("compat",v,1,n,false);
+#endif
+    }
     if (!strcmp(cmd, "trial") && n == 1) {
         char *args[] = {"forge", "probe"};
         return run_app("probe", args, 2, 2, false);

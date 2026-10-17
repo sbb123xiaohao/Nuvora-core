@@ -1,7 +1,7 @@
 # Nuvora ABI 2 与 ABI 1 兼容
 
 本表是原生 ABI，与 Linux 调用编号不同。Linux x86-64 程序通过独立的 `compat`
-入口使用受限兼容层，见 [运行时说明](RUNTIME-COMPAT.md)。共同常量和结构以
+入口使用受限兼容层，见 [运行时说明](../compat/docs/RUNTIME.md)。共同常量和结构以
 `include/nv/abi.h` 为准；第三方原生 x64 程序可使用 `include/nv/sdk.h`，项目内部
 封装仍在 `user/runtime.h`。接口约定、工具链和示例见 [SDK.md](SDK.md)。
 

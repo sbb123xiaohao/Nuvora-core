@@ -1,5 +1,14 @@
 # Nuvora Core 0.15.0
 
+## 未发布：可选兼容模块与真实 Minecraft 初始化
+
+- 其他系统的兼容实现、入口、进程生命周期、运行时工具、夹具和测试集中到 `compat/`。新增 `COMPAT=none` 原生构建，独立目录缓存；BIOS/UEFI、原生应用和生产桌面在不链接 Linux 后端时继续通过。
+- 修复 Java 展开参数文件后自 exec 被 256 字节参数串截断的问题；兼容路径保留最多 128 项/32 KiB argv、64 项/8 KiB 环境，验证失败不替换映像。
+- 文件句柄增至 64 个槽，修复高位 CLOEXEC/NONBLOCK 掩码；VMA 增至 256 项、驻留上限 1 GiB，仍按实际物理页检查与事务回滚。exec 临时任务记录移出内核栈。
+- 目录句柄、getdents64、共享偏移/status 的 dup/fcntl、mkdir/chdir/rename/删除，以及只使用硬件熵的随机数设备；真实 Java NIO 与 SecureRandom 验证通过。
+- 固定官方 1.20.1/1.21.1 客户端探测工具和真实客体日志；1.21.1 实际加载 LWJGL/GLFW 后缺少窗口平台，1.20.1 暴露 Java UnixDispatcher/socketpair 缺口。**尚不能玩 Minecraft，未进入世界、渲染或保存，也未验证全部新版游戏。**
+- 54 组宿主回归、关键 Linux/文件系统 ASan/UBSan、动态/静态运行时、OpenJDK JIT/回收与原生独立构建/桌面验证。普通系统构建仍不下载 JDK 或游戏。
+
 ## 未发布：窗口分辨率与 Terminal 适配
 
 - Terminal 改用按窗口像素尺寸计算的字符网格，字号随显示模式确定；最大化、半屏和还原不再居中缩放固定的 80×25 内容。

@@ -24,10 +24,16 @@ Windows 使用 `./start.ps1 run -Uefi -Fullscreen -Resolution 1920x1080`。
 
 ## 桌面语言与 Minecraft 兼容路线
 
+其他系统的兼容实现、工具、夹具与测试统一放在 [`compat/`](compat/README.md)。
+原生桌面、文件系统和驱动直接使用 Nuvora 接口。可以用
+`make COMPAT=none -j4 diagnostics esp` 构建完全关闭 Linux 后端的版本，
+再运行 `python3 start.py --compat none --uefi --window`；Windows 对应
+`./start.ps1 run -Compat none -Uefi -Window`。两种配置使用独立构建目录。
+
 Linux x86-64 兼容层已在 Nuvora 用户态实际运行 **musl C、C++ 核心语法、
 Lua 5.4.8、QuickJS、MicroPython 1.26.1 和真正的 OpenJDK 21.0.11 / HotSpot**。Terminal 使用
 `compat /home/lua.elf /home/world.lua` 或 `compat /home/js.elf /home/world.js`；
-导入、构建与准确边界见 [运行时说明](docs/RUNTIME-COMPAT.md)。
+导入、构建与准确边界见 [运行时说明](compat/docs/RUNTIME.md)。
 
 Python 已验证模块导入、继承、生成器、中文字符串、大整数、浮点、JSON/正则、
 垃圾回收和文件持久化。同一示例与 CPython 输出一致；**这仍是 MicroPython，
@@ -40,9 +46,9 @@ compat /home/python.elf /home/world.py "hello world"
 ![Nuvora 实际运行 Python 与账户访问隔离检查](docs/screenshots/compat-python.png)
 
 真实 OpenJDK 已通过 `java -version`、JAR 加载、4 个 Java 工作线程、同步、
-BigInteger、SHA-256、NIO 文件读写、时钟与 GC。HotSpot 还实际编译并执行了
+BigInteger、SHA-256、NIO 文件与目录流、安全随机数、时钟与 GC。HotSpot 还实际编译并执行了
 测试方法，20 万轮结果通过校验；重复 JVM 退出后物理内存计数完全一致。
-可选安装步骤、启动参数与限制见[运行时说明](docs/RUNTIME-COMPAT.md)。
+可选安装步骤、启动参数与限制见[运行时说明](compat/docs/RUNTIME.md)。
 
 ```text
 compat --jit /home/jdk/bin/java @/home/java-check.args
@@ -53,10 +59,14 @@ compat --jit /home/jdk/bin/java @/home/java-jit.args
 
 ![Nuvora 真实 OpenJDK 21、线程、标准类库与账户隔离](docs/screenshots/openjdk21.png)
 
-首个游戏目标仍为 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3。
-**目前 Minecraft 仍不能玩**：LWJGL/GLFW、OpenGL/OpenAL、Linux socket、更多文件
-接口、游戏资源与更大内存预算尚需完成。此次验证限定 Alpine musl x86-64 JDK 21，
-不能推断所有 Java 版本兼容。现有 `java` 命令保留 bootstrap，完整 JVM 使用上述路径。
+目标为 **Minecraft Java 1.20.1 及以上**，目前用官方 1.20.1 和 1.21.1 客户端
+建立真实启动探测。已修复 Java 自重启参数过短、16 个文件句柄不足和 VMA 耗尽
+等问题；目录流与安全随机数接口通过真实 Java 验证。
+**目前 Minecraft 仍不能玩**：尚未通过进入世界、画面、操作和保存验收，
+LWJGL/GLFW、OpenGL/OpenAL、Linux socket、硬件信息探测与完整资源仍待完成。
+可复现工具及实际结果见[运行时说明](compat/docs/RUNTIME.md)。
+此次验证限定 Alpine musl x86-64 JDK 21，不能推断全部新版游戏或 Java 版本兼容。
+现有 `java` 命令保留 bootstrap，完整 JVM 使用上述路径。
 
 正式 UEFI 桌面中运行真实 C++、Lua 和 JavaScript（QMP 原始帧缓冲）：
 
@@ -66,7 +76,7 @@ C 运行库、内存、TLS 与受保护账户数据访问检查：
 
 ![Nuvora 实际运行 musl 与权限检查](docs/screenshots/compat-runtime.png)
 
-使用 `python3 tests/compat_desktop_test.py` 重拍；哈希与构建来源见
+使用 `python3 compat/tests/compat_desktop_test.py` 重拍；哈希与构建来源见
 [截图清单](docs/screenshots/compat-manifest.json)。
 
 ## Java 21 兼容进度

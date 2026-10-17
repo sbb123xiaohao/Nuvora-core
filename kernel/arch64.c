@@ -23,7 +23,7 @@ static u8 emergency_stack[8192] ALIGNED(16);
 /* Single-CPU entry scratch; FMASK disables interrupts before SYSCALL writes
  * the saved user stack. No user address is used as a supervisor stack. */
 uptr arch_syscall_stack, arch_syscall_user_stack;
-extern void linux_syscall_entry(void);
+extern void compat_syscall_entry(void);
 static void write_msr(u32 index,u64 value) {
     __asm__ volatile("wrmsr" :: "c"(index),"a"((u32)value),"d"((u32)(value>>32)));
 }
@@ -56,7 +56,7 @@ void arch_init(void) {
     __asm__ volatile("rdmsr" : "=a"(lo),"=d"(hi) : "c"(0xc0000080u));
     write_msr(0xc0000080u,((u64)hi<<32)|lo|1u); /* EFER.SCE */
     write_msr(0xc0000081u,8ull<<32); /* Kernel CS=8; return uses IRET. */
-    write_msr(0xc0000082u,(uptr)linux_syscall_entry);
+    write_msr(0xc0000082u,(uptr)compat_syscall_entry);
     write_msr(0xc0000084u,0x47700u); /* IF, TF, DF, IOPL, NT, AC. */
     for (u32 i = 0; i < 48; ++i)
         gate(i, isr_table[i], 0x8e, i == 8 ? 1 : 0);
@@ -79,7 +79,7 @@ void arch_init(void) {
     outb(0x40, (u8)(d >> 8));
 }
 struct frame *interrupt_dispatch(struct frame *f) {
-    if (f->vector == 0x82) return linux_dispatch(f);
+    if (f->vector == 0x82) return compat_dispatch(f);
     if (f->vector == 0x81)
         return syscall_dispatch(f);
     if (f->vector == 8)
@@ -89,11 +89,10 @@ struct frame *interrupt_dispatch(struct frame *f) {
         if (f->vector == 14)
             __asm__ volatile("mov %%cr2,%0" : "=r"(address));
         if ((f->cs & 3) == 3 && current) {
-            if(current->linux_compat.enabled && linux_fault(f,address))return f;
+            if(compat_fault(f,address))return f;
             kprintf("\n[isolate x64] pid=%u trap=%u error=%x rip=%llx address=%llx\n", current->pid,
                     (u32)f->vector, (u32)f->error, (u64)f->eip, (u64)address);
-            if(current->linux_compat.enabled)task_linux_exit_group(128+(int)f->vector);
-            else task_exit(128+(int)f->vector);
+            compat_exit_group(128+(int)f->vector);
             return schedule(f);
         }
         kprintf("trap=%u error=%x rip=%llx address=%llx\n", (u32)f->vector, (u32)f->error, (u64)f->eip,

@@ -12,6 +12,6 @@
 8. **CPU 扩展与 NVIDIA**：按 CPU 能力实现 XSAVE/AVX 状态；先完成 framebuffer/GOP 与 PCI/DMA/中断基础，再选择实体 NVIDIA 型号实现驱动，详见 [CPU-GPU.md](CPU-GPU.md)。
 9. **AI 运行架构**：大规模张量缓冲与流式训练数据、DMA/IOMMU、GPU/NPU 设备驱动和运行时、失败恢复与真正模型基准；目前的 NEON 计算自检与 x64 大缓冲测试只是可测基线，详见 [ARM64-AI.md](ARM64-AI.md)。
 10. **生产质量**：模糊测试、长时间运行、故障注入、威胁模型、安全审查和持续集成。
-11. **Java 21 与 Minecraft**：真实 OpenJDK 21.0.11 已通过动态启动、JAR/类库、pthread/futex、信号、JNI 文件/加密、GC 和 JIT 示例；静态 Lua/QuickJS/MicroPython 继续通过。首个游戏目标仍为 1.21.1 / Java 21 / LWJGL 3.3.3，见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。下一步补齐 Linux socket 与更广文件/目录接口、扩大经过验证的运行时预算，接入 LWJGL/GLFW/OpenGL/OpenAL 和游戏资源流程，并分别测试其他 JDK。以真实客户端进入世界和保存为最终验收；当前仍不能玩游戏。
+11. **Java 与 Minecraft**：目标为 1.20.1 及以上。真实 OpenJDK 21/JIT、目录流、文件、线程和安全随机数已验证；官方 1.20.1/1.21.1 客户端已进入游戏初始化，1.21.1 已加载 LWJGL/GLFW，仍缺少可用的图形平台和 OpenGL 上下文。兼容实现集中在可关闭的 `compat/`，原生桌面独立运行。继续实现窗口/输入、OpenGL/OpenAL、socket 与完整资源支持，并逐版本验证 JDK；以进入真实世界、操作和保存/重载为验收，当前仍不可玩。见[运行时说明](../compat/docs/RUNTIME.md)。
 
 这些都不是几个空函数可以替代的功能，需要继续分阶段实现和验证。现有源码不放置声称已完成这些模块的占位实现。

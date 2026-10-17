@@ -12,7 +12,7 @@
 #define NV_ARG_MAX 256
 #define NV_FILE_MAX (64u * 1024u * 1024u) /* legacy RAM/snapshot files */
 #define NV_FILE_MAX64 0x7ffffffffffff000ull
-#define NV_OPEN_MAX 16
+#define NV_OPEN_MAX 64
 #define NV_TASK_MAX 32
 #define NV_VOLUME_MAX 4u
 #define NV_PARTITION_MAX 32u

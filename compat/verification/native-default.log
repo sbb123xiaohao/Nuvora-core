@@ -1,0 +1,5 @@
+PASS Ring 3 probe / 32 MiB: 153 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS Ring 3 probe / 256 MiB: 153 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS Fragmented kernel heap / 32 MiB: six reserved-page holes prevent contiguous 8 MiB allocation; scattered heap backing boots and completes the full user probe, OOM rollback and memory reclamation checks
+Created 64 MiB Nuvora data image: /workspace/Nuvora-core/build/x86_64/test-results/uefi-boot.img
+PASS UEFI stub boot: OVMF started BOOTX64.EFI; the stub passed the EFI memory map, GOP framebuffer and RSDP through boot_info, exited boot services and the kernel restored the anchored /home from the data disk

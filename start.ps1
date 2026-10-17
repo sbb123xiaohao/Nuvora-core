@@ -3,6 +3,8 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('doctor', 'build', 'iso', 'media', 'run')]
     [string]$Action = 'doctor',
+    [ValidateSet('linux', 'none')]
+    [string]$Compat = 'linux',
     [switch]$Native,
     [switch]$Uefi,
     [switch]$Window,

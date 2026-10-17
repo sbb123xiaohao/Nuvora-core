@@ -3,6 +3,8 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('doctor', 'build', 'iso', 'media', 'run')]
     [string]$Action = 'doctor',
+    [ValidateSet('linux', 'none')]
+    [string]$Compat = 'linux',
     [switch]$Native,
     [switch]$Uefi,
     [switch]$Window,
@@ -85,6 +87,7 @@ function Invoke-NativeCommand([string]$Name, [string[]]$Arguments) {
 }
 
 function Invoke-BackendMake([hashtable]$Backend, [string[]]$Targets) {
+    $Targets = @("COMPAT=$Compat") + $Targets
     $ThreadCount = if ($Jobs -gt 0) { $Jobs } else { [Environment]::ProcessorCount }
     if ($Backend.Kind -eq 'native') {
         Push-Location $Root
@@ -165,7 +168,7 @@ try {
         }
         'run' {
             $Backend = Select-Backend
-            $Arguments = @('--memory', "$Memory", '--disk-size', "$DiskSize", '--partitions', "$Partitions", '--disk-bus', $DiskBus)
+            $Arguments = @('--compat', $Compat, '--memory', "$Memory", '--disk-size', "$DiskSize", '--partitions', "$Partitions", '--disk-bus', $DiskBus)
             if ($Uefi) { $Arguments += '--uefi' }
             if ($Window) { $Arguments += '--window' }
             if ($Fullscreen) { $Arguments += '--fullscreen' }

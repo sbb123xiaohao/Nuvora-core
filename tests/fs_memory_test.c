@@ -12,6 +12,14 @@ int console_getc(void) { return -NV_EAGAIN; }
 int task_info(u32 index, struct nv_taskinfo *out) { (void)index; (void)out; return 0; }
 volatile u64 ticks;
 bool task_cwd_in_use(int node) { (void)node; return false; }
+static bool entropy_available;
+static u32 entropy_calls;
+bool cpu_random(void *out,u32 bytes) {
+    ++entropy_calls;
+    if(!entropy_available) {if(bytes)((u8 *)out)[0]=0;return false;}
+    for(u32 i=0;i<bytes;++i)((u8 *)out)[i]=(u8)(i+entropy_calls);
+    return true;
+}
 int store_read_bytes(u32 v, int slot, u32 off, void *dst, u32 len) {
     (void)v; (void)slot; (void)off; (void)dst; (void)len; return -NV_EIO;
 }
@@ -23,12 +31,59 @@ static struct task task_at(int cwd) {
     for (u32 i = 0; i < NV_OPEN_MAX; ++i) t.fd[i].node = -1;
     return t;
 }
+static void entropy_devices(void) {
+    struct task t=task_at(home_node);
+    int fd=fs_open(&t,"/dev/urandom",NV_READ);assert(fd>=3);
+    u8 bytes[300];memset(bytes,0xa5,sizeof(bytes));
+    assert(fs_read(&t,fd,bytes,300)==-NV_EIO);
+    for(u32 i=0;i<sizeof(bytes);++i)assert(bytes[i]==0xa5);
+    u32 calls=entropy_calls;assert(!fs_read(&t,fd,bytes,0) && entropy_calls==calls);
+    entropy_available=true;
+    assert(fs_read(&t,fd,bytes,300)==256 && bytes[256]==0xa5);
+    u8 first=bytes[0];assert(fs_read(&t,fd,bytes,1)==1 && bytes[0]!=first);
+    struct nv_stat64 st;assert(!fs_stat64(&t,fd,&st) && st.kind==NV_DEVICE);
+    assert(!fs_close(&t,fd));fd=fs_open(&t,"/dev/random",NV_READ);assert(fd>=3);
+    assert(fs_read(&t,fd,bytes,32)==32 && !fs_close(&t,fd));
+    assert(fs_open(&t,"/dev/random",NV_WRITE)==-NV_EACCESS);
+    assert(fs_open(&t,"/dev/urandom",NV_WRITE)==-NV_EACCESS);
+    puts("PASS random devices: bounded hardware entropy, stream reads, zero-length reads, read-only access and unchanged output on failure");
+}
+static void shared_descriptions(void) {
+    struct task t=task_at(home_node);
+    int fd=fs_open(&t,"/home/shared",NV_READ|NV_WRITE|NV_CREATE);assert(fd>=3);
+    assert(fs_write(&t,fd,"abcdef",6)==6 && fs_seek(&t,fd,0,0)==0);
+    int other=fs_duplicate(&t,fd,31);assert(other==31 && t.fd[fd].sharing);
+    char bytes[3]={0};assert(fs_read(&t,other,bytes,2)==2 && !strcmp(bytes,"ab"));
+    assert(t.fd[fd].offset==2 && fs_read(&t,fd,bytes,2)==2 && !strcmp(bytes,"cd"));
+    assert(t.fd[other].offset==4 && fs_seek(&t,other,1,0)==1 && t.fd[fd].offset==1);
+    assert(fs_write(&t,fd,"X",1)==1 && t.fd[other].offset==2);
+    assert(fs_pread64(&t,other,0,bytes,2)==2 && !strcmp(bytes,"aX") && t.fd[fd].offset==2);
+    t.fd[other].flags|=NV_APPEND;fs_descriptor_sync(&t,other);
+    assert((t.fd[fd].flags&NV_APPEND) && fs_write(&t,fd,"!",1)==1 && t.fd[other].offset==7);
+    assert(fs_duplicate(&t,fd,NV_OPEN_MAX)==-NV_EINVAL);
+    assert(fs_close(&t,fd)==0 && fs_remove(0,"/home/shared")==-NV_EBUSY);
+    assert(fs_seek(&t,other,6,0)==6 && fs_read(&t,other,bytes,1)==1 && bytes[0]=='!');
+    assert(fs_close(&t,other)==0 && fs_remove(0,"/home/shared")==0);
+    for(u32 i=0;i<ARRAY_LEN(descriptor_references);++i)assert(!descriptor_references[i]);
+    assert(!fs_mkdir(0,"/home/directory"));
+    fd=fs_open_directory(&t,"/home/directory");assert(fd>=3);
+    assert(fs_read(&t,fd,bytes,1)==-NV_EISDIR);
+    assert(fs_remove(0,"/home/directory")==-NV_EBUSY);
+    other=fs_duplicate(&t,fd,63);assert(other==63);
+    assert(fs_close(&t,fd)==0 && fs_remove(0,"/home/directory")==-NV_EBUSY);
+    assert(fs_close(&t,other)==0 && fs_remove(0,"/home/directory")==0);
+    assert(fs_open_directory(&t,"/dev/null")==-NV_ENOTDIR);
+    assert(!heap_used());
+    puts("PASS shared descriptions: dup retains offsets/status across read/write/seek/close; positioned reads stay independent; directory references prevent removal");
+}
 int main(void) {
     heap = aligned_alloc(PAGE, HEAP_SIZE);
     assert(heap);
     head = (struct block *)heap;
     *head = (struct block){.magic = BLOCK_MAGIC, .size = HEAP_SIZE - sizeof(*head), .free = 1};
     fs_init();
+    entropy_devices();
+    shared_descriptions();
     /* The old inline snapshot remains readable and writable. */
     const char path[] = "/home/legacy";
     u32 pathlen = sizeof(path) - 1, size = 128 * 1024 - 1;

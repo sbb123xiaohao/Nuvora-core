@@ -1,0 +1,353 @@
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] OOM rollback: zero through four available pages, no leaks
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] restored /home generation 3
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 1023 MiB managed RAM, 254858 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora recovery console / local sign-in required
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/ :: compat --jit /home/jdk/bin/java @/home/minecraft/demo.args
+ERROR StatusConsoleListener Could not determine local host name
+ java.net.UnknownHostException: nuvora: nuvora: System error
+    at java.base/java.net.InetAddress.getLocalHost(InetAddress.java:1936)
+    at org.apache.logging.log4j.core.util.NetUtils.getLocalHostname(NetUtils.java:56)
+    at org.apache.logging.log4j.core.LoggerContext.lambda$setConfiguration$0(LoggerContext.java:625)
+    at java.base/java.util.concurrent.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1708)
+    at org.apache.logging.log4j.core.LoggerContext.setConfiguration(LoggerContext.java:625)
+    at org.apache.logging.log4j.core.LoggerContext.reconfigure(LoggerContext.java:713)
+    at org.apache.logging.log4j.core.LoggerContext.reconfigure(LoggerContext.java:735)
+    at org.apache.logging.log4j.core.LoggerContext.start(LoggerContext.java:260)
+    at org.apache.logging.log4j.core.impl.Log4jContextFactory.getContext(Log4jContextFactory.java:154)
+    at org.apache.logging.log4j.core.impl.Log4jContextFactory.getContext(Log4jContextFactory.java:46)
+    at org.apache.logging.log4j.LogManager.getContext(LogManager.java:197)
+    at org.apache.logging.log4j.spi.AbstractLoggerAdapter.getContext(AbstractLoggerAdapter.java:136)
+    at org.apache.logging.slf4j.Log4jLoggerFactory.getContext(Log4jLoggerFactory.java:58)
+    at org.apache.logging.log4j.spi.AbstractLoggerAdapter.getLogger(AbstractLoggerAdapter.java:46)
+    at org.apache.logging.slf4j.Log4jLoggerFactory.getLogger(Log4jLoggerFactory.java:32)
+    at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:426)
+    at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:451)
+    at com.mojang.logging.LogUtils.getLogger(LogUtils.java:62)
+    at gvu.<clinit>(SourceFile:21)
+    at net.minecraft.client.main.Main.main(SourceFile:120)
+Caused by: java.net.UnknownHostException: nuvora: System error
+    at java.base/java.net.Inet4AddressImpl.lookupAllHostAddr(Native Method)
+    at java.base/java.net.Inet4AddressImpl.lookupAllHostAddr(Inet4AddressImpl.java:43)
+    at java.base/java.net.InetAddress$PlatformResolver.lookupByName(InetAddress.java:1211)
+    at java.base/java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1828)
+    at java.base/java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:1139)
+    at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+    at java.base/java.net.InetAddress.getLocalHost(InetAddress.java:1931)
+    ... 19 more
+[08:15:53] [main/WARN]: Did not find udev library in operating system. Some features may not work.
+[08:15:54] [main/WARN]: Failed retrieving info for group processor
+java.lang.ExceptionInInitializerError: null
+    at oshi.driver.linux.proc.Auxv.queryAuxv(Auxv.java:35) ~[lib001.jar:6.4.10]
+    at oshi.software.os.linux.LinuxOperatingSystem.<clinit>(LinuxOperatingSystem.java:128) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:67) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:58) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:43) ~[lib001.jar:6.4.10]
+    at oshi.util.Memoizer$1.get(Memoizer.java:61) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:48) ~[lib001.jar:6.4.10]
+    at ac.c(SourceFile:79) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:79) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.g(SourceFile:234) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:125) [client.jar:?]
+Caused by: oshi.util.GlobalConfig$PropertyException: Invalid property "oshi.util.proc.path": The path does not exist
+    at oshi.util.platform.linux.ProcPath.queryProcConfig(ProcPath.java:64) ~[lib001.jar:6.4.10]
+    at oshi.util.platform.linux.ProcPath.<clinit>(ProcPath.java:24) ~[lib001.jar:6.4.10]
+    ... 17 more
+[08:15:55] [main/WARN]: Failed retrieving info for group memory
+java.lang.NoClassDefFoundError: Could not initialize class oshi.software.os.linux.LinuxOperatingSystem
+    at oshi.hardware.platform.linux.LinuxGlobalMemory.<clinit>(LinuxGlobalMemory.java:28) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createMemory(LinuxHardwareAbstractionLayer.java:38) ~[lib001.jar:6.4.10]
+    at oshi.util.Memoizer$1.get(Memoizer.java:61) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getMemory(AbstractHardwareAbstractionLayer.java:60) ~[lib001.jar:6.4.10]
+    at ac.a(SourceFile:81) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:81) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.g(SourceFile:234) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:125) [client.jar:?]
+Caused by: java.lang.ExceptionInInitializerError: Exception java.lang.ExceptionInInitializerError [in thread "main"]
+    at oshi.driver.linux.proc.Auxv.queryAuxv(Auxv.java:35) ~[lib001.jar:6.4.10]
+    at oshi.software.os.linux.LinuxOperatingSystem.<clinit>(LinuxOperatingSystem.java:128) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:67) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:58) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:43) ~[lib001.jar:6.4.10]
+    at oshi.util.Memoizer$1.get(Memoizer.java:61) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:48) ~[lib001.jar:6.4.10]
+    at ac.c(SourceFile:79) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:79) ~[client.jar:?]
+    ... 6 more
+[08:15:55] [main/WARN]: Failed retrieving storage space for java.io.tmpdir
+java.io.IOException: Mount point not found
+    at java.base/sun.nio.fs.LinuxFileStore.findMountEntry(LinuxFileStore.java:104) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileStore.<init>(UnixFileStore.java:69) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileStore.<init>(LinuxFileStore.java:48) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:51) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:39) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileSystemProvider.getFileStore(UnixFileSystemProvider.java:446) ~[?:?]
+    at java.base/java.nio.file.Files.getFileStore(Files.java:1497) ~[?:?]
+    at ac.b(SourceFile:167) ~[client.jar:?]
+    at ac.a(SourceFile:154) ~[client.jar:?]
+    at ac.b(SourceFile:149) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:82) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.g(SourceFile:234) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:125) [client.jar:?]
+[08:15:56] [main/WARN]: Failed retrieving storage space for workdir
+java.io.IOException: Mount point not found
+    at java.base/sun.nio.fs.LinuxFileStore.findMountEntry(LinuxFileStore.java:104) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileStore.<init>(UnixFileStore.java:69) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileStore.<init>(LinuxFileStore.java:48) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:51) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:39) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileSystemProvider.getFileStore(UnixFileSystemProvider.java:446) ~[?:?]
+    at java.base/java.nio.file.Files.getFileStore(Files.java:1497) ~[?:?]
+    at ac.b(SourceFile:167) ~[client.jar:?]
+    at ac.b(SourceFile:150) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:82) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.g(SourceFile:234) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:125) [client.jar:?]
+[08:16:03] [Datafixer Bootstrap/INFO]: 226 Datafixer optimizations took 13870 milliseconds
+[LWJGL] Version: 3.3.3+5
+     OS: Linux v0.0.0-nuvora-compat
+    JRE: Linux amd64 21.0.11
+    JVM: OpenJDK 64-Bit Server VM v21.0.11+10-alpine-r0 by Alpine
+[LWJGL] Loading JNI library: lwjgl
+    Module: org.lwjgl
+    Loaded from org.lwjgl.librarypath: /home/minecraft/natives/liblwjgl.so
+[LWJGL] MemoryUtil allocator: StdlibAllocator
+[08:17:56] [Render thread/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[08:17:57] [Render thread/INFO]: Setting user: NuvoraDemo
+[LWJGL] Loading library: glfw
+    Module: org.lwjgl.glfw
+    Loaded from org.lwjgl.librarypath: /home/minecraft/natives/libglfw.so
+[08:17:59] [Render thread/INFO]: Backend library: LWJGL version 3.3.3+5
+[LWJGL] Java 9 check intrinsics enabled
+[LWJGL] Closure Registry: ConcurrentHashMap
+[LWJGL] Java 10 multiplyHigh enabled
+[LWJGL] Java 9 text decoding enabled
+[08:18:00] [Render thread/WARN]: Failed retrieving info for group processor
+java.lang.NoClassDefFoundError: Could not initialize class oshi.software.os.linux.LinuxOperatingSystem
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:67) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:58) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:43) ~[lib001.jar:6.4.10]
+    at oshi.util.Memoizer$1.get(Memoizer.java:61) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:48) ~[lib001.jar:6.4.10]
+    at ac.c(SourceFile:79) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:79) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.a(SourceFile:226) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:246) [client.jar:?]
+Caused by: java.lang.ExceptionInInitializerError: Exception java.lang.ExceptionInInitializerError [in thread "main"]
+    at oshi.driver.linux.proc.Auxv.queryAuxv(Auxv.java:35) ~[lib001.jar:6.4.10]
+    at oshi.software.os.linux.LinuxOperatingSystem.<clinit>(LinuxOperatingSystem.java:128) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:67) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:58) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:43) ~[lib001.jar:6.4.10]
+    at oshi.util.Memoizer$1.get(Memoizer.java:61) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:48) ~[lib001.jar:6.4.10]
+    at ac.c(SourceFile:79) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:79) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.<init>(SourceFile:56) ~[client.jar:?]
+    at o.<init>(SourceFile:35) ~[client.jar:?]
+    at o.g(SourceFile:234) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:125) ~[client.jar:?]
+[08:18:00] [Render thread/WARN]: Failed retrieving info for group memory
+java.lang.NoClassDefFoundError: Could not initialize class oshi.hardware.platform.linux.LinuxGlobalMemory
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createMemory(LinuxHardwareAbstractionLayer.java:38) ~[lib001.jar:6.4.10]
+    at oshi.util.Memoizer$1.get(Memoizer.java:61) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getMemory(AbstractHardwareAbstractionLayer.java:60) ~[lib001.jar:6.4.10]
+    at ac.a(SourceFile:81) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:81) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.a(SourceFile:226) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:246) [client.jar:?]
+Caused by: java.lang.ExceptionInInitializerError: Exception java.lang.NoClassDefFoundError: Could not initialize class oshi.software.os.linux.LinuxOperatingSystem [in thread "main"]
+    at oshi.hardware.platform.linux.LinuxGlobalMemory.<clinit>(LinuxGlobalMemory.java:28) ~[lib001.jar:6.4.10]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createMemory(LinuxHardwareAbstractionLayer.java:38) ~[lib001.jar:6.4.10]
+    at oshi.util.Memoizer$1.get(Memoizer.java:61) ~[lib001.jar:6.4.10]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getMemory(AbstractHardwareAbstractionLayer.java:60) ~[lib001.jar:6.4.10]
+    at ac.a(SourceFile:81) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:81) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.<init>(SourceFile:56) ~[client.jar:?]
+    at o.<init>(SourceFile:35) ~[client.jar:?]
+    at o.g(SourceFile:234) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:125) ~[client.jar:?]
+[08:18:00] [Render thread/WARN]: Failed retrieving storage space for java.io.tmpdir
+java.io.IOException: Mount point not found
+    at java.base/sun.nio.fs.LinuxFileStore.findMountEntry(LinuxFileStore.java:104) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileStore.<init>(UnixFileStore.java:69) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileStore.<init>(LinuxFileStore.java:48) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:51) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:39) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileSystemProvider.getFileStore(UnixFileSystemProvider.java:446) ~[?:?]
+    at java.base/java.nio.file.Files.getFileStore(Files.java:1497) ~[?:?]
+    at ac.b(SourceFile:167) ~[client.jar:?]
+    at ac.a(SourceFile:154) ~[client.jar:?]
+    at ac.b(SourceFile:149) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:82) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.a(SourceFile:226) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:246) [client.jar:?]
+[08:18:00] [Render thread/WARN]: Failed retrieving storage space for workdir
+java.io.IOException: Mount point not found
+    at java.base/sun.nio.fs.LinuxFileStore.findMountEntry(LinuxFileStore.java:104) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileStore.<init>(UnixFileStore.java:69) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileStore.<init>(LinuxFileStore.java:48) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:51) ~[?:?]
+    at java.base/sun.nio.fs.LinuxFileSystemProvider.getFileStore(LinuxFileSystemProvider.java:39) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileSystemProvider.getFileStore(UnixFileSystemProvider.java:446) ~[?:?]
+    at java.base/java.nio.file.Files.getFileStore(Files.java:1497) ~[?:?]
+    at ac.b(SourceFile:167) ~[client.jar:?]
+    at ac.b(SourceFile:150) ~[client.jar:?]
+    at ac.a(SourceFile:87) ~[client.jar:?]
+    at ac.a(SourceFile:82) ~[client.jar:?]
+    at ac.e(SourceFile:56) ~[client.jar:?]
+    at ac.a(SourceFile:87) [client.jar:?]
+    at ac.<init>(SourceFile:56) [client.jar:?]
+    at o.<init>(SourceFile:35) [client.jar:?]
+    at o.a(SourceFile:226) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:246) [client.jar:?]
+---- Minecraft Crash Report ----
+// Don't do that.
+
+Time: 2026-10-17 08:18:00
+Description: Initializing game
+
+java.lang.IllegalStateException: Failed to initialize GLFW, errors: GLFW error during init: [0x1000E]Failed to detect any supported platform
+    at com.mojang.blaze3d.platform.GLX._initGlfw(SourceFile:77)
+    at com.mojang.blaze3d.systems.RenderSystem.initBackendSystem(SourceFile:509)
+    at fgo.<init>(SourceFile:502)
+    at net.minecraft.client.main.Main.main(SourceFile:239)
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Render thread
+Stacktrace:
+    at com.mojang.blaze3d.platform.GLX._initGlfw(SourceFile:77)
+    at com.mojang.blaze3d.systems.RenderSystem.initBackendSystem(SourceFile:509)
+    at fgo.<init>(SourceFile:502)
+
+-- Initialization --
+Details:
+    Modules:
+Stacktrace:
+    at net.minecraft.client.main.Main.main(SourceFile:239)
+
+-- System Details --
+Details:
+    Minecraft Version: 1.21.1
+    Minecraft Version ID: 1.21.1
+    Operating System: Linux (amd64) version 0.0.0-nuvora-compat
+    Java Version: 21.0.11, Alpine
+    Java VM Version: OpenJDK 64-Bit Server VM (mixed mode), Alpine
+    Memory: 17720312 bytes (16 MiB) / 259522560 bytes (247 MiB) up to 259522560 bytes (247 MiB)
+    CPUs: 1
+    Graphics card #0 name: unknown
+    Graphics card #0 vendor: unknown
+    Graphics card #0 VRAM (MiB): 0.00
+    Graphics card #0 deviceId: unknown
+    Graphics card #0 versionInfo: unknown
+    Space in storage for jna.tmpdir (MiB): <path not set>
+    Space in storage for org.lwjgl.system.SharedLibraryExtractPath (MiB): <path not set>
+    Space in storage for io.netty.native.workdir (MiB): <path not set>
+    Space in storage for java.io.tmpdir (MiB): ERR
+    Space in storage for workdir (MiB): ERR
+    JVM Flags: 6 total; -Xmx256m -XX:+UseSerialGC -XX:ActiveProcessorCount=1 -XX:-UsePerfData -XX:-UseCompressedOops -XX:-UseCompressedClassPointers
+    Launched Version: 1.21.1
+    Backend library: LWJGL version 3.3.3+5
+    Backend API: Unknown
+    Window size: <not initialized>
+    GFLW Platform: <error>
+    GL Caps: Using framebuffer using OpenGL 3.2
+    GL debug messages: <disabled>
+    Is Modded: Probably not. Client jar signature and brand is untouched
+    Universe: 404
+    Type: Client (map_client.txt)
+    Locale: en_US
+    System encoding: ASCII
+    File encoding: UTF-8
+    CPU: <unknown>
+[08:18:00] [Render thread/ERROR]: Could not save crash report to /home/minecraft/game/crash-reports/crash-2026-10-17_08.18.00-client.txt
+java.nio.file.FileSystemException: /home/minecraft/game/crash-reports/crash-2026-10-17_08.18.00-client.txt: Argument list too long
+    at java.base/sun.nio.fs.UnixException.translateToIOException(UnixException.java:100) ~[?:?]
+    at java.base/sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:106) ~[?:?]
+    at java.base/sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:111) ~[?:?]
+    at java.base/sun.nio.fs.UnixFileSystemProvider.newByteChannel(UnixFileSystemProvider.java:261) ~[?:?]
+    at java.base/java.nio.file.spi.FileSystemProvider.newOutputStream(FileSystemProvider.java:482) ~[?:?]
+    at java.base/java.nio.file.Files.newOutputStream(Files.java:228) ~[?:?]
+    at java.base/java.nio.file.Files.newBufferedWriter(Files.java:3001) ~[?:?]
+    at o.a(SourceFile:156) [client.jar:?]
+    at o.a(SourceFile:169) [client.jar:?]
+    at fgo.a(SourceFile:969) [client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:250) [client.jar:?]
+#@?@# Game crashed! Crash report could not be saved. #@?@#
+Process 2 exited 254
+
+C:/ :: horizon
+RAM managed: 1048020 KiB; free: 1019284 KiB
+Kernel heap: 5905152 / 8388608 bytes
+Tasks: 1; filesystem nodes: 247; uptime: 194 s
+Data disk ready; committed generation: 3
+
+C:/ ::

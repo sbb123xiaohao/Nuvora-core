@@ -14,6 +14,9 @@ struct node {
 };
 struct file_extent { u64 logical, physical, blocks; struct file_extent *next; };
 static struct node nodes[FS_NODES];
+/* A duplicated descriptor retains one open description. Thread-group copies
+ * are views of the same table, not additional references. */
+static u32 descriptor_references[NV_TASK_MAX * NV_OPEN_MAX];
 static int volume_for(int);
 static int mutation_error(int);
 static bool extent_enabled[NV_VOLUME_MAX];
@@ -216,6 +219,10 @@ void fs_init(void) {
     nodes[n].device = 2;
     n = make_node(dev, "console", NV_DEVICE, true);
     nodes[n].device = 3;
+    n = make_node(dev, "random", NV_DEVICE, true);
+    nodes[n].device = 4;
+    n = make_node(dev, "urandom", NV_DEVICE, true);
+    nodes[n].device = 4;
     n = make_node(sys, "memory", NV_PROC, true);
     nodes[n].device = 1;
     n = make_node(sys, "tasks", NV_PROC, true);
@@ -345,6 +352,8 @@ int fs_open(struct task *t, const char *path, u32 flags) {
     if ((flags & NV_WRITE) &&
         (nodes[n].kind == NV_PROC || (nodes[n].locked && nodes[n].kind != NV_DEVICE)))
         return -NV_EACCESS;
+    if ((flags & NV_WRITE) && nodes[n].kind == NV_DEVICE && nodes[n].device == 4)
+        return -NV_EACCESS;
     if ((flags & NV_TRUNC) && nodes[n].kind == NV_FILE) {
         int error = mutation_error(n);
         if (error < 0) return error;
@@ -356,11 +365,48 @@ int fs_open(struct task *t, const char *path, u32 flags) {
         .node = n, .flags = flags, .offset = (flags & NV_APPEND) ? nodes[n].size : 0};
     return fd;
 }
+int fs_open_directory(struct task *t,const char *path) {
+    int r=fs_authorize(t,t->cwd,path,0);if(r<0)return r;
+    int node=fs_lookup(t->cwd,path);if(node<0)return node;
+    if(nodes[node].kind!=NV_DIR)return -NV_ENOTDIR;
+    for(u32 fd=3;fd<NV_OPEN_MAX;++fd)if(t->fd[fd].node<0) {
+        ++nodes[node].refs;
+        t->fd[fd]=(struct descriptor){.node=node,.flags=NV_READ};return fd;
+    }
+    return -NV_ENOSPC;
+}
+void fs_descriptor_sync(struct task *t,int fd) {
+    struct descriptor *source=&t->fd[fd];
+    if(!source->sharing)return;
+    for(u32 i=3;i<NV_OPEN_MAX;++i)if(t->fd[i].node>=0 && t->fd[i].sharing==source->sharing) {
+        t->fd[i].offset=source->offset;t->fd[i].flags=source->flags;
+    }
+}
+int fs_duplicate(struct task *t,int fd,u32 minimum) {
+    if(fd<3 || fd>=NV_OPEN_MAX || t->fd[fd].node<0)return -NV_EBADF;
+    if(minimum>=NV_OPEN_MAX)return -NV_EINVAL;
+    char path[NV_PATH_MAX];int r=fs_path(t->fd[fd].node,path,sizeof(path));
+    if(r<0 || !account_path_allowed(t,path,0))return r<0?r:-NV_EACCESS;
+    u32 fresh=MAX(3u,minimum);
+    while(fresh<NV_OPEN_MAX && t->fd[fresh].node>=0)++fresh;
+    if(fresh==NV_OPEN_MAX)return -NV_ENOSPC;
+    u32 group=t->fd[fd].sharing;
+    if(!group) {
+        for(group=1;group<=ARRAY_LEN(descriptor_references);++group)
+            if(!descriptor_references[group-1])break;
+        if(group>ARRAY_LEN(descriptor_references))return -NV_ENOSPC;
+        descriptor_references[group-1]=1;t->fd[fd].sharing=group;
+    }
+    ++descriptor_references[group-1];++nodes[t->fd[fd].node].refs;
+    t->fd[fresh]=t->fd[fd];return fresh;
+}
 int fs_close(struct task *t, int fd) {
     if (fd < 3 || fd >= NV_OPEN_MAX || t->fd[fd].node < 0)
         return -NV_EBADF;
     --nodes[t->fd[fd].node].refs;
+    if(t->fd[fd].sharing)--descriptor_references[t->fd[fd].sharing-1];
     t->fd[fd].node = -1;
+    t->fd[fd].sharing=0;
     return 0;
 }
 static u32 append_text(char *out, u32 pos, const char *s) {
@@ -432,12 +478,20 @@ int fs_read(struct task *t, int fd, void *buf, u32 len) {
     int access=fs_path(d->node,path,sizeof(path));
     if (access<0 || !account_path_allowed(t,path,0)) return access<0?access:-NV_EACCESS;
     struct node *n = &nodes[d->node];
+    if(n->kind==NV_DIR)return -NV_EISDIR;
     if (n->kind == NV_DEVICE) {
         if (n->device == 1)
             return 0;
         if (n->device == 2) {
             memset(buf, 0, len);
             return (int)len;
+        }
+        if (n->device == 4) {
+            u8 bytes[256];u32 amount=MIN(len,(u32)sizeof(bytes));
+            if (!amount) return 0;
+            if (!cpu_random(bytes,amount)) {memset(bytes,0,sizeof(bytes));return -NV_EIO;}
+            memcpy(buf,bytes,amount);memset(bytes,0,sizeof(bytes));
+            return (int)amount;
         }
         return fs_read(t, 0, buf, len);
     }
@@ -455,6 +509,7 @@ int fs_read(struct task *t, int fd, void *buf, u32 len) {
     if (result < 0) return result;
     if (n->kind != NV_FILE) memcpy(buf, data + d->offset, amount);
     d->offset += amount;
+    fs_descriptor_sync(t,fd);
     return (int)amount;
 }
 int fs_pread64(struct task *t,int fd,u64 offset,void *buf,u32 len) {
@@ -496,7 +551,7 @@ int fs_write(struct task *t, int fd, const void *buf, u32 len) {
         if (wide_offset > NV_FILE_MAX64 || len > NV_FILE_MAX64 - wide_offset)
             return -NV_E2BIG;
         int r = extent_write(n, (u32)v, wide_offset, buf, len);
-        if (r >= 0) { d->offset = wide_offset + len; n->size = MAX(n->size, d->offset); }
+        if (r >= 0) { d->offset = wide_offset + len; n->size = MAX(n->size, d->offset);fs_descriptor_sync(t,fd); }
         return r;
     }
     if (wide_offset > NV_FILE_MAX) return -NV_ENOSPC;
@@ -555,6 +610,7 @@ int fs_write(struct task *t, int fd, const void *buf, u32 len) {
         }
         n->size = MAX(n->size, end);
         d->offset = end;
+        fs_descriptor_sync(t,fd);
         return (int)len;
 rollback_pages:
         for (u32 i = first; i <= last; ++i)
@@ -586,6 +642,7 @@ rollback_pages:
     memcpy(n->data + offset, buf, len);
     n->size = MAX(n->size, end);
     d->offset = end;
+    fs_descriptor_sync(t,fd);
     return (int)len;
 }
 int fs_seek64(struct task *t, int fd, struct nv_seek64 *io) {
@@ -603,6 +660,7 @@ int fs_seek64(struct task *t, int fd, struct nv_seek64 *io) {
     int v = volume_for(d->node);
     if ((v < 0 || !extent_enabled[v]) && pos > NV_FILE_MAX) return -NV_EINVAL;
     d->offset = io->position = pos;
+    fs_descriptor_sync(t,fd);
     return 0;
 }
 int fs_seek(struct task *t, int fd, i32 offset, u32 origin) {
@@ -611,7 +669,7 @@ int fs_seek(struct task *t, int fd, i32 offset, u32 origin) {
     struct nv_seek64 io = {.offset = offset, .origin = origin};
     int r = fs_seek64(t, fd, &io);
     if (r < 0) return r;
-    if (io.position > 0x7fffffffu) { t->fd[fd].offset = old; return -NV_E2BIG; }
+    if (io.position > 0x7fffffffu) { t->fd[fd].offset = old;fs_descriptor_sync(t,fd);return -NV_E2BIG; }
     return (int)io.position;
 }
 static int fs_stat_node64(struct task *t,int node,struct nv_stat64 *out) {

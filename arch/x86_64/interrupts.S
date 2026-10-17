@@ -242,18 +242,7 @@ isr_129:
     pushq $0
     pushq $129
     jmp interrupt_common
-.global linux_syscall_entry
-linux_syscall_entry:
-    mov %rsp,arch_syscall_user_stack(%rip)
-    mov arch_syscall_stack(%rip),%rsp
-    pushq $0x23
-    pushq arch_syscall_user_stack(%rip)
-    push %r11
-    pushq $0x1b
-    push %rcx
-    pushq $0
-    pushq $0x82
-    jmp interrupt_common
+.global interrupt_common
 interrupt_common:
     push %rax
     push %rbx

@@ -5,7 +5,7 @@ JDK 和类库，避免把这个受限解释器继续扩成独立完整 JVM。Lin
 **OpenJDK 21.0.11 / HotSpot** 的版本查询、JAR、多线程、标准库、GC 和 JIT 示例，
 包括 JNI 文件/加密接口。完整 JVM 入口为 `compat --jit /home/jdk/bin/java`，
 现有 `java` 命令仍是本文的 bootstrap。**Minecraft 客户端仍不能运行**。
-路线、首个游戏目标和当前阻塞项见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。
+路线、首个游戏目标和当前阻塞项见 [运行时说明](../compat/docs/RUNTIME.md)。
 
 下面保留 bootstrap 的准确使用说明和已验证范围；它是已有的诊断/回归子集。
 

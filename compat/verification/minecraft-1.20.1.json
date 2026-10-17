@@ -1,0 +1,23 @@
+{
+  "version": "1.20.1",
+  "elapsed_seconds": 229.98,
+  "guest_exit_status": 254,
+  "native_shell_recovered": true,
+  "markers": [
+    "net.minecraft.client.main.Main",
+    "Render thread",
+    "LWJGL",
+    "UnknownHostException"
+  ],
+  "failure": null,
+  "crash_description": "Initializing game",
+  "crash_exception": "java.lang.ExceptionInInitializerError",
+  "playable": false,
+  "acceptance": {
+    "world": "not verified",
+    "rendering": "not verified",
+    "input": "not verified",
+    "save_reload": "not verified"
+  },
+  "note": "Real guest output recorded. Client initialization/exit is not a gameplay acceptance."
+}

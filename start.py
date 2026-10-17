@@ -11,6 +11,8 @@ sys.path.insert(0, str(root / 'scripts'))
 from qemu import display_resolution
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--arch', choices=['x86_64', 'aarch64'], default='x86_64')
+parser.add_argument('--compat', choices=['linux', 'none'], default=os.environ.get('NV_COMPAT', 'linux'),
+                    help='Select the matching build profile; none uses the independent native build')
 parser.add_argument('--window', action='store_true', help='Use a graphics window with virtual USB input')
 parser.add_argument('--fullscreen', action='store_true', help='Start fullscreen (implies --window)')
 parser.add_argument('--resolution', type=display_resolution, metavar='WIDTHxHEIGHT',
@@ -45,9 +47,10 @@ if args.arch == 'aarch64':
     raise SystemExit(subprocess.call(cmd))
 env = os.environ.copy()
 env['NV_ARCH'] = args.arch
-build = root / 'build' / args.arch
+env['NV_COMPAT'] = args.compat
+build = root / 'build' / (args.arch + ('-native' if args.compat == 'none' and args.arch == 'x86_64' else ''))
 if not (build / 'boot.elf').is_file():
-    raise SystemExit(f'Missing kernel. Build it first: make ARCH={args.arch}')
+    raise SystemExit(f'Missing kernel. Build it first: make ARCH={args.arch} COMPAT={args.compat}')
 subprocess.run([sys.executable, str(root / 'scripts/mkgptdisk.py'),
                 str(build / 'nuvora-store.img'), '--if-missing',
                 '--size', str(args.disk_size), '--partitions', str(args.partitions)], check=True)

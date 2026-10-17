@@ -1,0 +1,5 @@
+PASS real OpenJDK 21.0.11 / HotSpot interpreted startup and version
+PASS real Java 21: JAR/ZIP, four threads, atomics, latch/join, SHA-256 provider, BigInteger, NIO, clocks and GC
+PASS real HotSpot JIT: compiled JavaRuntimeCheck::hot, executed 200000 iterations and matched arithmetic checksum
+PASS JVM group exit, exact reclamation 497052/497052 KiB, missing-class error and native recovery
+OPENJDK21 RUNTIME GUEST TEST PASSED; Minecraft/LWJGL/OpenGL remain separate work

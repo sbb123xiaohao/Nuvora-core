@@ -22,7 +22,7 @@ def main():
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
                    '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
                    '-DNV_HOST_TEST', '-fsanitize=undefined', '-fno-sanitize-recover=all', '-Iinclude',
-                   str(ROOT / 'tests' / f'{name}_test.c'), 'tests/window_stubs.c', 'common/string.c',
+                   str(ROOT / ('compat/tests' if name in ('linux','linux_threads') else 'tests') / f'{name}_test.c'), 'tests/window_stubs.c', 'common/string.c',
                    'common/page_buddy.c', 'common/slab.c', 'common/crypto.c', '-o', str(output)]
             if name == 'net_tools':
                 cmd.insert(cmd.index('-Iinclude'), '-Wno-unused-function')
@@ -56,9 +56,10 @@ def main():
         subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/package_test.py'], cwd=ROOT, check=True)
-        subprocess.run(['python3', 'tests/compat_runtimes_test.py'], cwd=ROOT, check=True)
-        subprocess.run(['python3', 'tests/dynamic_tools_test.py'], cwd=ROOT, check=True)
-    print('ALL 53 HOST REGRESSION GROUPS PASSED (including dynamic/static PIE, Linux threads/futex/signals/VMA rollback, RTC clocks, Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, editor failed-save protection, account/session isolation, network, desktop, storage, media and source packaging; C fixtures use UBSan)')
+        subprocess.run(['python3', 'compat/tests/compat_runtimes_test.py'], cwd=ROOT, check=True)
+        subprocess.run(['python3', 'compat/tests/dynamic_tools_test.py'], cwd=ROOT, check=True)
+        subprocess.run(['python3', 'compat/tests/minecraft_tools_test.py'], cwd=ROOT, check=True)
+    print('ALL 54 HOST REGRESSION GROUPS PASSED (including dynamic/static PIE, Linux threads/futex/signals/VMA rollback, official-client download boundaries, RTC clocks, Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, editor failed-save protection, account/session isolation, network, desktop, storage, media and source packaging; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

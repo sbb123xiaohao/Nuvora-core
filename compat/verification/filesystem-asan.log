@@ -1,0 +1,3 @@
+PASS random devices: bounded hardware entropy, stream reads, zero-length reads, read-only access and unchanged output on failure
+PASS shared descriptions: dup retains offsets/status across read/write/seek/close; positioned reads stay independent; directory references prevent removal
+PASS paged files: sparse 64 MiB seek, low-RAM rollback, legacy data and volumes

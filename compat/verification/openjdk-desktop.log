@@ -1,0 +1,6 @@
+Created UEFI GPT boot image: /tmp/nuvora-openjdk-desktop-_i5y_kt4/boot.img (66 MiB)
+PASS production account creation and durable database
+RUN production OpenJDK application and subsequent shell persistence
+PASS production JVM exit 0
+PASS production OpenJDK: authenticated Terminal, real Java NIO/threads/crypto/GC, persisted file, subsequent shell command and account database unchanged
+CAPTURE openjdk21.png: actual GOP framebuffer; original PPM retained

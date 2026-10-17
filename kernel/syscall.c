@@ -18,7 +18,7 @@ struct frame *syscall_dispatch(struct frame *f) {
     u32 op = (u32)operation;
     current->frame = f;
     task_reap();
-    task_linux_enter(current);
+    compat_enter(current);
     usb_poll();
     net_poll();
     uptr a = f->ebx, b = f->ecx, c = f->edx;
@@ -195,8 +195,8 @@ struct frame *syscall_dispatch(struct frame *f) {
             result = fs_path(node, path, sizeof(path));
             if (result == 0)
                 result =
-                    op == NV_COMPAT_EXEC ? task_exec_linux(path,other,c) : op == NV_EXEC ? task_exec(path, other) : op==NV_COMPAT_SPAWN ?
-                        task_spawn_linux(path,other,current,c) : task_spawn(path, other, current);
+                    op == NV_COMPAT_EXEC ? compat_exec(path,other,c) : op == NV_EXEC ? task_exec(path, other) : op==NV_COMPAT_SPAWN ?
+                        compat_spawn(path,other,current,c) : task_spawn(path, other, current);
         }
         break;
     case NV_WAIT:
@@ -464,6 +464,6 @@ struct frame *syscall_dispatch(struct frame *f) {
         break;
     }
     f->eax = native ? (u64)result : (u32)result;
-    if(current->state!=NV_ZOMBIE)task_linux_leave(current);
+    if(current->state!=NV_ZOMBIE)compat_leave(current);
     return reschedule ? schedule(f) : f;
 }

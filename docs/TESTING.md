@@ -1,5 +1,48 @@
 # 测试与复现
 
+## 未发布：兼容隔离与官方 Minecraft 客户端探测
+
+以 GitHub/main 一致的完整 `acd4643` 为基线；Arch GCC 16.2.1、QEMU 11.1.1
+TCG、OVMF。测试使用独立私有盘，没有实体硬件认证。
+
+- 默认和 `COMPAT=none` 构建均通过。**54 组宿主回归通过**，C 夹具用 UBSan；
+  Linux ABI 与实际文件系统另通过 ASan/UBSan。native64 夹具的固定物理别名
+  与 ASan shadow 冲突，使用完整 UBSan/实际页表回归，没有记成 ASan 通过。
+- 新增参数 16 KiB/128 项、31/63 号句柄、EMFILE、目录流记录/续读/短缓冲区、
+  权限拒绝、复制句柄共享偏移、独立定位读、关闭引用、硬件随机失败与 exec
+  分配失败保留原进程等边界测试。
+- 真实 OpenJDK 21 在 512 MiB BIOS 客体通过目录创建/枚举/重命名/删除、
+  SecureRandom、JAR/线程/标准库与 HotSpot JIT；重复退出后精确回收。
+  64 MiB 客体的静态语言、动态 ELF/DSO/pthread/futex/信号/exec 测试继续通过。
+- 关闭兼容模块后无 Linux 后端符号/对象、无 compat 应用；32/256 MiB BIOS、
+  碎片堆、UEFI 与 trial 均通过。每个 Ring 3 探测完成 153 项断言、保留一项
+  TCG SSE #XM SKIP。正式原生 UEFI/q35/256 MiB/NVMe/USB 桌面的 1280×800
+  Terminal 完成最大化/半屏/还原、实际像素边界和保存验证。
+- 官方 1.20.1/1.21.1 客户端原始 JAR、库和元数据均经固定摘要校验；实际在
+  1 GiB Nuvora 客体启动，使用 JDK 21/JIT/256 MiB Java 堆。1.21.1 已加载
+  原版 LWJGL/GLFW，但 GLFW 无可用平台；1.20.1 在 NioSocketImpl 初始化处
+  退出；其根因是 UnixDispatcher 所需的 AF_UNIX socketpair 未实现。
+  OSHI `/proc`、网络、长文件名和完整外部资源仍有缺口。
+  **未通过 MC 可玩验收，不宣称支持所有 1.20.1 以上版本。**
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 compat/tests/compat_boot_test.py
+python3 compat/tests/dynamic_boot_test.py
+python3 compat/tools/prepare_openjdk_probe.py
+python3 compat/tests/openjdk_boot_test.py
+make COMPAT=none -j4 diagnostics esp
+python3 compat/tests/native_independence_test.py
+NV_COMPAT=none python3 tests/resolution_desktop_test.py --resolutions 1280x800
+python3 compat/tools/prepare_minecraft_probe.py --version 1.21.1
+python3 compat/tests/minecraft_client_probe.py \
+  --disk build/minecraft-probe/1.21.1/data.img --require-playable
+```
+
+接口和复现边界见[兼容模块](../compat/README.md)及[运行时说明](../compat/docs/RUNTIME.md)。
+本轮记录集中在 [`compat/verification/`](../compat/verification/)。
+
 ## 未发布：窗口分辨率与 Terminal 重排
 
 2026-10-17，从本地/GitHub 一致的完整 `320c6e7` 继续。使用 Arch GCC 16.2.1、
@@ -24,7 +67,7 @@ make -j4 diagnostics esp
 make test-host
 python3 tests/resolution_desktop_test.py
 # 使用已由 prepare_openjdk_probe.py 创建的独立 JDK 测试盘：
-python3 tests/openjdk_desktop_test.py --disk build/openjdk-probe/data.img
+python3 compat/tests/openjdk_desktop_test.py --disk build/openjdk-probe/data.img
 python3 start.py --uefi --fullscreen --resolution 1920x1080
 ```
 
@@ -71,16 +114,16 @@ python3 start.py --uefi --fullscreen --resolution 1920x1080
 ```sh
 make -j4 diagnostics esp
 make test-host
-python3 tests/dynamic_boot_test.py
-python3 tests/compat_boot_test.py
-python3 scripts/prepare_openjdk_probe.py
-python3 tests/openjdk_boot_test.py
-python3 tests/openjdk_desktop_test.py
+python3 compat/tests/dynamic_boot_test.py
+python3 compat/tests/compat_boot_test.py
+python3 compat/tools/prepare_openjdk_probe.py
+python3 compat/tests/openjdk_boot_test.py
+python3 compat/tests/openjdk_desktop_test.py
 ```
 
 JDK 安装工具创建新的 `build/openjdk-probe/data.img`，不改用户原有数据盘；
 首次可选下载固定摘要 APK，普通构建不联网。详细边界见
-[RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)；证据见
+[运行时说明](../compat/docs/RUNTIME.md)；证据见
 [OpenJDK 验证摘要](verification/0.15.0/openjdk21-summary.log)。
 **没有运行 Minecraft 客户端、进入世界或测量游戏帧率**；Linux socket、
 LWJGL/GLFW/OpenGL/OpenAL、更多文件接口和更大的已验证内存预算尚未完成。
@@ -112,7 +155,7 @@ LWJGL/GLFW/OpenGL/OpenAL、更多文件接口和更大的已验证内存预算�
   [运行时清单](screenshots/compat-manifest.json)。
 
 复现：`make -j4 diagnostics esp && make test-host`，随后运行
-`tests/compat_boot_test.py`、`tests/compat_desktop_test.py`、
+`compat/tests/compat_boot_test.py`、`compat/tests/compat_desktop_test.py`、
 `tests/capture_screenshots.py` 与 `tests/uefi_media_boot_test.py --memory 64`。
 外部语言引擎可选重建：`make compat-examples`；固定源码摘要和许可证随夹具保存。
 MicroPython 不是完整 CPython/pip，OpenJDK、Minecraft 仍未启动；这是模拟硬件
@@ -123,7 +166,7 @@ MicroPython 不是完整 CPython/pip，OpenJDK、Minecraft 仍未启动；这是
 
 以 GitHub/local 一致的完整 `fba279b` 为基线。Java 主线改为成熟 OpenJDK
 复用系统兼容接口；本轮实现静态进程阶段，准确接口见
-[RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)，结果与依赖检查分别见
+[运行时说明](../compat/docs/RUNTIME.md)，结果与依赖检查分别见
 [运行时验证记录](verification/0.15.0/runtime-compat-summary.log) 和
 [真实 OpenJDK ELF 检查](verification/0.15.0/openjdk-runtime-probe.json)。
 
@@ -136,7 +179,7 @@ MicroPython 不是完整 CPython/pip，OpenJDK、Minecraft 仍未启动；这是
   auxv/AT_RANDOM 和 14 类坏 ELF 在映射前拒绝，并保留原生 PIE/RELRO 检查。
 - 同一批静态 ELF 在 Linux 宿主与 Nuvora 客体中执行，C++ 核心、Lua、QuickJS
   的标准输出分别 **44、119、133 字节逐字节相同**。固定源包 SHA256、包装代码
-  SHA256、编译器与 ELF 摘要在 `tests/fixtures/compat/manifest.json`；许可证随附。
+  SHA256、编译器与 ELF 摘要在 `compat/fixtures/static/manifest.json`；许可证随附。
 - **64 MiB BIOS 客体**实际运行 musl C、C++ 核心、Lua 5.4.8 和 QuickJS；验证
   参数、浮点、GC、协程/Promise、异常、文件、内存、时钟和两个并发进程的 TLS。
   shell 能终止实际运行时 PID；坏 ELF/动态 ELF 明确拒绝，一次预期用户页错误
@@ -157,9 +200,9 @@ MicroPython 不是完整 CPython/pip，OpenJDK、Minecraft 仍未启动；这是
 make -j4 diagnostics esp
 make test-host
 python3 tests/uefi_media_boot_test.py --memory 64
-python3 tests/compat_boot_test.py
+python3 compat/tests/compat_boot_test.py
 python3 tests/java_boot_test.py
-python3 tests/compat_desktop_test.py
+python3 compat/tests/compat_desktop_test.py
 # 可选，重建外部静态 ELF 夹具：
 make compat-examples
 ```

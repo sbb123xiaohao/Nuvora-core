@@ -41,7 +41,7 @@ Linux syscall、argc/argv/env/auxv、TLS、共享线程、信号、映射和文�
 `make compat-examples` 可重建 C、C++ 核心、Lua、QuickJS、MicroPython 夹具。
 Python 脚本可使用模块、继承、大整数和文件接口；它不是完整 CPython/pip。
 真实 Alpine musl OpenJDK 21 已通过类库/JAR、pthread、GC 与 JIT 示例，入口和
-固定摘要安装工具见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。没有完整 TTY、socket、
+固定摘要安装工具见 [运行时说明](../compat/docs/RUNTIME.md)。没有完整 TTY、socket、
 通用桌面框架、CPython/Node 支持或 Minecraft 图形；资源和文件路径边界仍需遵守。
 
 ## Java 实验入口

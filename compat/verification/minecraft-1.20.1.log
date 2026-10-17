@@ -1,0 +1,307 @@
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] OOM rollback: zero through four available pages, no leaks
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] restored /home generation 3
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 1023 MiB managed RAM, 254858 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora recovery console / local sign-in required
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/ :: compat --jit /home/jdk/bin/java @/home/minecraft/demo.args
+2026-10-17 08:15:10,600 main ERROR Could not determine local host name java.net.UnknownHostException: nuvora: nuvora: System error
+    at java.base/java.net.InetAddress.getLocalHost(InetAddress.java:1936)
+    at org.apache.logging.log4j.core.util.NetUtils.getLocalHostname(NetUtils.java:54)
+    at org.apache.logging.log4j.core.LoggerContext.lambda$setConfiguration$0(LoggerContext.java:615)
+    at java.base/java.util.concurrent.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1708)
+    at org.apache.logging.log4j.core.LoggerContext.setConfiguration(LoggerContext.java:615)
+    at org.apache.logging.log4j.core.LoggerContext.reconfigure(LoggerContext.java:694)
+    at org.apache.logging.log4j.core.LoggerContext.reconfigure(LoggerContext.java:711)
+    at org.apache.logging.log4j.core.LoggerContext.start(LoggerContext.java:253)
+    at org.apache.logging.log4j.core.impl.Log4jContextFactory.getContext(Log4jContextFactory.java:155)
+    at org.apache.logging.log4j.core.impl.Log4jContextFactory.getContext(Log4jContextFactory.java:47)
+    at org.apache.logging.log4j.LogManager.getContext(LogManager.java:196)
+    at org.apache.logging.log4j.spi.AbstractLoggerAdapter.getContext(AbstractLoggerAdapter.java:137)
+    at org.apache.logging.slf4j.Log4jLoggerFactory.getContext(Log4jLoggerFactory.java:61)
+    at org.apache.logging.log4j.spi.AbstractLoggerAdapter.getLogger(AbstractLoggerAdapter.java:47)
+    at org.apache.logging.slf4j.Log4jLoggerFactory.getLogger(Log4jLoggerFactory.java:33)
+    at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:358)
+    at org.slf4j.LoggerFactory.getLogger(LoggerFactory.java:383)
+    at com.mojang.logging.LogUtils.getLogger(LogUtils.java:62)
+    at net.minecraft.client.main.Main.<clinit>(SourceFile:46)
+Caused by: java.net.UnknownHostException: nuvora: System error
+    at java.base/java.net.Inet4AddressImpl.lookupAllHostAddr(Native Method)
+    at java.base/java.net.Inet4AddressImpl.lookupAllHostAddr(Inet4AddressImpl.java:43)
+    at java.base/java.net.InetAddress$PlatformResolver.lookupByName(InetAddress.java:1211)
+    at java.base/java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1828)
+    at java.base/java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:1139)
+    at java.base/java.net.InetAddress.getAllByName0(InetAddress.java:1818)
+    at java.base/java.net.InetAddress.getLocalHost(InetAddress.java:1931)
+    ... 18 more
+
+[08:15:26] [main/WARN]: Failed retrieving info for group processor
+java.lang.ExceptionInInitializerError: null
+    at oshi.driver.linux.proc.Auxv.queryAuxv(Auxv.java:55) ~[lib001.jar:6.2.2]
+    at oshi.software.os.linux.LinuxOperatingSystem.<clinit>(LinuxOperatingSystem.java:106) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:83) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:71) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:62) ~[lib001.jar:6.2.2]
+    at oshi.util.Memoizer$1.get(Memoizer.java:87) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:68) ~[lib001.jar:6.2.2]
+    at ab.c(SourceFile:75) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.a(SourceFile:75) ~[client.jar:?]
+    at ab.c(SourceFile:52) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.<init>(SourceFile:52) ~[client.jar:?]
+    at o.<init>(SourceFile:34) ~[client.jar:?]
+    at o.h(SourceFile:274) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:164) ~[client.jar:?]
+Caused by: oshi.util.GlobalConfig$PropertyException: Invalid property "oshi.util.proc.path": The path does not exist
+    at oshi.util.platform.linux.ProcPath.queryProcConfig(ProcPath.java:81) ~[lib001.jar:6.2.2]
+    at oshi.util.platform.linux.ProcPath.<clinit>(ProcPath.java:44) ~[lib001.jar:6.2.2]
+    ... 17 more
+[08:15:27] [main/WARN]: Failed retrieving info for group memory
+java.lang.NoClassDefFoundError: Could not initialize class oshi.software.os.linux.LinuxOperatingSystem
+    at oshi.hardware.platform.linux.LinuxGlobalMemory.<clinit>(LinuxGlobalMemory.java:47) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createMemory(LinuxHardwareAbstractionLayer.java:57) ~[lib001.jar:6.2.2]
+    at oshi.util.Memoizer$1.get(Memoizer.java:87) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getMemory(AbstractHardwareAbstractionLayer.java:80) ~[lib001.jar:6.2.2]
+    at ab.a(SourceFile:77) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.a(SourceFile:77) ~[client.jar:?]
+    at ab.c(SourceFile:52) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.<init>(SourceFile:52) ~[client.jar:?]
+    at o.<init>(SourceFile:34) ~[client.jar:?]
+    at o.h(SourceFile:274) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:164) ~[client.jar:?]
+Caused by: java.lang.ExceptionInInitializerError: Exception java.lang.ExceptionInInitializerError [in thread "main"]
+    at oshi.driver.linux.proc.Auxv.queryAuxv(Auxv.java:55) ~[lib001.jar:6.2.2]
+    at oshi.software.os.linux.LinuxOperatingSystem.<clinit>(LinuxOperatingSystem.java:106) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:83) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:71) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:62) ~[lib001.jar:6.2.2]
+    at oshi.util.Memoizer$1.get(Memoizer.java:87) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:68) ~[lib001.jar:6.2.2]
+    at ab.c(SourceFile:75) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.a(SourceFile:75) ~[client.jar:?]
+    ... 6 more
+[08:16:51] [Datafixer Bootstrap/INFO]: 188 Datafixer optimizations took 10830 milliseconds
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]: Version: 3.3.1 build 7
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]:   OS: Linux v0.0.0-nuvora-compat
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]:  JRE: Linux amd64 21.0.11
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]:  JVM: OpenJDK 64-Bit Server VM v21.0.11+10-alpine-r0 by Alpine
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]: Loading JNI library: lwjgl
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]:  Module: org.lwjgl
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]:  Loaded from org.lwjgl.librarypath: /home/minecraft/natives/liblwjgl.so
+[LWJGL] [08:17:28] [Render thread/INFO]: [STDERR]: MemoryUtil allocator: StdlibAllocator
+[08:17:32] [Render thread/INFO]: Environment: authHost='https://authserver.mojang.com', accountsHost='https://api.mojang.com', sessionHost='https://sessionserver.mojang.com', servicesHost='https://api.minecraftservices.com', name='PROD'
+[08:17:34] [Render thread/WARN]: Failed retrieving info for group processor
+java.lang.NoClassDefFoundError: Could not initialize class oshi.software.os.linux.LinuxOperatingSystem
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:83) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:71) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:62) ~[lib001.jar:6.2.2]
+    at oshi.util.Memoizer$1.get(Memoizer.java:87) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:68) ~[lib001.jar:6.2.2]
+    at ab.c(SourceFile:75) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.a(SourceFile:75) ~[client.jar:?]
+    at ab.c(SourceFile:52) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.<init>(SourceFile:52) ~[client.jar:?]
+    at o.<init>(SourceFile:34) ~[client.jar:?]
+    at o.a(SourceFile:266) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:217) ~[client.jar:?]
+Caused by: java.lang.ExceptionInInitializerError: Exception java.lang.ExceptionInInitializerError [in thread "main"]
+    at oshi.driver.linux.proc.Auxv.queryAuxv(Auxv.java:55) ~[lib001.jar:6.2.2]
+    at oshi.software.os.linux.LinuxOperatingSystem.<clinit>(LinuxOperatingSystem.java:106) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.initProcessorCounts(LinuxCentralProcessor.java:171) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractCentralProcessor.<init>(AbstractCentralProcessor.java:83) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxCentralProcessor.<init>(LinuxCentralProcessor.java:71) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createProcessor(LinuxHardwareAbstractionLayer.java:62) ~[lib001.jar:6.2.2]
+    at oshi.util.Memoizer$1.get(Memoizer.java:87) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getProcessor(AbstractHardwareAbstractionLayer.java:68) ~[lib001.jar:6.2.2]
+    at ab.c(SourceFile:75) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.a(SourceFile:75) ~[client.jar:?]
+    at ab.c(SourceFile:52) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.<init>(SourceFile:52) ~[client.jar:?]
+    at o.<init>(SourceFile:34) ~[client.jar:?]
+    at o.h(SourceFile:274) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:164) ~[client.jar:?]
+[08:17:34] [Render thread/WARN]: Failed retrieving info for group memory
+java.lang.NoClassDefFoundError: Could not initialize class oshi.hardware.platform.linux.LinuxGlobalMemory
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createMemory(LinuxHardwareAbstractionLayer.java:57) ~[lib001.jar:6.2.2]
+    at oshi.util.Memoizer$1.get(Memoizer.java:87) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getMemory(AbstractHardwareAbstractionLayer.java:80) ~[lib001.jar:6.2.2]
+    at ab.a(SourceFile:77) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.a(SourceFile:77) ~[client.jar:?]
+    at ab.c(SourceFile:52) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.<init>(SourceFile:52) ~[client.jar:?]
+    at o.<init>(SourceFile:34) ~[client.jar:?]
+    at o.a(SourceFile:266) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:217) ~[client.jar:?]
+Caused by: java.lang.ExceptionInInitializerError: Exception java.lang.NoClassDefFoundError: Could not initialize class oshi.software.os.linux.LinuxOperatingSystem [in thread "main"]
+    at oshi.hardware.platform.linux.LinuxGlobalMemory.<clinit>(LinuxGlobalMemory.java:47) ~[lib001.jar:6.2.2]
+    at oshi.hardware.platform.linux.LinuxHardwareAbstractionLayer.createMemory(LinuxHardwareAbstractionLayer.java:57) ~[lib001.jar:6.2.2]
+    at oshi.util.Memoizer$1.get(Memoizer.java:87) ~[lib001.jar:6.2.2]
+    at oshi.hardware.common.AbstractHardwareAbstractionLayer.getMemory(AbstractHardwareAbstractionLayer.java:80) ~[lib001.jar:6.2.2]
+    at ab.a(SourceFile:77) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.a(SourceFile:77) ~[client.jar:?]
+    at ab.c(SourceFile:52) ~[client.jar:?]
+    at ab.a(SourceFile:82) ~[client.jar:?]
+    at ab.<init>(SourceFile:52) ~[client.jar:?]
+    at o.<init>(SourceFile:34) ~[client.jar:?]
+    at o.h(SourceFile:274) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:164) ~[client.jar:?]
+---- Minecraft Crash Report ----
+// My bad.
+
+Time: 2026-10-17 08:17:34
+Description: Initializing game
+
+java.lang.ExceptionInInitializerError
+    at java.base/sun.nio.ch.NioSocketImpl.<clinit>(NioSocketImpl.java:79)
+    at java.base/java.net.SocketImpl.createPlatformSocketImpl(SocketImpl.java:52)
+    at java.base/java.net.Socket.createImpl(Socket.java:576)
+    at java.base/java.net.Socket.<init>(Socket.java:182)
+    at java.base/javax.net.ssl.SSLSocket.<init>(SSLSocket.java:205)
+    at java.base/sun.security.ssl.BaseSSLSocketImpl.<init>(BaseSSLSocketImpl.java:68)
+    at java.base/sun.security.ssl.SSLSocketImpl.<init>(SSLSocketImpl.java:122)
+    at java.base/sun.security.ssl.SSLSocketFactoryImpl.createSocket(SSLSocketFactoryImpl.java:72)
+    at java.base/sun.net.www.protocol.https.HttpsClient.createSocket(HttpsClient.java:419)
+    at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:163)
+    at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:531)
+    at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:636)
+    at java.base/sun.net.www.protocol.https.HttpsClient.<init>(HttpsClient.java:264)
+    at java.base/sun.net.www.protocol.https.HttpsClient.New(HttpsClient.java:377)
+    at java.base/sun.net.www.protocol.https.AbstractDelegateHttpsURLConnection.getNewHttpClient(AbstractDelegateHttpsURLConnection.java:193)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1302)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1143)
+    at java.base/sun.net.www.protocol.https.AbstractDelegateHttpsURLConnection.connect(AbstractDelegateHttpsURLConnection.java:179)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1705)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1629)
+    at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:531)
+    at java.base/sun.net.www.protocol.https.HttpsURLConnectionImpl.getResponseCode(HttpsURLConnectionImpl.java:307)
+    at com.mojang.authlib.minecraft.client.MinecraftClient.readInputStream(MinecraftClient.java:72)
+    at com.mojang.authlib.minecraft.client.MinecraftClient.get(MinecraftClient.java:48)
+    at com.mojang.authlib.yggdrasil.YggdrasilUserApiService.fetchProperties(YggdrasilUserApiService.java:129)
+    at com.mojang.authlib.yggdrasil.YggdrasilUserApiService.<init>(YggdrasilUserApiService.java:55)
+    at com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService.createUserApiService(YggdrasilAuthenticationService.java:124)
+    at enn.a(SourceFile:733)
+    at enn.<init>(SourceFile:442)
+    at net.minecraft.client.main.Main.main(SourceFile:211)
+Caused by: java.io.IOException: Function not implemented
+    at java.base/sun.nio.ch.UnixDispatcher.init(Native Method)
+    at java.base/sun.nio.ch.UnixDispatcher.<clinit>(UnixDispatcher.java:65)
+    ... 30 more
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Render thread
+Stacktrace:
+    at java.base/sun.nio.ch.NioSocketImpl.<clinit>(NioSocketImpl.java:79)
+    at java.base/java.net.SocketImpl.createPlatformSocketImpl(SocketImpl.java:52)
+    at java.base/java.net.Socket.createImpl(Socket.java:576)
+    at java.base/java.net.Socket.<init>(Socket.java:182)
+    at java.base/javax.net.ssl.SSLSocket.<init>(SSLSocket.java:205)
+    at java.base/sun.security.ssl.BaseSSLSocketImpl.<init>(BaseSSLSocketImpl.java:68)
+    at java.base/sun.security.ssl.SSLSocketImpl.<init>(SSLSocketImpl.java:122)
+    at java.base/sun.security.ssl.SSLSocketFactoryImpl.createSocket(SSLSocketFactoryImpl.java:72)
+    at java.base/sun.net.www.protocol.https.HttpsClient.createSocket(HttpsClient.java:419)
+    at java.base/sun.net.NetworkClient.doConnect(NetworkClient.java:163)
+    at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:531)
+    at java.base/sun.net.www.http.HttpClient.openServer(HttpClient.java:636)
+    at java.base/sun.net.www.protocol.https.HttpsClient.<init>(HttpsClient.java:264)
+    at java.base/sun.net.www.protocol.https.HttpsClient.New(HttpsClient.java:377)
+    at java.base/sun.net.www.protocol.https.AbstractDelegateHttpsURLConnection.getNewHttpClient(AbstractDelegateHttpsURLConnection.java:193)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect0(HttpURLConnection.java:1302)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.plainConnect(HttpURLConnection.java:1143)
+    at java.base/sun.net.www.protocol.https.AbstractDelegateHttpsURLConnection.connect(AbstractDelegateHttpsURLConnection.java:179)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(HttpURLConnection.java:1705)
+    at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(HttpURLConnection.java:1629)
+    at java.base/java.net.HttpURLConnection.getResponseCode(HttpURLConnection.java:531)
+    at java.base/sun.net.www.protocol.https.HttpsURLConnectionImpl.getResponseCode(HttpsURLConnectionImpl.java:307)
+    at com.mojang.authlib.minecraft.client.MinecraftClient.readInputStream(MinecraftClient.java:72)
+    at com.mojang.authlib.minecraft.client.MinecraftClient.get(MinecraftClient.java:48)
+    at com.mojang.authlib.yggdrasil.YggdrasilUserApiService.fetchProperties(YggdrasilUserApiService.java:129)
+    at com.mojang.authlib.yggdrasil.YggdrasilUserApiService.<init>(YggdrasilUserApiService.java:55)
+    at com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService.createUserApiService(YggdrasilAuthenticationService.java:124)
+    at enn.a(SourceFile:733)
+    at enn.<init>(SourceFile:442)
+
+-- Initialization --
+Details:
+    Modules:
+Stacktrace:
+    at net.minecraft.client.main.Main.main(SourceFile:211)
+
+-- System Details --
+Details:
+    Minecraft Version: 1.20.1
+    Minecraft Version ID: 1.20.1
+    Operating System: Linux (amd64) version 0.0.0-nuvora-compat
+    Java Version: 21.0.11, Alpine
+    Java VM Version: OpenJDK 64-Bit Server VM (mixed mode), Alpine
+    Memory: 61432360 bytes (58 MiB) / 259522560 bytes (247 MiB) up to 259522560 bytes (247 MiB)
+    CPUs: 1
+    Graphics card #0 name: unknown
+    Graphics card #0 vendor: unknown
+    Graphics card #0 VRAM (MB): 0.00
+    Graphics card #0 deviceId: unknown
+    Graphics card #0 versionInfo: unknown
+    JVM Flags: 6 total; -Xmx256m -XX:+UseSerialGC -XX:ActiveProcessorCount=1 -XX:-UsePerfData -XX:-UseCompressedOops -XX:-UseCompressedClassPointers
+    Launched Version: 1.20.1
+    Backend library: LWJGL version 3.3.1 build 7
+    Backend API: Unknown
+    Window size: <not initialized>
+    GL Caps: Using framebuffer using OpenGL 3.2
+    GL debug messages: <disabled>
+    Using VBOs: Yes
+    Is Modded: Probably not. Client jar signature and brand is untouched
+    Type: Client (map_client.txt)
+    CPU: <unknown>
+[08:17:34] [Render thread/ERROR]: Could not save crash report to /home/minecraft/game/crash-reports/crash-2026-10-17_08.17.34-client.txt
+java.io.FileNotFoundException: /home/minecraft/game/crash-reports/crash-2026-10-17_08.17.34-client.txt (Argument list too long)
+    at java.io.FileOutputStream.open0(Native Method) ~[?:?]
+    at java.io.FileOutputStream.open(FileOutputStream.java:289) ~[?:?]
+    at java.io.FileOutputStream.<init>(FileOutputStream.java:230) ~[?:?]
+    at java.io.FileOutputStream.<init>(FileOutputStream.java:179) ~[?:?]
+    at o.a(SourceFile:153) ~[client.jar:?]
+    at enn.c(SourceFile:914) ~[client.jar:?]
+    at net.minecraft.client.main.Main.main(SourceFile:221) ~[client.jar:?]
+#@?@# Game crashed! Crash report could not be saved. #@?@#
+Process 2 exited 254
+
+C:/ :: horizon
+RAM managed: 1048020 KiB; free: 1019292 KiB
+Kernel heap: 5904736 / 8388608 bytes
+Tasks: 1; filesystem nodes: 240; uptime: 168 s
+Data disk ready; committed generation: 3
+
+C:/ ::

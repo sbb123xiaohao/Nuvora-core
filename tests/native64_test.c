@@ -39,10 +39,22 @@ static bool linker_allowed=true;
 int fs_authorize(const struct task *t,int cwd,const char *path,u32 operation) {
     (void)t;(void)cwd;(void)path;(void)operation;return linker_allowed?0:-NV_EACCESS;
 }
+int fs_lookup(int cwd,const char *path){(void)cwd;(void)path;return 42;}
 int fs_blob(const char *path,const u8 **data,usize *length,u8 **temporary) {
     *data=!strcmp(path,"/home/ldso")?linker_image:image; *length=sizeof(image); *temporary=NULL; return 0;
 }
-void kfree(void *p) { assert(!p); }
+static bool exec_heap_available;
+static u32 exec_allocations,exec_releases;
+void *kmalloc(usize size) {
+    if(!exec_heap_available)return NULL;
+    void *p=calloc(1,size);if(p)++exec_allocations;return p;
+}
+void kfree(void *p) {if(p){assert(exec_allocations);--exec_allocations;free(p);}}
+void console_release(u32 pid){assert(pid==7);++exec_releases;}
+void window_task_release(u32 pid){assert(pid==7);++exec_releases;}
+void net_task_release(u32 pid){assert(pid==7);++exec_releases;}
+void cpu_fp_reset(struct fp_state *fp){memset(fp,0,sizeof(*fp));}
+void cpu_fp_restore(const struct fp_state *fp){(void)fp;}
 static void reset(void) {
     assert(!live); memset(owned,0,sizeof(owned)); budget=POOL_PAGES;
 }
@@ -276,11 +288,11 @@ static void mapped_text(pte_t *pd,uptr at,const char *expected) {
     for(u32 i=0;i<=strlen(expected);i++)assert(*(u8 *)phys_ptr(vm_translate(pd,at+i))==(u8)expected[i]);
 }
 static void linux_initial_stack(void) {
-    reset();linux_fixture();struct task t={.uid=42,.linux_compat={.enabled=true}};struct frame frame;
+    reset();linux_fixture();struct task t={.uid=42,.compat_state={.enabled=true}};struct frame frame;
     const char *args="\"\" \"two words\" \"a\\\"b\" \"C:\\\\path\"";
     assert(!prepare_image(&t,"/home/program.elf",args,&frame));
     assert(t.abi==2 && frame.eip==NV_USER_IMAGE+0x1000 && !(frame.useresp&15));
-    assert(mapped_word(t.pd,frame.useresp)==5 && t.linux_compat.brk==NV_USER_HEAP);
+    assert(mapped_word(t.pd,frame.useresp)==5 && t.compat_state.brk==NV_USER_HEAP);
     const char *wanted[]={"/home/program.elf","","two words","a\"b","C:\\path"};
     for(u32 i=0;i<ARRAY_LEN(wanted);i++)mapped_text(t.pd,mapped_word(t.pd,frame.useresp+(i+1)*8),wanted[i]);
     uptr at=frame.useresp+6*8;assert(!mapped_word(t.pd,at));at+=8;
@@ -305,7 +317,7 @@ static void linux_initial_stack(void) {
         case 11:p[3].type=2;p[3].filesz=1;break;case 12:p[2].memsz=LINUX_MEMORY_MAX+PAGE;break;
         case 13:p[2].align=3;break;
         }
-        struct task bad={.pd=vm_create(),.linux_compat={.enabled=true}};assert(bad.pd);uptr entry=0,phdr=0;
+        struct task bad={.pd=vm_create(),.compat_state={.enabled=true}};assert(bad.pd);uptr entry=0,phdr=0;
         u32 before=live;assert(linux_image(&bad,image,sizeof(image),&entry,&phdr)<0);
         assert(live==before && !vm_page_count(bad.pd));vm_destroy(bad.pd);assert(!live);
     }
@@ -316,9 +328,9 @@ static void linux_dynamic_entry(void) {
     struct elf_header *h=(void *)image;struct program_header *p=(void *)(image+h->phoff);
     h->phnum=5;memcpy(image+3000,"/home/ldso",11);
     p[4]=(struct program_header){.type=3,.offset=3000,.filesz=11,.memsz=11,.align=1};
-    struct task t={.uid=42,.linux_compat={.enabled=true}};struct frame f;
+    struct task t={.uid=42,.compat_state={.enabled=true}};struct frame f;
     assert(!prepare_image(&t,"/home/dynamic","arg",&f));
-    assert(f.eip==LINUX_INTERP_BASE+0x1000 && t.linux_compat.interpreter==LINUX_INTERP_BASE);
+    assert(f.eip==LINUX_INTERP_BASE+0x1000 && t.compat_state.interpreter==LINUX_INTERP_BASE);
     assert(user_range(t.pd,NV_USER_IMAGE+0x1000,1,false) && user_range(t.pd,LINUX_INTERP_BASE+0x1000,1,false));
     uptr at=f.useresp+4*8;while(mapped_word(t.pd,at))at+=8;at+=8;u32 seen=0;
     for(;;at+=16) {
@@ -327,13 +339,13 @@ static void linux_dynamic_entry(void) {
         if(key==9) {assert(value==NV_USER_IMAGE+0x1000);seen|=2;}
     }
     assert(seen==3);vm_destroy(t.pd);assert(!live);
-    linker_allowed=false;t=(struct task){.linux_compat={.enabled=true}};
+    linker_allowed=false;t=(struct task){.compat_state={.enabled=true}};
     assert(prepare_image(&t,"/home/dynamic","",&f)==-NV_EACCESS);
     assert(!vm_page_count(t.pd));vm_destroy(t.pd);linker_allowed=true;assert(!live);
     ((struct elf_header *)linker_image)->phnum=5;
     ((struct program_header *)(linker_image+sizeof(struct elf_header)))[4]=p[4];
     memcpy(linker_image+3000,"/home/ldso",11);
-    t=(struct task){.linux_compat={.enabled=true}};
+    t=(struct task){.compat_state={.enabled=true}};
     assert(prepare_image(&t,"/home/dynamic","",&f)==-NV_ENOEXEC);
     assert(!vm_page_count(t.pd));vm_destroy(t.pd);assert(!live);
     puts("PASS dynamic ELF: independently validated interpreter, entry handoff, AT_BASE/AT_ENTRY, permission denial and recursive interpreter rejection");
@@ -368,12 +380,34 @@ static void framebuffer_masks(void) {
     assert(nv_pixel_pack(0xffffff,deep)==0x3fffffff);
     deep[0]=deep[1]; assert(!nv_pixel_masks_valid(deep));
 }
+static void exec_transactions(void) {
+    reset();executable(NV_USER_IMAGE);
+    struct task running={.pid=7,.parent=1,.uid=1000,.abi=NV_ABI_VERSION,.state=NV_READY};
+    struct frame frame={0};running.frame=&frame;
+    assert(!prepare_image(&running,"/apps/relative","before",&frame));
+    running.fd[3]=(struct descriptor){.node=42,.offset=123,.flags=NV_READ};current=&running;
+    pte_t *old=running.pd;struct frame before=frame;u32 pages=live;
+    exec_heap_available=false;exec_releases=0;
+    assert(task_exec("/apps/relative","after")==-NV_ENOMEM && running.pd==old && live==pages);
+    assert(!memcmp(&frame,&before,sizeof(frame)) && !exec_releases && !exec_allocations);
+    exec_heap_available=true;image[0]=0;
+    assert(task_exec("/apps/relative","after")==-NV_ENOEXEC && running.pd==old && live==pages && !exec_allocations);
+    executable(NV_USER_IMAGE);u32 old_budget=budget;budget=0;
+    assert(task_exec("/apps/relative","after")==-NV_ENOMEM && running.pd==old && live==pages && !exec_allocations);
+    budget=old_budget;
+    assert(!exec_releases && !memcmp(&frame,&before,sizeof(frame)));
+    assert(!task_exec("/apps/relative","after") && running.pd!=old && exec_releases==3 && !exec_allocations);
+    assert(running.pid==7 && running.parent==1 && running.uid==1000 && running.fd[3].node==42 && running.fd[3].offset==123);
+    mapped_text(running.pd,frame.ebx,"after");vm_destroy(running.pd);current=NULL;
+    assert(!live);exec_heap_available=false;
+    puts("PASS exec transaction: heap staging OOM, invalid image and mapping OOM preserve the running process; success retains identity/descriptors and releases old pages");
+}
 int main(void) {
     usize bytes=POOL_PAGES*PAGE;
     void *ram=mmap(phys_ptr(physical_base),bytes,PROT_READ|PROT_WRITE,
                   MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
     assert(ram==phys_ptr(physical_base));
-    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); loader_pie(); pie_relocations(); linux_initial_stack(); linux_dynamic_entry(); guarded_pages(); framebuffer_masks();
+    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); loader_pie(); pie_relocations(); linux_initial_stack(); linux_dynamic_entry(); guarded_pages(); framebuffer_masks();exec_transactions();
     assert(!munmap(ram,bytes));
     puts("PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, full validation before allocation, OOM rollback, legacy ELF and GOP masks");
 }

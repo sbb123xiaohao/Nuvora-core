@@ -1,0 +1,8 @@
+{
+  "compiler": "openjdk 21.0.12.1 2026-08-18",
+  "flags": "-source 21 -target 21 -g:none -encoding UTF-8",
+  "files": {
+    "JavaRuntimeCheck.java": "4d93fc476ffc2a7a35e4f40b52e7795c8ad0ee4b32e35164c57a8c20bb05e851",
+    "JavaRuntimeCheck.class": "068a268a871d9743a9dd9d6dc7459ba4e23227f629e9d2e510003d911ea89a4d"
+  }
+}

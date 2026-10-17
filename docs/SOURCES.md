@@ -2,12 +2,12 @@
 
 本轮真实运行时来源：
 
-- [musl 1.2.5](https://musl.libc.org/releases/musl-1.2.5.tar.gz)：动态 linker/libc 由原版源码编译；固定摘要、包装源和 ELF 摘要见 `tests/fixtures/dynamic/manifest.json`，完整版权文本随夹具保存。
+- [musl 1.2.5](https://musl.libc.org/releases/musl-1.2.5.tar.gz)：动态 linker/libc 由原版源码编译；固定摘要、包装源和 ELF 摘要见 `compat/fixtures/dynamic/manifest.json`，完整版权文本随夹具保存。
 - [Alpine v3.22 OpenJDK 21](https://dl-cdn.alpinelinux.org/alpine/v3.22/community/x86_64/openjdk21-jre-headless-21.0.11_p10-r0.apk)：21.0.11+10 musl x86-64 JRE，GPL-2.0 with Classpath Exception。可选安装工具固定 SHA256 `66487bbb57861b06482a53868c8c7a37ac7e838c748b2cf696f63df5154a6e09`；Alpine 构建来源提交 `b09053f2d6841e7c70ef56c3005321cd98b81dd6`。只调整 launcher 的 PT_INTERP 安装路径，保留原 JVM 和标准库代码。
 - [Alpine zlib 1.3.2-r1](https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/zlib-1.3.2-r1.apk)：zlib 许可证；固定 SHA256 `af24e502645e2b392cae833856d776691ac21655362e5db69d7b89f147f76216`。JDK/APK 和游戏资源不打进源码 ZIP，由显式 SDK 步骤下载。
 - Linux x86-64 syscall、ELF auxv、sigcontext/ucontext、futex/clone 标志为公开 ABI 布局。兼容层、页表事务与线程生命周期为本项目实现，没有复制 Linux 内核实现；不宣称完整 Linux/POSIX 认证。
 
-运行时结果与边界见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)；Java 测试源码、编译参数及 class 摘要见 `examples/java/runtime-manifest.json`。
+运行时结果与边界见 [运行时说明](../compat/docs/RUNTIME.md)；Java 测试源码、编译参数及 class 摘要见 `compat/examples/java/runtime-manifest.json`。
 
 - [Java Virtual Machine Specification, Java SE 21](https://docs.oracle.com/javase/specs/jvms/se21/html/index.html)：class 格式、modified UTF-8、操作数槽、字节码、switch、整数除余/移位、dup 与返回值转换规则。实验性解释器为独立 C 实现，不含 OpenJDK 源码；真实 javac 21 产物及 OpenJDK 21 执行结果作为差分基准，范围见 [JAVA.md](JAVA.md)。
 
@@ -84,6 +84,6 @@ GNOME Shell 源码未复制、编译、链接或打包，也未引入 GJS/Mutter
 - musl 1.2.5：<https://musl.libc.org/releases/musl-1.2.5.tar.gz>，MIT 及 COPYRIGHT 内列出的文件许可。
 - Lua 5.4.8：<https://www.lua.org/ftp/lua-5.4.8.tar.gz>，MIT。
 - QuickJS 2025-09-13：<https://bellard.org/quickjs/quickjs-2025-09-13-2.tar.xz>，MIT；使用未修改核心与项目自己的最小嵌入。
-- 源码包 SHA256、编译器、包装代码与静态 ELF 摘要见 tests/fixtures/compat/manifest.json；对应许可在其 licenses/。GCC 支持库按 Runtime Library Exception 链接。
-- scripts/build_compat_runtimes.py 是显式调用的可选构建；正常 OS 构建不联网。二进制夹具不是完整 Linux/OpenJDK/Node.js/桌面应用兼容声明。
-- Minecraft 目标依赖取自 Mojang 官方版本元数据；docs/minecraft-target.json 记录来源与摘要，无客户端、资源或账户内容。
+- 源码包 SHA256、编译器、包装代码与静态 ELF 摘要见 compat/fixtures/static/manifest.json；对应许可在其 licenses/。GCC 支持库按 Runtime Library Exception 链接。
+- compat/tools/build_compat_runtimes.py 是显式调用的可选构建；正常 OS 构建不联网。二进制夹具不是完整 Linux/OpenJDK/Node.js/桌面应用兼容声明。
+- Minecraft 1.20.1/1.21.1 依赖取自 Mojang 官方版本元数据；`compat/minecraft/target.json` 记录固定 URL、SHA256 与版本要求。可选探测工具按官方 SHA1/长度校验客户端和库；仓库不附带游戏二进制、资源或账户内容。

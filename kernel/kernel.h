@@ -118,46 +118,14 @@ struct mmap_entry {
 } PACKED;
 struct descriptor {
     int node;
+    u32 sharing;
     u64 offset;
     u32 flags;
 };
 struct fp_state {
     u32 words[128];
 } ALIGNED(16);
-#define LINUX_VMAS 128u
-#define LINUX_STACK_PAGES 64u
-#define LINUX_MAP_BASE 0x2000000000ull
-#define LINUX_MAP_END  0x400000000000ull
-#define LINUX_INTERP_BASE 0x1800000000ull
-#define LINUX_VIRTUAL_MAX (16ull * 1024u * 1024u * 1024u)
-#define LINUX_MEMORY_MAX (256u * 1024u * 1024u)
-struct linux_vma { uptr start, end; u32 protection, flags; };
-struct linux_startup {const char *arg0,*environment;u32 environment_bytes;};
-struct linux_action {uptr handler;u64 flags;uptr restorer;u64 mask;};
-struct linux_sigstack {uptr pointer;u32 flags,pad;u64 size;};
-struct linux_state {
-    bool enabled, trace, jit;
-    u16 closed_stdio, cloexec, nonblock;
-    uptr fs_base, brk, interpreter, interpreter_entry;
-    u64 signal_mask;
-    u64 pending_signals;
-    u32 signal_depth;
-    struct linux_sigstack signal_stack;
-    struct linux_action actions[64];
-    struct linux_vma maps[LINUX_VMAS];
-    uptr clear_tid,futex_address;
-    u32 futex_bitset;
-};
-struct linux_group {
-    u32 pid,references,alive;
-    u64 retired_ticks;
-    struct linux_vma maps[LINUX_VMAS];
-    struct linux_action actions[64];
-    struct descriptor fd[NV_OPEN_MAX];
-    uptr brk,heap_end;
-    int cwd;
-    u16 closed_stdio,cloexec,nonblock;
-};
+#include "../compat/process_state.h"
 struct task {
     u32 pid, parent, state, wait_pid;
     u64 wake, cpu_ticks;
@@ -172,8 +140,8 @@ struct task {
     struct descriptor fd[NV_OPEN_MAX];
     char name[32];
     struct fp_state fp;
-    struct linux_state linux_compat;
-    struct linux_group *linux_group;
+    struct compat_state compat_state;
+    struct compat_group *compat_group;
 };
 _Static_assert(_Alignof(struct task) >= 16 && sizeof(struct fp_state) == 512,
                "each task requires an aligned FXSAVE area");
@@ -330,6 +298,9 @@ int fs_lookup(int, const char *);
 int fs_authorize(const struct task *, int, const char *, u32);
 int fs_kind(int);
 int fs_open(struct task *, const char *, u32);
+int fs_open_directory(struct task *, const char *);
+int fs_duplicate(struct task *, int, u32);
+void fs_descriptor_sync(struct task *, int);
 int fs_close(struct task *, int);
 int fs_read(struct task *, int, void *, u32);
 int fs_pread64(struct task *, int, u64, void *, u32);
@@ -416,20 +387,9 @@ u32 task_count(void);
 int task_info(u32, struct nv_taskinfo *);
 bool task_cwd_in_use(int);
 struct frame *syscall_dispatch(struct frame *);
-struct frame *linux_dispatch(struct frame *);
-bool linux_fault(struct frame *,uptr);
-bool linux_resume(struct frame *);
-void task_linux_enter(struct task *);
-void task_linux_leave(struct task *);
-iptr task_linux_clone(struct frame *,u64,uptr,uptr,uptr,uptr);
-iptr task_linux_futex(uptr,u64,u64,uptr,uptr,u64);
-int task_linux_signal(u64,u64,u64);
-void task_linux_exit_group(int);
-int task_spawn_linux(const char *, const char *, struct task *,u32);
-int task_exec_linux(const char *, const char *,u32);
-int task_exec_linux_start(const char *,const char *,u32,const struct linux_startup *);
 void arch_set_fs(uptr);
 void fill_info(struct nv_info *);
+#include "../compat/bridge.h"
 void kernel_start(const struct boot_info *); /* common entry: Multiboot or UEFI */
 NORETURN void machine_poweroff(void);
 NORETURN void machine_reboot(void);

@@ -7,7 +7,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARCH = os.environ.get('NV_ARCH', 'x86_64')
-BUILD = ROOT / 'build' / ARCH
+BUILD = ROOT / 'build' / (ARCH + ('-native' if os.environ.get('NV_COMPAT') == 'none' else ''))
 
 
 def display_resolution(value):

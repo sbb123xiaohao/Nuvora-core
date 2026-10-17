@@ -1,0 +1,40 @@
+{
+  "requested_scope": "Minecraft Java Edition 1.20.1 and newer",
+  "targets": {
+    "1.20.1": {
+      "metadata_url": "https://piston-meta.mojang.com/v1/packages/a5cf661d31d9dfcd3d1645be80f43954f63f63b0/1.20.1.json",
+      "metadata_sha1": "a5cf661d31d9dfcd3d1645be80f43954f63f63b0",
+      "metadata_sha256": "e50169ba5c14ce07c82fb638118449c24f5eb5082e95005c480917aae3635be3",
+      "minimum_java": 17,
+      "lwjgl_coordinates": [
+        "org.lwjgl:lwjgl-glfw:3.3.1",
+        "org.lwjgl:lwjgl-jemalloc:3.3.1",
+        "org.lwjgl:lwjgl-openal:3.3.1",
+        "org.lwjgl:lwjgl-opengl:3.3.1",
+        "org.lwjgl:lwjgl-stb:3.3.1",
+        "org.lwjgl:lwjgl-tinyfd:3.3.1",
+        "org.lwjgl:lwjgl:3.3.1"
+      ]
+    },
+    "1.21.1": {
+      "metadata_url": "https://piston-meta.mojang.com/v1/packages/499680d659b7a0ccb2fa9a809c345c5baf2ace7d/1.21.1.json",
+      "metadata_sha1": "499680d659b7a0ccb2fa9a809c345c5baf2ace7d",
+      "metadata_sha256": "8047141a4d8de5ce23cc8390df56373b3a6c10f063d47b7bf3ea64e8c84666e9",
+      "minimum_java": 21,
+      "lwjgl_coordinates": [
+        "org.lwjgl:lwjgl-freetype:3.3.3",
+        "org.lwjgl:lwjgl-glfw:3.3.3",
+        "org.lwjgl:lwjgl-jemalloc:3.3.3",
+        "org.lwjgl:lwjgl-openal:3.3.3",
+        "org.lwjgl:lwjgl-opengl:3.3.3",
+        "org.lwjgl:lwjgl-stb:3.3.3",
+        "org.lwjgl:lwjgl-tinyfd:3.3.3",
+        "org.lwjgl:lwjgl:3.3.3"
+      ]
+    }
+  },
+  "probe_jdk": "Pinned Alpine musl OpenJDK 21.0.11",
+  "client_or_assets_bundled": false,
+  "playable": false,
+  "acceptance": "The original client must enter a world, accept input, render and save/reload. Launch/class loading is not gameplay support."
+}
