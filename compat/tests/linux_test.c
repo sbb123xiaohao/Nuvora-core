@@ -352,4 +352,50 @@ static void unavailable_sockets(void) {
     assert(fs_calls==before);
     puts("PASS Linux socket capability: unsupported families return EAFNOSUPPORT without allocating a descriptor or pretending connectivity");
 }
-int main(void){mappings();files_and_limits();interfaces();process_interfaces();large_exec_arguments();high_file_descriptors();directory_operations();directory_streams();unavailable_sockets();signal_contexts();reset();return 0;}
+static void nanosleep_signals(void) {
+    reset();
+    u8 stack[8192] ALIGNED(64);buffer=(uptr)stack;buffer_size=sizeof(stack);
+    struct linux_time *request=(void *)stack,*remaining=request+1;
+    *request=(struct linux_time){10,0};*remaining=(struct linux_time){77,88};
+    current->state=NV_READY;ticks=1000;
+    struct frame f={.cs=0x1b,.ss=0x23,.eip=buffer+256,.useresp=buffer+sizeof(stack)-16,
+        .eflags=0x202,.eax=35,.edi=(uptr)request,.esi=(uptr)remaining};
+    linux_dispatch(&f);
+    assert(current->state==NV_SLEEPING && current->wake==2000 && !f.eax);
+    assert(remaining->seconds==77 && remaining->nanoseconds==88);
+    current->state=NV_READY;*request=(struct linux_time){0,0};f.eax=35;
+    linux_dispatch(&f);
+    assert(current->state==NV_READY && !f.eax && remaining->seconds==77 && remaining->nanoseconds==88);
+    current->compat_state.actions[9]=(struct linux_action){.handler=buffer+64,.restorer=buffer+128,
+        .flags=L_SA_RESTORER|0x10000000ull}; /* SA_RESTART does not restart nanosleep. */
+    *request=(struct linux_time){10,0};f.eax=35;linux_dispatch(&f);ticks+=123;
+    assert(!linux_self_signal(current->pid,10) && !linux_resume(&f));
+    assert(current->state==NV_READY && f.eip==buffer+64);
+    struct linux_signal_frame *saved=(void *)f.useresp;
+    assert((i64)saved->uc.context.rax==-L_EINTR && remaining->seconds==8 && remaining->nanoseconds==770000000);
+    assert(!current->compat_state.sleeping && !current->compat_state.sleep_interrupted);
+    f.useresp+=8;assert(!linux_sigreturn(&f) && (i64)f.eax==-L_EINTR);
+    /* An actionable signal pending at entry must also wake the wait, before
+     * the scheduler can strand its newly built handler on a sleeping task. */
+    current->compat_state.pending_signals=1ull<<9;f.eax=35;linux_dispatch(&f);
+    assert(current->state==NV_READY && remaining->seconds==10 && !remaining->nanoseconds);
+    saved=(void *)f.useresp;assert((i64)saved->uc.context.rax==-L_EINTR);
+    f.useresp+=8;assert(!linux_sigreturn(&f));
+    current->compat_state.pending_signals=1ull<<16;f.eax=35;linux_dispatch(&f);
+    assert(current->state==NV_SLEEPING && !current->compat_state.pending_signals && !f.eax);
+    current->compat_state.futex_address=buffer;current->compat_state.sleeping=false;
+    current->compat_state.pending_signals=1ull<<9;
+    assert(!linux_resume(&f) && current->state==NV_READY && !current->compat_state.futex_address);
+    saved=(void *)f.useresp;assert((i64)saved->uc.context.rax==-L_EINTR);
+    f.useresp+=8;assert(!linux_sigreturn(&f));
+    /* Another thread can revoke the output mapping while this task sleeps. */
+    f.eax=35;linux_dispatch(&f);ticks+=1;linux_interrupt_wait(current);
+    writable=false;assert(!linux_resume(&f) && (i64)f.eax==-L_EFAULT);writable=true;
+    assert(!current->compat_state.sleep_interrupted && !current->compat_state.sleep_remaining);
+    /* req and rem may alias; copy the request before writing the remainder. */
+    *request=(struct linux_time){1,0};f.eax=35;f.esi=(uptr)request;linux_dispatch(&f);
+    ticks+=25;linux_interrupt_wait(current);assert(!linux_resume(&f));
+    assert((i64)f.eax==-L_EINTR && !request->seconds && request->nanoseconds==750000000);
+    puts("PASS Linux waits: unchanged successful rem, SA_RESTART/EINTR, exact interrupted remainder, pending futex/sleep signals, ignored defaults, revoked output and aliased req/rem");
+}
+int main(void){mappings();files_and_limits();interfaces();process_interfaces();large_exec_arguments();high_file_descriptors();directory_operations();directory_streams();unavailable_sockets();signal_contexts();nanosleep_signals();reset();return 0;}

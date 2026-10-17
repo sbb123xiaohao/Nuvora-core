@@ -1,5 +1,12 @@
 # Nuvora Core 0.15.0
 
+## 未发布：睡眠与线程信号修复
+
+- 修复线程处于 nanosleep 时，捕获信号或 SIGKILL 不能及时唤醒的问题；进入 futex/睡眠时已有可处理信号，也会先取消等待再递交处理函数。
+- nanosleep 被信号中断时返回 EINTR，并按中断时刻计算剩余时间；成功和零时长调用保留 rem。剩余时间只在目标线程恢复后写回，重新检查用户内存，支持 req/rem 重叠。
+- 默认忽略的 SIGCHLD/SIGURG/SIGWINCH 不再误中断 futex；保留被屏蔽信号的等待状态。正常定时唤醒清除线程私有等待记录。
+- 增加失败复现、ASan/UBSan 边界回归，以及同一真实 musl pthread 程序的 Linux/Nuvora 对照。兼容专用修改仍位于 `compat/`。
+
 ## 未发布：可选兼容模块与真实 Minecraft 初始化
 
 - 其他系统的兼容实现、入口、进程生命周期、运行时工具、夹具和测试集中到 `compat/`。新增 `COMPAT=none` 原生构建，独立目录缓存；BIOS/UEFI、原生应用和生产桌面在不链接 Linux 后端时继续通过。

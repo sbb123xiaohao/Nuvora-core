@@ -11,6 +11,7 @@ static iptr linux_error(iptr n) {
 }
 #include "linux_memory.h"
 #include "linux_process.h"
+#include "linux_wait.h"
 #include "linux_signal.h"
 static iptr linux_brk(uptr address) {
     uptr old=current->compat_state.brk;
@@ -227,9 +228,12 @@ struct frame *linux_dispatch(struct frame *f) {
         struct linux_time io; memcpy(&io,(const void *)a,sizeof(io));
         if (io.seconds<0 || io.seconds>86400 || io.nanoseconds<0 || io.nanoseconds>=1000000000) { result=-L_EINVAL;break; }
         u64 duration=(u64)io.seconds*100+((u64)io.nanoseconds+9999999)/10000000;
-        if (duration) { current->wake=ticks+duration;current->state=NV_SLEEPING; }
-        if (b) memset((void *)b,0,sizeof(io));
-        result=0;reschedule=true;break;
+        if (duration) {
+            current->compat_state.sleep_remaining=b;current->compat_state.sleep_left=0;
+            current->compat_state.sleeping=true;current->compat_state.sleep_interrupted=false;
+            current->wake=duration>~0ull-ticks?~0ull:ticks+duration;current->state=NV_SLEEPING;
+        }
+        result=0;reschedule=duration!=0;break;
     }
     case 39: result=current->compat_group?current->compat_group->pid:current->pid;break;
     /* No socket family is connected to native networking yet. Capability

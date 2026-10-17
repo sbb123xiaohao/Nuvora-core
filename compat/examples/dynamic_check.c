@@ -14,6 +14,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <ucontext.h>
+#include <time.h>
 
 #define CHECK(x) do {if(!(x)){printf("DYNAMIC FAIL line %d errno %d: %s\n",__LINE__,errno,#x);return 10;}}while(0)
 static unsigned char signal_stack[32768];
@@ -22,9 +23,20 @@ static pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition=PTHREAD_COND_INITIALIZER;
 static int threads_ready,threads_go,thread_sum;
 static _Atomic int thread_failed,thread_signal_seen;
+static _Atomic int sleep_ready,sleep_done,sleep_signal_error;
 static __thread int thread_value=11;
 static int (*shared_tls_probe)(int);
 static void thread_signal(int signo){if(signo==SIGUSR1)atomic_fetch_add(&thread_signal_seen,1);}
+static void *sleep_signaller(void *argument) {
+    pthread_t *target=argument;
+    while(!atomic_load(&sleep_ready))sched_yield();
+    struct timespec delay={0,20000000};
+    if(nanosleep(&delay,NULL) || pthread_kill(*target,SIGCHLD))atomic_store(&sleep_signal_error,1);
+    while(!atomic_load(&sleep_done)) {
+        if(nanosleep(&delay,NULL) || pthread_kill(*target,SIGUSR1))atomic_store(&sleep_signal_error,1);
+    }
+    return NULL;
+}
 static void *worker(void *argument) {
     int number=(int)(uintptr_t)argument;
     if(thread_value!=11 || !shared_tls_probe || shared_tls_probe(0)!=23 || shared_tls_probe(number)!=23+number)atomic_store(&thread_failed,1);
@@ -49,6 +61,20 @@ static void signal_handler(int signo,siginfo_t *info,void *context) {
 }
 
 int main(int argc,char **argv) {
+    if(argc>=2 && !strcmp(argv[1],"--sleep-check")) {
+        struct sigaction action={.sa_handler=thread_signal,.sa_flags=SA_RESTART};
+        CHECK(!sigaction(SIGUSR1,&action,NULL));
+        action.sa_handler=SIG_DFL;CHECK(!sigaction(SIGCHLD,&action,NULL));
+        pthread_t self=pthread_self(),sender;CHECK(!pthread_create(&sender,NULL,sleep_signaller,&self));
+        struct timespec request={10,0},remaining={77,88};atomic_store(&sleep_ready,1);
+        errno=0;int result=nanosleep(&request,&remaining),error=errno;atomic_store(&sleep_done,1);
+        CHECK(!pthread_join(sender,NULL) && !atomic_load(&sleep_signal_error));
+        CHECK(result==-1 && error==EINTR && atomic_load(&thread_signal_seen)>0);
+        CHECK(remaining.tv_sec>=0 && remaining.tv_sec<10 && remaining.tv_nsec>=0 && remaining.tv_nsec<1000000000);
+        request=(struct timespec){0,20000000};remaining=(struct timespec){77,88};
+        CHECK(!nanosleep(&request,&remaining) && remaining.tv_sec==77 && remaining.tv_nsec==88);
+        puts("SLEEP PASS: targeted signal interrupts nanosleep despite SA_RESTART, valid remainder, ignored SIGCHLD and successful sleep preservation");
+    }
     if(argc==2 && !strcmp(argv[1],"--thread-check")) {
         void *library=dlopen("/home/libnvprobe.so",RTLD_NOW);CHECK(library);
         shared_tls_probe=dlsym(library,"nv_dynamic_probe");CHECK(shared_tls_probe);

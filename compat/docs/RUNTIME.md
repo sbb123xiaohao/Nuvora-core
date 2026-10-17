@@ -186,12 +186,12 @@ QuickJS 嵌入设 16 MiB 引擎堆、128 KiB 引擎栈、执行中断与待处�
 | mmap/brk/munmap/mprotect/madvise | 上述事务映射、预留/提交与保护；默认 W^X，可显式 --jit；匿名 discard 与部分可忽略 advisory |
 | arch_prctl | SET_FS/GET_FS，拒绝 supervisor / 非法地址；没有 SET_GS |
 | getpid/gettid、uid/gid、uname、getcwd | getpid 为组长、gettid 为线程；克隆保留账户授权和 Terminal 祖先；getcwd 返回 `/home/...` |
-| clock_gettime/getres、gettimeofday、nanosleep、sched_yield | 100 Hz 单调/线程/进程 CPU 时钟；PC UTC RTC 提供实时时钟，无有效 RTC 时从 Unix epoch 继续计时，无网络校时 |
+| clock_gettime/getres、gettimeofday、nanosleep、sched_yield | 100 Hz 单调/线程/进程 CPU 时钟；PC UTC RTC 提供实时时钟，无有效 RTC 时从 Unix epoch 继续计时，无网络校时；相对 nanosleep 上限一天，捕获信号时返回 EINTR/剩余时间，SA_RESTART 不重启睡眠，成功不改 rem |
 | sched_getaffinity/getcpu、sysinfo | 一个 CPU/node 0、实际内存/空闲页与任务计数；load averages 尚未统计 |
 | getrandom、/dev/random、/dev/urandom | 硬件随机，每次最多 256 字节；检查 flags 和输出范围；硬件随机失败返回错误，不用时钟/固定字节替代 |
 | socket 能力探测 | 当前没有接入任何 Linux socket 协议族，返回 EAFNOSUPPORT，不生成占位 fd；socketpair 尚未实现，不能联网或替代真实端点 |
 | clone、futex、set_tid_address | 仅共享 VM/FS/FILES/SIGHAND 的线程 clone；WAIT/WAKE、BITSET、REQUEUE/CMP_REQUEUE、超时/EINTR、clear-TID join；无 PI/robust mutex/futex2 |
-| rt_sigaction/procmask/return、sigaltstack、tkill/tgkill | 同一地址空间的线程信号与同步异常、可修改 user context、FP 恢复；返回选择子/RFLAGS/MXCSR 检查；最多 4 层处理，pending 用位集，不实现实时信号队列、job control 或跨进程发送 |
+| rt_sigaction/procmask/return、sigaltstack、tkill/tgkill | 同一地址空间的线程信号与同步异常、可修改 user context、FP 恢复；捕获信号和 SIGKILL 唤醒 nanosleep/futex，默认忽略或屏蔽的信号不打断等待；返回选择子/RFLAGS/MXCSR 检查；最多 4 层处理，pending 用位集，不实现实时信号队列、job control 或跨进程发送 |
 | prlimit64、exit/exit_group | 查询固定栈与 NOFILE 上限；单线程退出和整个线程组退出；其他资源限制接口仍未完成 |
 
 未知功能返回 ENOSYS/其他明确错误。没有完整阻塞 I/O 信号重启、POSIX job control、

@@ -109,13 +109,27 @@ bool linux_fault(struct frame *f,uptr address) {
 static iptr linux_self_signal(u64 pid,u64 signo) {
     return task_linux_signal(current->compat_group?current->compat_group->pid:current->pid,pid,signo);
 }
+static void linux_sleep_return(struct frame *f) {
+    struct compat_state *s=&current->compat_state;
+    if(!s->sleep_interrupted)return;
+    if(s->sleep_remaining) {
+        if(!user_range(current->pd,s->sleep_remaining,16,true))f->eax=(u64)(i64)-L_EFAULT;
+        else {
+            i64 remaining[2]={(i64)(s->sleep_left/100),(i64)(s->sleep_left%100)*10000000};
+            memcpy((void *)s->sleep_remaining,remaining,sizeof(remaining));
+        }
+    }
+    s->sleep_interrupted=false;s->sleep_remaining=0;s->sleep_left=0;
+}
 static bool linux_pending(struct frame *f) {
     struct compat_state *s=&current->compat_state;
+    linux_sleep_return(f);
     for(u32 signo=1;signo<=64;++signo) {
         u64 bit=1ull<<(signo-1);
         if(!(s->pending_signals&bit) || (s->signal_mask&bit))continue;
         s->pending_signals&=~bit;
-        if(s->actions[signo-1].handler==1 || (!s->actions[signo-1].handler && (signo==17 || signo==23 || signo==28)))continue;
+        if(linux_signal_ignored(s->actions[signo-1],signo))continue;
+        linux_interrupt_wait(current);linux_sleep_return(f);
         if(!linux_deliver(f,signo,-6,0)) {task_linux_exit_group(128+signo);return true;}
         break;
     }

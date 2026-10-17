@@ -1,6 +1,7 @@
 #ifndef NV_LINUX_THREADS_H
 #define NV_LINUX_THREADS_H
 #include "linux_errno.h"
+#include "linux_wait.h"
 /* A serialized kernel shares process metadata at entry/exit. TLS, signal
  * masks/stacks, pending signals, TID and floating-point state stay per task. */
 void compat_enter(struct task *t) {
@@ -70,6 +71,8 @@ iptr task_linux_clone(struct frame *f,u64 flags,uptr stack,uptr parent_tid,uptr 
     child->compat_state.pending_signals=0;child->compat_state.signal_depth=0;
     child->compat_state.signal_stack=(struct linux_sigstack){.flags=2};
     child->compat_state.clear_tid=(flags&0x200000)?child_tid:0;child->compat_state.futex_address=0;
+    child->compat_state.sleep_remaining=0;child->compat_state.sleep_left=0;
+    child->compat_state.sleeping=child->compat_state.sleep_interrupted=false;
     child->wait_pid=0;child->wake=0;child->status=0;
     if(flags&0x100000)memcpy((void *)parent_tid,&child->pid,4);
     if(flags&0x1000000)memcpy((void *)child_tid,&child->pid,4);
@@ -125,10 +128,8 @@ int task_linux_signal(u64 group_pid,u64 tid,u64 signo) {
     if(signo>=18 && signo<=22)return -L_ENOTSUP;
     if(signo) {
         target->compat_state.pending_signals|=1ull<<(signo-1);
-        if(target->compat_state.futex_address && !(target->compat_state.signal_mask&(1ull<<(signo-1))) &&
-           current->compat_state.actions[signo-1].handler!=1) {
-            target->compat_state.futex_address=0;target->state=NV_READY;target->frame->eax=(u64)(i64)-L_EINTR;
-        }
+        if(!(target->compat_state.signal_mask&(1ull<<(signo-1))) &&
+           !linux_signal_ignored(current->compat_state.actions[signo-1],signo))linux_interrupt_wait(target);
     }
     return 0;
 }

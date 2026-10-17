@@ -30,6 +30,9 @@ static void compat_task_tick(struct task *t) {
     if(t->compat_state.futex_address) {
         t->compat_state.futex_address=0;t->frame->eax=(u64)(i64)-L_ETIMEDOUT;
     }
+    if(t->compat_state.sleeping) {
+        t->compat_state.sleeping=false;t->compat_state.sleep_remaining=0;t->compat_state.sleep_left=0;
+    }
 }
 static bool compat_finish(struct task *t,int status) {
     struct compat_group *group=t->compat_group;

@@ -25,6 +25,9 @@ struct compat_state {
     struct linux_vma maps[LINUX_VMAS];
     uptr clear_tid,futex_address;
     u32 futex_bitset;
+    uptr sleep_remaining;
+    u64 sleep_left;
+    bool sleeping,sleep_interrupted;
 };
 struct compat_group {
     u32 pid,references,alive;

@@ -39,9 +39,34 @@ static struct task *clone_worker(void) {
     assert(child->pd==current->pd && child->compat_group==current->compat_group && child->frame->eax==0);
     assert(child->frame->eip==parent_frame.eip && child->compat_state.fs_base==(uptr)area+128);
     assert(*(u32 *)area==(u32)pid && child->compat_state.clear_tid==(uptr)area+8);
+    assert(!child->compat_state.sleeping && !child->compat_state.sleep_interrupted && !child->compat_state.sleep_remaining);
     return child;
 }
+static void sleep_signals(void) {
+    setup();struct task *parent=current,*child=clone_worker();
+    parent->state=NV_SLEEPING;parent->wake=ticks+1000;
+    parent->compat_state.sleeping=true;parent->compat_state.sleep_remaining=(uptr)area;
+    memset(area,0xa5,16);current=child;
+    assert(!task_linux_signal(7,7,17) && parent->state==NV_SLEEPING);
+    parent->compat_state.signal_mask=1ull<<9;
+    assert(!task_linux_signal(7,7,10) && parent->state==NV_SLEEPING);
+    parent->compat_state.signal_mask=0;ticks+=23;
+    assert(!task_linux_signal(7,7,10) && parent->state==NV_READY && (i64)parent_frame.eax==-L_EINTR);
+    assert(parent->compat_state.sleep_interrupted && !parent->compat_state.sleeping && parent->compat_state.sleep_left==977);
+    for(u32 i=0;i<16;++i)assert(area[i]==0xa5); /* Output belongs to the target's address space. */
+    ticks+=10;assert(parent->compat_state.sleep_left==977);
+    parent->compat_state.sleep_interrupted=false;parent->compat_state.pending_signals=0;
+    parent->compat_state.sleeping=true;parent->state=NV_SLEEPING;parent->wake=ticks+5;
+    ticks+=5;task_tick();
+    assert(parent->state==NV_READY && !parent->compat_state.sleeping && !parent->compat_state.sleep_remaining);
+    parent->compat_state.sleeping=true;parent->state=NV_SLEEPING;parent->wake=ticks+1000;
+    assert(!task_linux_signal(7,7,9) && parent->state==NV_READY && (parent->compat_state.pending_signals&(1ull<<8)));
+    task_linux_exit_group(0);current=&tasks[0];task_reap();
+    assert(!stacks && !groups && destroyed==1);
+    puts("PASS Linux sleep lifecycle: ignored/blocked signals retain waits, caught signals and SIGKILL wake promptly, remainder captures interrupt time, normal deadline clears wait state");
+}
 int main(void) {
+    sleep_signals();
     setup();
     assert(task_linux_clone(&parent_frame,0,(uptr)area,0,0,0)==-L_ENOTSUP);
     assert(task_linux_clone(&parent_frame,0x7d0f00,1,(uptr)area,(uptr)area+8,(uptr)area+128)==-L_EFAULT);
@@ -66,6 +91,8 @@ int main(void) {
     current=parent;struct {i64 seconds,nanoseconds;} *timeout=(void *)(area+64);*timeout=(__typeof__(*timeout)){0,20000000};
     assert(!task_linux_futex(address,128,1,(uptr)timeout,0,0));ticks+=2;task_tick();assert(parent->state==NV_READY && (i64)parent_frame.eax==-L_ETIMEDOUT);
     assert(!task_linux_futex(address,128,1,0,0,0));current=child;
+    assert(!task_linux_signal(7,7,17) && parent->state==NV_SLEEPING && parent->compat_state.futex_address==address);
+    parent->compat_state.pending_signals=0;
     assert(!task_linux_signal(7,7,10) && parent->state==NV_READY && (i64)parent_frame.eax==-L_EINTR);
     assert(task_linux_signal(1,1,10)==-3 && task_linux_signal(7,7,65)==-L_EINVAL);
     *(u32 *)(area+8)=child->pid;current=parent;assert(!task_linux_futex((uptr)area+8,0,child->pid,0,0,0));

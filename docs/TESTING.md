@@ -1,5 +1,39 @@
 # 测试与复现
 
+## 未发布：睡眠与线程信号修复
+
+以本地/GitHub 一致的完整 `e0d2f59` 为基线。Arch GCC 16.2.1、QEMU 11.1.1
+TCG、OVMF；这是模拟 PC 验证，没有实体机测试。
+
+- 修复前增加断言，复现 nanosleep 提前清零 rem、默认忽略的 SIGCHLD 误打断
+  futex。真实 musl pthread 夹具在旧客体内核上也因 nanosleep 未返回 EINTR
+  而退出 10；相同 ELF 在修复后的客体通过。
+- **54 组宿主回归通过**；Linux syscall 和真实线程生命周期分别通过
+  ASan/UBSan。覆盖成功/零时长睡眠不改 rem、SA_RESTART 下仍返回 EINTR、
+  中断时刻剩余时间、pending 信号取消等待、默认忽略/屏蔽信号、SIGKILL 唤醒、
+  req/rem 重叠，以及另一个线程撤销输出内存后的 EFAULT。
+- 64 MiB BIOS 客体运行真实 musl linker/DSO、pthread/信号/睡眠、exec、保护页
+  与显式 JIT；三轮重复退出后空闲内存精确为 **40,420 / 40,420 KiB**。
+- 512 MiB/NVMe 客体的真实 OpenJDK 21 继续通过 JAR/四线程、NIO/硬件熵、
+  类库、HotSpot JIT、错误退出和原生恢复；重复 JVM 退出后为
+  **497,060 / 497,060 KiB**。
+- 默认和 `COMPAT=none` 均构建通过。两种配置的 32/256 MiB BIOS 探测各完成
+  153 项断言，每轮保留一项 TCG SSE #XM SKIP；UEFI 启动/保存/重载继续通过。
+  原生独立配置另通过碎片堆、trial，且没有 Linux 后端或 compat 应用。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 compat/tests/dynamic_boot_test.py
+# 使用 prepare_openjdk_probe.py 已创建的独立测试盘：
+python3 compat/tests/openjdk_boot_test.py --disk PATH/TO/PRIVATE/data.img
+make COMPAT=none -j4 diagnostics esp
+python3 compat/tests/native_independence_test.py
+```
+
+复现边界、来源摘要与实际日志见[本轮记录](../compat/verification/waits/README.md)。
+本轮没有重跑 Minecraft；socketpair、GLFW/OpenGL 等阻塞尚未解决，仍不可玩。
+
 ## 未发布：兼容隔离与官方 Minecraft 客户端探测
 
 以 GitHub/main 一致的完整 `acd4643` 为基线；Arch GCC 16.2.1、QEMU 11.1.1

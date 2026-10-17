@@ -1,0 +1,26 @@
+Initial host assertions before the fix:
+linux: compat/tests/linux_test.c:365: nanosleep_signals: Assertion `remaining->seconds==77 && remaining->nanoseconds==88' failed.
+linux_threads: compat/tests/linux_threads_test.c:69: main: Assertion `!task_linux_signal(7,7,17) && parent->state==NV_SLEEPING && parent->compat_state.futex_address==address' failed.
+
+Same real musl fixture on the previous guest kernel:
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-dynamic-x97el6n5/data.img
+PASS real guest DYNAMIC PASS
+PASS real guest EXEC PASS
+PASS real guest GUARD PASS
+PASS real guest SIGNAL PASS
+PASS real guest THREAD PASS
+Traceback (most recent call last):
+  File "/workspace/Nuvora-core/compat/tests/dynamic_boot_test.py", line 48, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "/workspace/Nuvora-core/compat/tests/dynamic_boot_test.py", line 26, in main
+    out=vm.send('compat /home/dynamic.elf '+option,marker,timeout=30)
+  File "/workspace/Nuvora-core/scripts/test.py", line 117, in send
+    assert expect in out, f'{self.name}: {line!r} did not produce {expect!r}:\n{out}'
+           ^^^^^^^^^^^^^
+AssertionError: dynamic-runtime: 'compat /home/dynamic.elf --sleep-check' did not produce 'SLEEP PASS':
+compat /home/dynamic.elf --sleep-check
+DYNAMIC FAIL line 72 errno 0: result==-1 && error==EINTR && atomic_load(&thread_signal_seen)>0
+Process 10 exited 10
+
+C:/ ::
