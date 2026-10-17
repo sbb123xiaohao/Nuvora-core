@@ -6,7 +6,8 @@ ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像
 和 `NV_SUB_INPUT` 鼠标事件、`NV_SUB_AUDIO` PCM 音频输出及 `NV_SUB_WINDOW` 窗口事件。
 `user/desktop.c` 是实际使用这些接口的桌面程序，已在同一进程内合成文件管理、
 纯文本编辑；`NV_SUB_WINDOW` 将独立进程的画面加入同一桌面。Media、Folio 和
-完整终端使用该接口。Linux、Windows 或 Qt/KDE 二进制仍不兼容。
+完整终端使用该接口。另有实验性 Linux x86-64 运行时入口，范围见下文；
+没有通用 Windows 或 Qt/KDE 桌面二进制兼容层。
 
 ## 兼容约定
 
@@ -21,25 +22,27 @@ ELF64，使用文件/进程调用、`NV_KEY` 键盘事件、`NV_SUB_DISPLAY` 像
   返回有符号 64 位值。负值是 `-NV_E...`。用户指针须处于当前进程的有效
   映射；新应用映像从 4 GiB 起、堆从 64 GiB 起、栈在低半规范地址顶部。
 - 程序使用符合本项目 ABI 的静态 ELF64，支持固定地址 ET_EXEC 和静态
-  PIE（ET_DYN）；没有动态链接器、POSIX
-  socket/libc、共享库或用户态直接显存映射。可把源码加入 `APPS`，
+  PIE（ET_DYN）；原生入口不使用 Linux 动态链接或 POSIX socket/libc，
+  也不允许用户态直接映射显存。Linux 运行时另用 `compat`，可把原生源码加入 `APPS`，
   通过 `scripts/mkarchive.py` 随内核映像嵌入 `/apps/`；符合加载器约束的
   ELF 也可复制到数据卷后用 `NV_SPAWN`/`NV_EXEC` 运行。加载器会临时读取
   分页或磁盘文件，分配失败不修改原文件；没有通用软件包安装器。
 - 对 ARM64 仍只有独立 QEMU `virt` 移植基线，尚无此应用 ABI。
 
-## Linux 静态运行时入口
+## Linux 运行时入口
 
-`compat FILE.elf [ARGS]` 可运行本轮验证的 musl 静态 PIE；标准 Linux syscall、
-argc/argv/env/auxv、TLS、匿名映射和文件接口形成成熟语言运行时的共用基础。
+`compat [--trace] [--jit] FILE.elf [ARGS]` 可运行已验证的 musl 静态/动态 PIE；
+Linux syscall、argc/argv/env/auxv、TLS、共享线程、信号、映射和文件接口形成共用基础。
 新增 `NV_COMPAT_SPAWN` / `NV_COMPAT_EXEC` 原生调用，参数为路径、重新引用的
-参数串、`NV_COMPAT_LINUX_X64`。EXEC 保留 PID 和授权身份；受保护会话管理器
+参数串、`NV_COMPAT_LINUX_X64 | 可选标志`，标志为 `NV_COMPAT_TRACE` 和
+`NV_COMPAT_JIT`。EXEC 保留 PID 和授权身份；受保护会话管理器
 不能通过它变成任意程序。旧 ABI 1/2 编号与记录保持不变。
 
 `make compat-examples` 可重建 C、C++ 核心、Lua、QuickJS、MicroPython 夹具。
 Python 脚本可使用模块、继承、大整数和文件接口；它不是完整 CPython/pip。
-尚无动态 loader、clone、Linux 信号、文件映射、完整 TTY 或 OpenJDK/Node/CPython 支持；接口与
-资源约束见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。
+真实 Alpine musl OpenJDK 21 已通过类库/JAR、pthread、GC 与 JIT 示例，入口和
+固定摘要安装工具见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)。没有完整 TTY、socket、
+通用桌面框架、CPython/Node 支持或 Minecraft 图形；资源和文件路径边界仍需遵守。
 
 ## Java 实验入口
 

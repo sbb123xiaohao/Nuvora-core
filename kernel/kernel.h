@@ -34,6 +34,8 @@
 #define P_WRITE 2u
 #define P_USER 4u
 #define P_EXEC 8u
+#define P_NOACCESS 0x200u /* retained private leaf, inaccessible from Ring 3 */
+#define P_JIT 0x400u /* explicit kernel permission to create a user W+X leaf */
 #define NV_ARCH_NAME "x86-64"
 typedef u64 pte_t;
 #define P_ADDRESS 0x000ffffffffff000ull
@@ -122,17 +124,39 @@ struct descriptor {
 struct fp_state {
     u32 words[128];
 } ALIGNED(16);
-#define LINUX_VMAS 32u
+#define LINUX_VMAS 128u
 #define LINUX_STACK_PAGES 64u
 #define LINUX_MAP_BASE 0x2000000000ull
-#define LINUX_MAP_END  0x2100000000ull
-#define LINUX_MEMORY_MAX (64u * 1024u * 1024u)
-struct linux_vma { uptr start, end; u32 protection; };
+#define LINUX_MAP_END  0x400000000000ull
+#define LINUX_INTERP_BASE 0x1800000000ull
+#define LINUX_VIRTUAL_MAX (16ull * 1024u * 1024u * 1024u)
+#define LINUX_MEMORY_MAX (256u * 1024u * 1024u)
+struct linux_vma { uptr start, end; u32 protection, flags; };
+struct linux_startup {const char *arg0,*environment;u32 environment_bytes;};
+struct linux_action {uptr handler;u64 flags;uptr restorer;u64 mask;};
+struct linux_sigstack {uptr pointer;u32 flags,pad;u64 size;};
 struct linux_state {
-    bool enabled;
+    bool enabled, trace, jit;
     u16 closed_stdio, cloexec, nonblock;
-    uptr fs_base, brk;
+    uptr fs_base, brk, interpreter, interpreter_entry;
+    u64 signal_mask;
+    u64 pending_signals;
+    u32 signal_depth;
+    struct linux_sigstack signal_stack;
+    struct linux_action actions[64];
     struct linux_vma maps[LINUX_VMAS];
+    uptr clear_tid,futex_address;
+    u32 futex_bitset;
+};
+struct linux_group {
+    u32 pid,references,alive;
+    u64 retired_ticks;
+    struct linux_vma maps[LINUX_VMAS];
+    struct linux_action actions[64];
+    struct descriptor fd[NV_OPEN_MAX];
+    uptr brk,heap_end;
+    int cwd;
+    u16 closed_stdio,cloexec,nonblock;
 };
 struct task {
     u32 pid, parent, state, wait_pid;
@@ -149,12 +173,14 @@ struct task {
     char name[32];
     struct fp_state fp;
     struct linux_state linux_compat;
+    struct linux_group *linux_group;
 };
 _Static_assert(_Alignof(struct task) >= 16 && sizeof(struct fp_state) == 512,
                "each task requires an aligned FXSAVE area");
 extern struct task tasks[NV_TASK_MAX];
 extern struct task *current;
 extern volatile u64 ticks;
+u64 clock_realtime_ticks(void);
 extern pte_t *kernel_pd;
 extern bool test_mode;
 void account_init(void);
@@ -285,6 +311,13 @@ void vm_destroy(pte_t *);
 int vm_map(pte_t *, uptr, u32);
 int vm_readonly(pte_t *, uptr);
 int vm_protect(pte_t *, uptr, u32);
+int vm_page_flags(pte_t *, uptr, u32 *);
+int vm_prepare(pte_t *, uptr);
+int vm_move_page(pte_t *, pte_t *, uptr);
+u64 vm_count_range(pte_t *,uptr,uptr);
+void vm_unmap_range(pte_t *,uptr,uptr);
+void vm_change_range(pte_t *,uptr,uptr,u32);
+void vm_clear_range(pte_t *,uptr,uptr);
 uptr vm_translate(pte_t *, uptr);
 void vm_unmap(pte_t *, uptr);
 bool user_range(pte_t *, uptr, usize, bool);
@@ -299,6 +332,7 @@ int fs_kind(int);
 int fs_open(struct task *, const char *, u32);
 int fs_close(struct task *, int);
 int fs_read(struct task *, int, void *, u32);
+int fs_pread64(struct task *, int, u64, void *, u32);
 int fs_write(struct task *, int, const void *, u32);
 int fs_seek(struct task *, int, i32, u32);
 int fs_seek64(struct task *, int, struct nv_seek64 *);
@@ -383,8 +417,17 @@ int task_info(u32, struct nv_taskinfo *);
 bool task_cwd_in_use(int);
 struct frame *syscall_dispatch(struct frame *);
 struct frame *linux_dispatch(struct frame *);
-int task_spawn_linux(const char *, const char *, struct task *);
-int task_exec_linux(const char *, const char *);
+bool linux_fault(struct frame *,uptr);
+bool linux_resume(struct frame *);
+void task_linux_enter(struct task *);
+void task_linux_leave(struct task *);
+iptr task_linux_clone(struct frame *,u64,uptr,uptr,uptr,uptr);
+iptr task_linux_futex(uptr,u64,u64,uptr,uptr,u64);
+int task_linux_signal(u64,u64,u64);
+void task_linux_exit_group(int);
+int task_spawn_linux(const char *, const char *, struct task *,u32);
+int task_exec_linux(const char *, const char *,u32);
+int task_exec_linux_start(const char *,const char *,u32,const struct linux_startup *);
 void arch_set_fs(uptr);
 void fill_info(struct nv_info *);
 void kernel_start(const struct boot_info *); /* common entry: Multiboot or UEFI */

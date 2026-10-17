@@ -4,6 +4,10 @@
 struct task tasks[NV_TASK_MAX];
 struct task *current;
 static u32 next_pid = 1;
+static struct task *by_pid(u32);
+static u32 allocate_pid(void);
+static void finish(struct task *,int);
+#include "linux_threads.h"
 void task_init(void) {
     memset(tasks, 0, sizeof(tasks));
 }
@@ -14,7 +18,7 @@ static struct task *by_pid(u32 pid) {
     return NULL;
 }
 static void release_task(struct task *t) {
-    vm_destroy(t->pd);
+    linux_space_release(t->linux_group,t->pd);
     vm_stack_free(t->kstack);
     memset(t, 0, sizeof(*t));
 }
@@ -23,8 +27,10 @@ void task_reap(void) {
         struct task *t = &tasks[i];
         if (t == current || t->state != NV_ZOMBIE)
             continue;
+        if(t->linux_group && t->linux_group->alive && t->pid==t->linux_group->pid)continue;
         /* Keep only the waitable status. Never free the stack we are on. */
-        vm_destroy(t->pd);
+        if(t->linux_group)t->linux_group->retired_ticks+=t->cpu_ticks;
+        linux_space_release(t->linux_group,t->pd);t->linux_group=NULL;
         vm_stack_free(t->kstack);
         t->pd = NULL;
         t->kstack = NULL;
@@ -33,7 +39,7 @@ void task_reap(void) {
             memset(t, 0, sizeof(*t));
     }
 }
-static int prepare_image(struct task *t, const char *path, const char *args, struct frame *frame) {
+static int prepare_image_start(struct task *t,const char *path,const char *args,struct frame *frame,const struct linux_startup *startup) {
     if (strlen(args) >= NV_ARG_MAX)
         return -NV_E2BIG;
     const u8 *data;
@@ -54,7 +60,7 @@ static int prepare_image(struct task *t, const char *path, const char *args, str
         if (r < 0)
             goto done;
     }
-    if (t->linux_compat.enabled) { r=linux_stack(t,path,args,data,entry,phdr,frame); goto done; }
+    if (t->linux_compat.enabled) { r=linux_stack(t,path,args,data,entry,phdr,frame,startup); goto done; }
     *frame = (struct frame){.cs = 0x1b,
                             .ss = 0x23,
                             .eflags = 0x202,
@@ -65,6 +71,9 @@ static int prepare_image(struct task *t, const char *path, const char *args, str
 done:
     kfree(temporary);
     return r;
+}
+static int prepare_image(struct task *t,const char *path,const char *args,struct frame *frame) {
+    return prepare_image_start(t,path,args,frame,NULL);
 }
 static void name_task(struct task *t, const char *path) {
     const char *name = path;
@@ -81,7 +90,7 @@ static u32 allocate_pid(void) {
             return pid;
     }
 }
-static int spawn(const char *path, const char *args, struct task *parent,bool linux_mode) {
+static int spawn(const char *path, const char *args, struct task *parent,bool linux_mode,u32 options) {
     task_reap();
     struct task *t = NULL;
     for (u32 i = 0; i < NV_TASK_MAX; ++i)
@@ -91,7 +100,8 @@ static int spawn(const char *path, const char *args, struct task *parent,bool li
         }
     if (!t)
         return -NV_ENOSPC;
-    t->linux_compat.enabled=linux_mode; t->uid=parent?parent->uid:NV_UID_NONE;
+    t->linux_compat.enabled=linux_mode;t->linux_compat.trace=!!(options&NV_COMPAT_TRACE);
+    t->linux_compat.jit=!!(options&NV_COMPAT_JIT);t->uid=parent?parent->uid:NV_UID_NONE;
     struct frame frame;
     int r = prepare_image(t, path, args, &frame);
     if (r < 0) {
@@ -118,12 +128,14 @@ static int spawn(const char *path, const char *args, struct task *parent,bool li
     t->state = NV_READY;
     return (int)t->pid;
 }
-int task_spawn(const char *path,const char *args,struct task *parent) { return spawn(path,args,parent,false); }
-int task_spawn_linux(const char *path,const char *args,struct task *parent) { return spawn(path,args,parent,true); }
-static int exec_image(const char *path, const char *args,bool linux_mode) {
-    struct task staged = {.uid=current->uid,.linux_compat={.enabled=linux_mode}};
+int task_spawn(const char *path,const char *args,struct task *parent) { return spawn(path,args,parent,false,0); }
+int task_spawn_linux(const char *path,const char *args,struct task *parent,u32 options) { return spawn(path,args,parent,true,options); }
+static int exec_image(const char *path,const char *args,bool linux_mode,u32 options,const struct linux_startup *startup) {
+    if(current->linux_group && (current->linux_group->alive!=1 || current->linux_group->references!=1 ||
+       current->pid!=current->linux_group->pid))return -NV_ENOSYS;
+    struct task staged = {.uid=current->uid,.linux_compat={.enabled=linux_mode,.trace=!!(options&NV_COMPAT_TRACE),.jit=!!(options&NV_COMPAT_JIT)}};
     struct frame frame;
-    int r = prepare_image(&staged, path, args, &frame);
+    int r = prepare_image_start(&staged,path,args,&frame,startup);
     if (r < 0) {
         vm_destroy(staged.pd);
         return r;
@@ -131,6 +143,7 @@ static int exec_image(const char *path, const char *args,bool linux_mode) {
     /* Commit only after all validation, mappings and argument copying succeed.
      * PID, parent, children, working directory and open handles remain intact. */
     pte_t *old = current->pd;
+    struct linux_group *old_group=current->linux_group;current->linux_group=NULL;
     console_release(current->pid);
     window_task_release(current->pid);
     net_task_release(current->pid);
@@ -143,13 +156,16 @@ static int exec_image(const char *path, const char *args,bool linux_mode) {
     name_task(current, path);
     current->program_node = fs_lookup(0,path);
     load_cr3((uptr)current->pd);
-    vm_destroy(old);
+    linux_space_release(old_group,old);
     cpu_fp_reset(&current->fp);
     cpu_fp_restore(&current->fp);
     return 0;
 }
-int task_exec(const char *path,const char *args) { return exec_image(path,args,false); }
-int task_exec_linux(const char *path,const char *args) { return exec_image(path,args,true); }
+int task_exec(const char *path,const char *args) { return exec_image(path,args,false,0,NULL); }
+int task_exec_linux(const char *path,const char *args,u32 options) { return exec_image(path,args,true,options,NULL); }
+int task_exec_linux_start(const char *path,const char *args,u32 options,const struct linux_startup *startup) {
+    return exec_image(path,args,true,options,startup);
+}
 NORETURN void task_start(int pid) {
     current = by_pid((uptr)pid);
     if (!current)
@@ -165,8 +181,12 @@ void task_tick(void) {
     if (current && current->state == NV_READY)
         ++current->cpu_ticks;
     for (u32 i = 0; i < NV_TASK_MAX; ++i)
-        if (tasks[i].state == NV_SLEEPING && ticks >= tasks[i].wake)
+        if (tasks[i].state == NV_SLEEPING && ticks >= tasks[i].wake) {
+            if(tasks[i].linux_compat.futex_address) {
+                tasks[i].linux_compat.futex_address=0;tasks[i].frame->eax=(u64)(i64)-L_ETIMEDOUT;
+            }
             tasks[i].state = NV_READY;
+        }
 }
 struct frame *schedule(struct frame *f) {
     if (current) {
@@ -181,17 +201,19 @@ struct frame *schedule(struct frame *f) {
             if (t->state != NV_READY)
                 continue;
             current = t;
+            task_linux_enter(t);
             load_cr3((uptr)t->pd);
             arch_set_stack((uptr)t->kstack + KSTACK_SIZE);
             arch_set_fs(t->linux_compat.fs_base);
             cpu_fp_restore(&t->fp);
+            if(t->linux_compat.enabled && linux_resume(t->frame))continue;
             return t->frame;
         }
         idle_once();
         usb_poll();
     }
 }
-static void finish(struct task *t, int status) {
+static void finish_notify(struct task *t,int status) {
     account_task_release(t->pid);
     console_release(t->pid);
     window_task_release(t->pid);
@@ -211,6 +233,23 @@ static void finish(struct task *t, int status) {
         t->collected = true;
     }
 }
+static void finish(struct task *t,int status) {
+    if(t->state==NV_ZOMBIE)return;
+    struct linux_group *group=t->linux_group;
+    if(!group) {finish_notify(t,status);return;}
+    linux_clear_tid(t);t->status=status;t->state=NV_ZOMBIE;
+    if(!group->alive)panic("Linux live-thread underflow");
+    --group->alive;
+    if(t->pid!=group->pid) {
+        account_task_release(t->pid);console_release(t->pid);window_task_release(t->pid);net_task_release(t->pid);
+        for(u32 fd=0;fd<NV_OPEN_MAX;++fd)t->fd[fd].node=-1;
+    }
+    if(!group->alive) {
+        struct task *leader=by_pid(group->pid);
+        if(!leader)panic("Linux thread-group leader missing");
+        finish_notify(leader,leader->status);
+    }
+}
 void task_exit(int status) {
     if (current->pid == 1) {
         kprintf("\n[init] pid 1 terminated with status %d\n", status);
@@ -222,7 +261,7 @@ int task_wait(u32 pid) {
     struct task *t = by_pid(pid);
     if (!t || t->parent != current->pid || t->collected)
         return -NV_ECHILD;
-    if (t->state == NV_ZOMBIE) {
+    if (t->state == NV_ZOMBIE && (!t->linux_group || !t->linux_group->alive)) {
         t->collected = true;
         return t->status;
     }
@@ -232,17 +271,26 @@ int task_wait(u32 pid) {
 }
 int task_stop(u32 pid) {
     struct task *t = by_pid(pid);
-    if (!t || t->state == NV_ZOMBIE)
+    if (!t || (t->state == NV_ZOMBIE && (!t->linux_group || !t->linux_group->alive)))
         return -NV_ENOENT;
     if (pid == 1 || t == current || (current->pid != 1 && t->parent != current->pid))
         return -NV_EACCESS;
-    finish(t, 143);
+    if(t->linux_group) {
+        struct linux_group *group=t->linux_group;
+        struct task *leader=by_pid(group->pid);if(leader)leader->status=143;
+        for(u32 i=0;i<NV_TASK_MAX;++i)if(tasks[i].linux_group==group && tasks[i].state!=NV_ZOMBIE)finish(&tasks[i],143);
+    } else finish(t,143);
     return 0;
 }
 void task_end_session(u32 except) {
     for (u32 i=0;i<NV_TASK_MAX;++i)
         if (tasks[i].state && tasks[i].state!=NV_ZOMBIE &&
-            tasks[i].pid!=1 && tasks[i].pid!=except) finish(&tasks[i],143);
+            tasks[i].pid!=1 && tasks[i].pid!=except) {
+            if(tasks[i].linux_group) {
+                struct task *leader=by_pid(tasks[i].linux_group->pid);if(leader)leader->status=143;
+            }
+            finish(&tasks[i],143);
+        }
     task_reap();
 }
 iptr task_grow(i64 delta) {

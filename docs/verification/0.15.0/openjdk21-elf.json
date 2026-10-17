@@ -1,0 +1,54 @@
+{
+  "files": [
+    {
+      "file": "java",
+      "sha256": "33cef368ce71b1e8137b17a1a214e7c7457c85ad9da538c5beb0ad271d7aa8c5",
+      "machine": 62,
+      "elf_type": 3,
+      "interpreter": "/home/ldso",
+      "needed": [
+        "libjli.so",
+        "libc.musl-x86_64.so.1"
+      ],
+      "tls_template": false,
+      "loader_blockers": [],
+      "requirements": {
+        "interpreter_file": "/home/ldso",
+        "shared_libraries": [
+          "libjli.so",
+          "libc.musl-x86_64.so.1"
+        ]
+      },
+      "note": "No code executed or guest files checked; an empty blocker list does not prove runtime support."
+    },
+    {
+      "file": "libjvm.so",
+      "sha256": "e56af8e08537ff0fe1700115d6d1d99d3c43219a430eae40bcf1c965341ccce6",
+      "machine": 62,
+      "elf_type": 3,
+      "interpreter": null,
+      "needed": [
+        "libc.musl-x86_64.so.1"
+      ],
+      "tls_template": true,
+      "loader_blockers": [
+        "DT_NEEDED without PT_INTERP: use the user linker as a shared object, not a main executable",
+        "entry does not select executable code"
+      ],
+      "requirements": {
+        "interpreter_file": null,
+        "shared_libraries": [
+          "libc.musl-x86_64.so.1"
+        ]
+      },
+      "note": "No code executed or guest files checked; an empty blocker list does not prove runtime support."
+    }
+  ],
+  "platform_remaining": [
+    "LWJGL/GLFW/OpenGL/OpenAL platform backends",
+    "Linux socket/network and broader file/directory APIs",
+    "larger tested runtime budgets and game/resource installation",
+    "runtime/version specific validation beyond the pinned Alpine musl OpenJDK 21"
+  ],
+  "minecraft_client_started": false
+}

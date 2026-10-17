@@ -1,5 +1,52 @@
 # 测试与复现
 
+## 未发布：真实 OpenJDK 21 与线程运行时
+
+2026-10-17，从本地/GitHub 一致的完整 `ed2ada8` 继续；原生 ABI、桌面和已有
+语言保持。Arch GCC 16.2.1、QEMU 11.1.1 TCG、OVMF；本轮没有实体硬件测试。
+
+- **53 组宿主回归通过**，C 夹具用 UBSan；Linux 映射、信号和线程生命周期还
+  单独通过 ASan/UBSan。覆盖失败回滚、16 GiB 非驻留预留、文件偏移/EOF、保留
+  保护页、clone 分配失败、独立 TLS、futex 等待/唤醒/迁移/超时/EINTR、组长先
+  退出、全组取消、最后一个引用释放、上下文选择子/RFLAGS/MXCSR 和授权边界。
+- 真实 musl 动态 ELF/DSO 在 **64 MiB BIOS 客体**通过构造函数、main/DSO TLS、
+  pthread mutex/cond/join、定向线程信号、altstack、SIGILL context 修改/FP 恢复、
+  argv/env/CLOEXEC exec、W^X 默认拒绝和显式 JIT 执行；重复退出精确回收。
+- 固定 SHA256 的 **Alpine OpenJDK 21.0.11+10** 真正运行在 **512 MiB/NVMe** 客体，
+  不是宿主 Java 或 bootstrap 输出。版本查询、JAR、4 个 Java 工作线程、
+  AtomicLong/CountDownLatch/join、BigInteger、SHA-256 provider、NIO UTF-8 文件、
+  RTC/单调时钟、GC、错误类入口和随后原生程序通过。
+- HotSpot 默认编译模式实际编译 `JavaRuntimeCheck::hot`，20 万轮计算校验为
+  `dc9889355911c47f`；解释模式和 JIT 都成功退出。正常 JVM 重复退出后可用实体
+  页计数完全一致；完整摘要及实际数值见下方日志。
+- **32/256 MiB BIOS、64 MiB core2duo、32 MiB 碎片化堆**均完成 **153 项**断言，
+  正常退出 33；UEFI 启动、保存/重载与 native trial 继续通过。每轮保留一项
+  TCG 未递交 SSE #XM 的明确 SKIP。
+- 生产 UEFI/q35/512 MiB/NVMe/USB 创建账户后，在真实 Terminal 启动 Java JAR。
+  Java 读取私有账户库得到 AccessDeniedException，数据库摘要前后不变；当前
+  用户目录的文件写入、随后 shell 命令和快照持久化通过。截图 RGB 与原始 QMP
+  PPM 逐像素一致，见 [OpenJDK 截图清单](screenshots/openjdk21-manifest.json)。
+- 生产测试发现并修复账户 I/O 临时任务记录的内核栈溢出：持久化栈帧从
+  12,576 降至 144 字节，account_init 从 12,672 降至 240；内核加入 8 KiB 单帧
+  编译上限，完整重建及生产账户流程复测通过。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/dynamic_boot_test.py
+python3 tests/compat_boot_test.py
+python3 scripts/prepare_openjdk_probe.py
+python3 tests/openjdk_boot_test.py
+python3 tests/openjdk_desktop_test.py
+```
+
+JDK 安装工具创建新的 `build/openjdk-probe/data.img`，不改用户原有数据盘；
+首次可选下载固定摘要 APK，普通构建不联网。详细边界见
+[RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)；证据见
+[OpenJDK 验证摘要](verification/0.15.0/openjdk21-summary.log)。
+**没有运行 Minecraft 客户端、进入世界或测量游戏帧率**；Linux socket、
+LWJGL/GLFW/OpenGL/OpenAL、更多文件接口和更大的已验证内存预算尚未完成。
+
 ## 未发布：工作区重绘与 Python 脚本
 
 以本地和 GitHub 一致的完整 `42fdc75` 为基线。桌面新增三种深色弧线背景、

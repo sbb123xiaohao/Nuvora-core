@@ -1,5 +1,14 @@
 # 参考规范与来源
 
+本轮真实运行时来源：
+
+- [musl 1.2.5](https://musl.libc.org/releases/musl-1.2.5.tar.gz)：动态 linker/libc 由原版源码编译；固定摘要、包装源和 ELF 摘要见 `tests/fixtures/dynamic/manifest.json`，完整版权文本随夹具保存。
+- [Alpine v3.22 OpenJDK 21](https://dl-cdn.alpinelinux.org/alpine/v3.22/community/x86_64/openjdk21-jre-headless-21.0.11_p10-r0.apk)：21.0.11+10 musl x86-64 JRE，GPL-2.0 with Classpath Exception。可选安装工具固定 SHA256 `66487bbb57861b06482a53868c8c7a37ac7e838c748b2cf696f63df5154a6e09`；Alpine 构建来源提交 `b09053f2d6841e7c70ef56c3005321cd98b81dd6`。只调整 launcher 的 PT_INTERP 安装路径，保留原 JVM 和标准库代码。
+- [Alpine zlib 1.3.2-r1](https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/zlib-1.3.2-r1.apk)：zlib 许可证；固定 SHA256 `af24e502645e2b392cae833856d776691ac21655362e5db69d7b89f147f76216`。JDK/APK 和游戏资源不打进源码 ZIP，由显式 SDK 步骤下载。
+- Linux x86-64 syscall、ELF auxv、sigcontext/ucontext、futex/clone 标志为公开 ABI 布局。兼容层、页表事务与线程生命周期为本项目实现，没有复制 Linux 内核实现；不宣称完整 Linux/POSIX 认证。
+
+运行时结果与边界见 [RUNTIME-COMPAT.md](RUNTIME-COMPAT.md)；Java 测试源码、编译参数及 class 摘要见 `examples/java/runtime-manifest.json`。
+
 - [Java Virtual Machine Specification, Java SE 21](https://docs.oracle.com/javase/specs/jvms/se21/html/index.html)：class 格式、modified UTF-8、操作数槽、字节码、switch、整数除余/移位、dup 与返回值转换规则。实验性解释器为独立 C 实现，不含 OpenJDK 源码；真实 javac 21 产物及 OpenJDK 21 执行结果作为差分基准，范围见 [JAVA.md](JAVA.md)。
 
 处理器和标准格式相关实现参考下列公开文档。项目自己的代码、命令名称、ABI 编排和快照格式在本次工作中编写，没有将 Linux 内核源码改名包装。

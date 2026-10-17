@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Inspect real ELF runtime requirements without executing its code.
 
-Format eligibility is not runtime compatibility. Missing threads, shared
-libraries, signals and graphics still prevent OpenJDK/Minecraft startup.
+Format eligibility is not runtime compatibility. Interpreter and library
+requirements must be installed and tested separately from Minecraft graphics.
 """
 import argparse
 import hashlib
@@ -49,15 +49,17 @@ def inspect(path):
                 needed.append(table[at:].split(b'\0',1)[0].decode('utf-8'))
     blockers=[]
     if machine!=62:blockers.append('only x86-64 is implemented')
-    if kind!=3:blockers.append('compatibility loader currently requires static PIE (ET_DYN)')
+    if kind!=3:blockers.append('compatibility loader requires PIE (ET_DYN)')
     if count>32:blockers.append('more than 32 program headers')
-    if interpreter:blockers.append('ELF interpreter missing: '+interpreter)
-    if needed:blockers.append('shared-library loader missing: '+', '.join(needed))
+    if interpreter and (not interpreter.startswith('/') or len(interpreter.encode())>=192 or '\0' in interpreter):
+        blockers.append('interpreter path does not fit the native filesystem ABI')
+    if needed and not interpreter:blockers.append('DT_NEEDED without PT_INTERP: use the user linker as a shared object, not a main executable')
     if any(p[0]==1 and p[1]&3==3 for p in headers):blockers.append('writable executable segment is refused')
     if not any(p[0]==1 and p[1]&1 and p[3]<=entry<p[3]+p[6] for p in headers):blockers.append('entry does not select executable code')
     return {'file':path.name,'sha256':hashlib.sha256(data).hexdigest(),'machine':machine,'elf_type':kind,
             'interpreter':interpreter,'needed':needed,'tls_template':tls,'loader_blockers':blockers,
-            'note':'No code executed; an empty blocker list does not prove runtime support.'}
+            'requirements':{'interpreter_file':interpreter,'shared_libraries':needed},
+            'note':'No code executed or guest files checked; an empty blocker list does not prove runtime support.'}
 
 
 def main():
@@ -65,8 +67,9 @@ def main():
     args=parser.parse_args()
     try:results=[inspect(p) for p in args.files]
     except (OSError,UnicodeError,ValueError,struct.error) as error:parser.exit(2,str(error)+'\n')
-    print(json.dumps({'files':results,'platform_missing':['dynamic loader/shared libraries','clone/threads and blocking synchronization',
-          'Linux signals and exception delivery','file-backed mappings and reserved address space','JNI/LWJGL/GLFW/OpenGL backends'],
+    print(json.dumps({'files':results,'platform_remaining':['LWJGL/GLFW/OpenGL/OpenAL platform backends',
+          'Linux socket/network and broader file/directory APIs','larger tested runtime budgets and game/resource installation',
+          'runtime/version specific validation beyond the pinned Alpine musl OpenJDK 21'],
           'minecraft_client_started':False},indent=2))
 
 if __name__=='__main__':main()

@@ -64,10 +64,10 @@ compat-examples:
 diagnostics: all $(BUILD)/boot-test.elf $(BUILD)/nuvora-uefi-test.elf
 $(BUILD)/kernel/main-test.o: kernel/main.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DNV_DIAGNOSTIC_BUILD=1 -c $< -o $@
+	$(CC) $(CFLAGS) -Wframe-larger-than=8192 -DNV_DIAGNOSTIC_BUILD=1 -c $< -o $@
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(if $(filter user/%,$<),$(filter-out -mcmodel=small,$(CFLAGS)) -mcmodel=large,$(CFLAGS)) -c $< -o $@
+	$(CC) $(if $(filter user/%,$<),$(filter-out -mcmodel=small,$(CFLAGS)) -mcmodel=large,$(CFLAGS) -Wframe-larger-than=8192) -c $< -o $@
 $(BUILD)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@

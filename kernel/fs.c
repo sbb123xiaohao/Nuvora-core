@@ -457,6 +457,17 @@ int fs_read(struct task *t, int fd, void *buf, u32 len) {
     d->offset += amount;
     return (int)amount;
 }
+int fs_pread64(struct task *t,int fd,u64 offset,void *buf,u32 len) {
+    if (fd<3 || fd>=NV_OPEN_MAX || t->fd[fd].node<0 || !(t->fd[fd].flags&NV_READ)) return -NV_EBADF;
+    struct node *n=&nodes[t->fd[fd].node];
+    char path[NV_PATH_MAX];int r=fs_path(t->fd[fd].node,path,sizeof(path));
+    if (r<0 || !account_path_allowed(t,path,0)) return r<0?r:-NV_EACCESS;
+    if (n->kind!=NV_FILE) return n->kind==NV_DIR?-NV_EISDIR:-NV_EINVAL;
+    if (offset>=n->size) return 0;
+    u32 amount=MIN((u64)len,n->size-offset);
+    r=file_copy(n,offset,buf,amount);
+    return r<0?r:(int)amount;
+}
 int fs_write(struct task *t, int fd, const void *buf, u32 len) {
     if (fd == 1 || fd == 2) {
         int routed = window_stdio_write(t, buf, len);

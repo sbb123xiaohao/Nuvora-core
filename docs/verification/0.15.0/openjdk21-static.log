@@ -1,0 +1,9 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-compat-rxxctg7z/data.img
+PASS real musl C: TLS, allocation, mmap split/protection, errno, bounds, clocks, descriptors and file I/O
+PASS real lua engine: parser, objects, GC, exceptions and floating point
+PASS real js engine: parser, objects, GC, exceptions and floating point
+PASS real MicroPython: module import, inheritance, generators, Unicode, big integers, math, JSON/regex, GC, files and bounded heap
+PASS Linux/native scheduling: two concurrent TLS processes retain independent FS bases and waitable PIDs
+PASS language exceptions and shell cancellation of the actual compatibility process
+PASS malformed/dynamic ELF rejection, isolated user fault, native Java/PIE recovery and exact reclamation: 40580/40580 KiB
+LINUX RUNTIME GUEST TEST PASSED

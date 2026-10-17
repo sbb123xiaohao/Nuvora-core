@@ -1,12 +1,21 @@
 # Nuvora Core 0.15.0
 
+## 未发布：真实 OpenJDK 21、线程与动态运行时
+
+- 真正的 Alpine musl OpenJDK 21.0.11 / HotSpot 在 Nuvora 运行版本查询、Java JAR、多线程与标准类库测试；解释执行和 HotSpot JIT 均通过，Minecraft 客户端仍不可运行。
+- 独立验证 PT_INTERP 和主映像，补齐文件快照映射、16 GiB 虚拟预留、保护/提交、事务 MAP_FIXED、pread64 与 argv/env execve；定位并修复 16 KiB 定位读截断导致的 Java 类格式错误。
+- 共享地址空间 pthread clone、独立 TLS/内核栈/FP、阻塞/超时/队列迁移 futex、clear-TID join、同组线程信号、altstack/context/FP 恢复；最后一个线程才释放地址空间，原生 quench 终止整个组。
+- 默认 W^X，新增显式 --jit；PC RTC 实时钟、CPU 时钟/affinity/getcpu/sysinfo 查询；修复内核 %lld 截断。
+- 修复完整任务结构扩展后账户存储身份的内核栈溢出，改为服务私有的序列化身份；加入内核 8 KiB 单栈帧编译上限，保留 16 KiB 带保护的内核栈。
+- 固定 SHA256 的可选 JDK 私有盘工具、真实 musl 动态夹具与许可证、嵌套 COW 导入、53 组宿主回归及客体/生产桌面测试。普通构建不下载 JDK，不附带 Minecraft 客户端或资产。
+
 ## 未发布：共享运行时基础与 Linux 静态进程
 
 - 建立受限 Linux x86-64 SYSCALL 入口、静态 PIE/TLS 启动栈、FS base 切换、匿名内存、文件/时钟/随机与错误转换接口。
 - 新增 compat 命令及原生兼容 SPAWN/EXEC；EXEC 保留实际 PID、用户、工作目录和进程控制，旧 ABI 1/2 操作编号不变。
 - 实际运行 musl C、C++ 核心语法、Lua 5.4.8 与 QuickJS 2025-09-13；提供固定源码摘要、重建脚本、ELF 夹具和许可证。
 - 新增映射/OOM/权限边界、ELF/auxv/argv、TLS 并发、语言异常、进程终止、64 MiB 客体回收与正式桌面权限/持久化测试；README 引用真实截图。
-- Java 主线转向成熟 OpenJDK 共用平台接口；核对官方 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3 依赖，并提供真实 ELF 依赖检查工具。OpenJDK、Minecraft 仍未启动；动态库、线程/信号、地址预留和图形接口尚需实现。
+- Java 主线转向成熟 OpenJDK 共用平台接口；核对官方 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3 依赖，并提供真实 ELF 依赖检查工具。此静态阶段尚未启动 OpenJDK，后续进度见上节。
 
 ## 未发布：Java 21 多类加载与初始化
 

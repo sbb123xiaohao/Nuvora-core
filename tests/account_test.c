@@ -243,8 +243,8 @@ int main(void) {
     sync_error=-NV_EIO;edit=(struct nv_account_request){.uid=1000,.role=1};strlcpy(edit.display_name,"Saved Alice",64);
     assert(call(NV_ACCOUNT_UPDATE,&edit)==-NV_EIO && broken);assert(run(NV_ACCOUNT_ADD,&bob)==-NV_EIO);
     sync_error=0;account_init();assert(!broken && !strcmp(database.records[0].display_name,"Saved Alice"));
-    struct task internal=internal_task();int fd=fs_open(&internal,ACCOUNT_DATABASE,NV_WRITE);
-    assert(fd>=3 && fs_write(&internal,fd,"BROKEN!",7)==7);fs_close(&internal,fd);
+    struct task *internal=internal_task();int fd=fs_open(internal,ACCOUNT_DATABASE,NV_WRITE);
+    assert(fd>=3 && fs_write(internal,fd,"BROKEN!",7)==7);fs_close(internal,fd);
     account_init();assert(broken);assert(!call(NV_ACCOUNT_CLAIM,NULL));assert(run(NV_ACCOUNT_SETUP,&admin)==-NV_EIO);
     test_mode=true;account_init();assert(account_ioctl(NV_ACCOUNT_INFO,(u32)(uptr)io_buffer)==-NV_ENODEV);
     puts("PASS accounts: trusted program identity, roles, kernel idle lock, full-cost hash, persistence, ADD/PASSWORD commit across lock, login/password cooldown, tick wrap, home isolation and fail-closed storage");

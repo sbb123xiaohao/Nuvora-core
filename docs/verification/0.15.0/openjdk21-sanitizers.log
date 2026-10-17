@@ -1,0 +1,8 @@
+PASS Linux VMA: retained PROT_NONE data, sparse 16 GiB reservations, commit rollback, fixed replacement rollback, NOREPLACE, RX/W^X and discard
+PASS Linux file mappings: exact offset/EOF zero tail, descriptor position preserved, read-error rollback, metadata exhaustion and byte brk rollback
+PASS Linux ABI: errno, high descriptors/user pointers, TLS/random/stdio and authorized path metadata/readlink
+PASS Linux process ABI: bounded argv/environment, exec failure preservation, session denial, close-on-exec, signal masks, proc executable and opt-in JIT
+PASS Linux signals: validated actions/context, retained masked signals, user-only returns, sanitized flags/MXCSR and default/ignored delivery
+PASS Linux threads: clone validation/OOM rollback, separate kernel stacks/TLS, shared metadata, futex wake/timeout/EINTR, clear-TID join, whole-group stop/exit and single final VM release
+PASS RTC clocks: BCD/binary, 12/24-hour, Gregorian leap/century, malformed dates, update timeout and monotonic epoch fallback
+PASS console security: locked reads/presents/clear denied without mutation; application ownership revoked, old input flushed, trusted graphical/recovery login and release preserved

@@ -62,6 +62,8 @@ enum nv_call {
     NV_CALL_COUNT
 };
 #define NV_COMPAT_LINUX_X64 1u
+#define NV_COMPAT_TRACE 0x100u
+#define NV_COMPAT_JIT 0x200u
 enum { NV_HW_CPU = 1, NV_HW_GPU = 2, NV_HW_PLATFORM = 3 };
 /* NV_DEVCTL convention: eax=NV_DEVCTL, ebx=subsystem (enum nv_subsystem),
  * ecx=subsystem-local op code, edx=user pointer to a fixed-size request/

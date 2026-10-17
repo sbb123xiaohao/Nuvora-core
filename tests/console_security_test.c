@@ -24,8 +24,12 @@ bool user_range(pte_t *pd,uptr p,usize n,bool write) {
 }
 int window_stdio_clear(struct task *t) { (void)t;++clears;return terminal_clear; }
 u32 usb_pointer_count(void) { return 1; }
-static void fixture_outb(u16 p,u8 v) { (void)p;(void)v; }
-static u8 fixture_inb(u16 p) { (void)p;return 0; }
+static char serial_log[256];
+static u32 serial_length;
+static void fixture_outb(u16 p,u8 v) {
+    if(p==0x3f8 && serial_length+1<sizeof(serial_log))serial_log[serial_length++]=(char)v;
+}
+static u8 fixture_inb(u16 p) { (void)p;return 0x20; }
 #define outb fixture_outb
 #define inb fixture_inb
 #undef FB_WINDOW
@@ -47,6 +51,14 @@ int main(int argc,char **argv) {
     user=mmap(NULL,PAGE,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
     assert(user!=MAP_FAILED);reset();
     const char *mode=argc>1?argv[1]:"all";
+    if (!strcmp(mode,"format") || argc==1) {
+        serial_ok=true;fb_quiet=true;serial_length=0;
+        kprintf("%lld %lld %lld %d",(i64)0x1000000000ull,
+                (i64)0x8000000000000000ull,(i64)0x7fffffffffffffffull,(i32)-2147483647-1);
+        serial_log[serial_length]=0;
+        assert(!strcmp(serial_log,"68719476736 -9223372036854775808 9223372036854775807 -2147483648"));
+        serial_ok=false;fb_quiet=false;
+    }
     if (!strcmp(mode,"raw-key") || argc==1) {
         queue_key('q'|NV_KEY_DIRECT);session_locked=true;u32 tail=input_tail;
         assert(console_key(3)==-NV_EACCESS && input_tail==tail);

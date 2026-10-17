@@ -89,9 +89,11 @@ struct frame *interrupt_dispatch(struct frame *f) {
         if (f->vector == 14)
             __asm__ volatile("mov %%cr2,%0" : "=r"(address));
         if ((f->cs & 3) == 3 && current) {
+            if(current->linux_compat.enabled && linux_fault(f,address))return f;
             kprintf("\n[isolate x64] pid=%u trap=%u error=%x rip=%llx address=%llx\n", current->pid,
                     (u32)f->vector, (u32)f->error, (u64)f->eip, (u64)address);
-            task_exit(128 + (int)f->vector);
+            if(current->linux_compat.enabled)task_linux_exit_group(128+(int)f->vector);
+            else task_exit(128+(int)f->vector);
             return schedule(f);
         }
         kprintf("trap=%u error=%x rip=%llx address=%llx\n", (u32)f->vector, (u32)f->error, (u64)f->eip,

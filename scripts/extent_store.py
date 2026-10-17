@@ -7,6 +7,7 @@ import errno
 import os
 import pathlib
 import struct
+import stat
 import zlib
 
 BLOCK = 4096
@@ -236,3 +237,60 @@ def import_extents(f, first, sectors, paths, replace=False):
         if key in names: entries[names[key]] = item
         else: entries.append(item)
     return len(paths), commit(f, first, geometry, generation, active, entries)
+
+
+def import_tree(f, first, sectors, source, destination='/home/runtime', replace=False):
+    """Import a directory into NVSTORE3, preserving hierarchy and both old roots.
+
+    Symlinks and special files are refused. Validate all paths and collisions
+    before writing file data; commit metadata only after every read succeeds.
+    """
+    source = pathlib.Path(source)
+    if source.is_symlink() or not source.is_dir():
+        raise ValueError('Expected a regular source directory')
+    geometry = layout(f, first, sectors)
+    available = roots(f, first, geometry)
+    generation, active, entries = available[-1] if available else (0, -1, [])
+    entries = list(entries)
+    names = {p: i for i, (_, p, _, _) in enumerate(entries)}
+    root = destination.encode('ascii')
+    requests = [(source, root)] + [(p, root+b'/'+p.relative_to(source).as_posix().encode('ascii'))
+                                   for p in sorted(source.rglob('*'))]
+    sources = []
+    for path, key in requests:
+        stamp = path.lstat()
+        kind = 1 if stat.S_ISDIR(stamp.st_mode) else 2 if stat.S_ISREG(stamp.st_mode) else 0
+        if not kind:
+            raise ValueError('Source contains a symlink or special file')
+        if os.path.samestat(stamp, os.fstat(f.fileno())):
+            raise ValueError('Cannot import the data image into itself')
+        size = stamp.st_size if kind == 2 else 0
+        item = (kind, key, size, [])
+        if key in names:
+            old = entries[names[key]]
+            if old[0] != kind or (kind == 2 and not replace):
+                raise ValueError('Destination already exists: '+key.decode('ascii'))
+            if kind == 2:
+                entries[names[key]] = item
+        else:
+            names[key] = len(entries)
+            entries.append(item)
+        if kind == 2:
+            sources.append((path, key, size, stamp))
+    validate(entries, geometry[2], geometry[3])
+    free = free_ranges([(physical, physical+blocks)
+                        for _, _, files in available for _, _, _, ext in files
+                        for _, physical, blocks in ext], geometry[2], geometry[3])
+    for path, key, size, stamp in sources:
+        now = path.lstat()
+        if (not stat.S_ISREG(now.st_mode) or
+                (stamp.st_dev, stamp.st_ino, stamp.st_size, stamp.st_mtime_ns) !=
+                (now.st_dev, now.st_ino, now.st_size, now.st_mtime_ns)):
+            raise ValueError('Source changed during import')
+        extents = write_source(f, first, path, size, free)
+        now = path.lstat()
+        if (stamp.st_dev, stamp.st_ino, stamp.st_size, stamp.st_mtime_ns) != (
+                now.st_dev, now.st_ino, now.st_size, now.st_mtime_ns):
+            raise ValueError('Source changed during import')
+        entries[names[key]] = (2, key, size, extents)
+    return len(requests), commit(f, first, geometry, generation, active, entries)

@@ -1,0 +1,18 @@
+{
+  "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+  "musl_source": {
+    "file": "musl-1.2.5.tar.gz",
+    "sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"
+  },
+  "files": {
+    "dynamic.elf": "4cdcc134b39802e52d2b6a01e8417cb2111306ab1ac967f191f307acbdcf5dd1",
+    "ldso": "f99a90658a66cfd88b0e8fbff38e2d6adf8b6bb524be10546d85344ce9b1bde2",
+    "libnvprobe.so": "4d8870b175aa55a5ce685ec7567ee9a0657d63b94a6c5fcc6b26e09b5afad32a",
+    "musl-COPYRIGHT.txt": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
+  },
+  "wrappers": {
+    "dynamic_check.c": "0a9379a22c3ac1c4357a7bd0a896cde935b66de88c6333e799ea981ac6ca7ca1",
+    "dynamic_plugin.c": "fe680980fe4c5651cba9286e71a67dbf84a162aadb17c4dfbf1e1bf756f012e8"
+  },
+  "scope": "Real dynamic musl, DSO/TLS, pthread, signal, exec and JIT fixtures; Minecraft is not exercised."
+}

@@ -292,10 +292,10 @@ void kprintf(const char *fmt, ...) {
             console_write(b, n);
             break;
         case 'd': {
-            i32 v = va_arg(ap, i32);
+            i64 v = wide ? va_arg(ap, i64) : (i64)va_arg(ap, i32);
             if (v < 0)
                 console_putc('-');
-            n = number(b, v < 0 ? 0u - (u32)v : (u32)v, 10);
+            n = number64(b, v < 0 ? 0ull - (u64)v : (u64)v, 10);
             console_write(b, n);
             break;
         }

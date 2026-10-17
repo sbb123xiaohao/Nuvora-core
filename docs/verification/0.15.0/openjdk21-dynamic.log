@@ -1,0 +1,9 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-dynamic-77odz7d1/data.img
+PASS real guest DYNAMIC PASS
+PASS real guest EXEC PASS
+PASS real guest GUARD PASS
+PASS real guest SIGNAL PASS
+PASS real guest THREAD PASS
+PASS real guest W^X DEFAULT PASS
+PASS real dynamic/exec/signal/guard reclamation: 40580/40580 KiB
+DYNAMIC RUNTIME GUEST TEST PASSED

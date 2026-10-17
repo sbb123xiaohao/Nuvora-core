@@ -97,6 +97,11 @@ int main(void) {
         assert(fs_write(&t, fd, block, PAGE) == PAGE);
     assert(fs_seek(&t, fd, 500000, 0) == 500000);
     assert(fs_read(&t, fd, pair, 2) == 2 && (u8)pair[0] == 0xa3);
+    u8 positioned[49154];memset(positioned,0,sizeof(positioned));
+    assert(fs_pread64(&t,fd,12345,positioned,sizeof(positioned))==sizeof(positioned));
+    for(u32 i=0;i<sizeof(positioned);++i)assert(positioned[i]==0xa3);
+    assert(t.fd[fd].offset==500002 && !fs_pread64(&t,fd,0x100000000ull,positioned,1));
+    assert(fs_pread64(&t,2,0,positioned,1)==-NV_EBADF);
     /* Loading a paged executable borrows no file pages and rolls back its
      * temporary materialization on both allocation and backing-read errors. */
     const u8 *image; u8 *temporary; usize image_length;

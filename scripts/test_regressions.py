@@ -16,7 +16,7 @@ def main():
         create_gpt_disk(extent_image, size_mib=128, partitions=2)
         raw_image = pathlib.Path(directory) / 'raw-extent.img'
         create_raw_disk(raw_image, size_mib=64)
-        for name in ['linux', 'java', 'java_multiclass', 'string', 'crypto', 'random', 'account', 'account_ui', 'session_client', 'editor_io', 'folio_io', 'ui_controls', 'address', 'native64', 'power', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'rndis', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'igc', 'audio', 'window', 'console_security', 'display', 'desktop_shell', 'keyboard', 'pointer', 'media', 'media_formats']:
+        for name in ['linux', 'linux_threads', 'time', 'java', 'java_multiclass', 'string', 'crypto', 'random', 'account', 'account_ui', 'session_client', 'editor_io', 'folio_io', 'ui_controls', 'address', 'native64', 'power', 'buddy', 'memory', 'heap_map', 'fs_memory', 'disk', 'gpt_disk', 'nvme', 'ahci', 'ahci_multiport', 'pci_ecam', 'usb_scratch', 'rndis', 'store', 'extent', 'uefi', 'network', 'net_tools', 'network_e1000', 'e1000', 'igc', 'audio', 'window', 'console_security', 'display', 'desktop_shell', 'keyboard', 'pointer', 'media', 'media_formats']:
             output = pathlib.Path(directory) / name
             cmd = [os.environ.get('CC', 'gcc'), '-std=c11', '-O1', '-g',
                    '-Wall', '-Wextra', '-Werror', '-fshort-wchar', '-fno-builtin',
@@ -57,7 +57,8 @@ def main():
         subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/package_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/compat_runtimes_test.py'], cwd=ROOT, check=True)
-    print('ALL 50 HOST REGRESSION GROUPS PASSED (including Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, static PIE/RELRO, editor large-file/error handling and failed-save protection, account commit/lock races, session client suspension, lock input/display revocation, random-byte ABI, network isolation, native line icons, desktop shell, keyboard modifiers, native windows, storage, media and source packaging; C fixtures use UBSan)')
+        subprocess.run(['python3', 'tests/dynamic_tools_test.py'], cwd=ROOT, check=True)
+    print('ALL 53 HOST REGRESSION GROUPS PASSED (including dynamic/static PIE, Linux threads/futex/signals/VMA rollback, RTC clocks, Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, editor failed-save protection, account/session isolation, network, desktop, storage, media and source packaging; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

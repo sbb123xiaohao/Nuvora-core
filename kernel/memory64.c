@@ -150,15 +150,19 @@ static pte_t *leaf(pte_t *root, uptr va, bool create) {
     }
     return &level[(va >> 12) & 511];
 }
+static bool user_permissions(u32 flags) {
+    return !(flags&~(P_WRITE|P_EXEC|P_NOACCESS|P_JIT)) &&
+        !((flags&P_NOACCESS) && (flags&(P_WRITE|P_EXEC|P_JIT))) &&
+        ((flags&(P_WRITE|P_EXEC))!=(P_WRITE|P_EXEC) || (flags&P_JIT));
+}
 int vm_map(pte_t *root, uptr va, u32 flags) {
-    if (!root || !nv_user_address(va) || va % PAGE ||
-        (flags & (P_WRITE | P_EXEC)) == (P_WRITE | P_EXEC)) return -NV_EINVAL;
+    if (!root || !nv_user_address(va) || va % PAGE || !user_permissions(flags)) return -NV_EINVAL;
     pte_t *p = leaf(root, va, true);
     if (!p) { vm_unmap(root, va); return -NV_ENOMEM; }
     if (*p & P_PRESENT) return -NV_EEXIST;
     uptr physical = page_alloc();
     if (!physical) { vm_unmap(root, va); return -NV_ENOMEM; }
-    *p = physical | P_PRESENT | P_USER | (flags & P_WRITE) |
+    *p = physical | P_PRESENT | ((flags&P_NOACCESS)?P_NOACCESS:P_USER) | (flags & P_WRITE) |
          ((flags & P_EXEC) ? 0 : NX);
     return 0;
 }
@@ -176,17 +180,74 @@ int vm_readonly(pte_t *root, uptr va) {
     return 0;
 }
 int vm_protect(pte_t *root,uptr va,u32 flags) {
-    if (va%PAGE || (flags&~(P_WRITE|P_EXEC)) || (flags&(P_WRITE|P_EXEC))==(P_WRITE|P_EXEC))
+    if (va%PAGE || !user_permissions(flags))
         return -NV_EINVAL;
     pte_t *p=leaf(root,va,false);
-    if (!p || (*p&(P_PRESENT|P_USER))!=(P_PRESENT|P_USER)) return -NV_EFAULT;
-    *p=(*p&~((pte_t)P_WRITE|NX))|(flags&P_WRITE)|((flags&P_EXEC)?0:NX);
+    if (!p || !(*p&P_PRESENT) || !(*p&(P_USER|P_NOACCESS))) return -NV_EFAULT;
+    *p=(*p&~((pte_t)P_WRITE|P_USER|P_NOACCESS|NX))|
+        ((flags&P_NOACCESS)?P_NOACCESS:P_USER)|(flags&P_WRITE)|((flags&P_EXEC)?0:NX);
     NV_VM_INVALIDATE(va);
     return 0;
+}
+int vm_page_flags(pte_t *root,uptr va,u32 *flags) {
+    pte_t *p=leaf(root,va,false);
+    if (!p || !(*p&P_PRESENT) || !(*p&(P_USER|P_NOACCESS))) return -NV_EFAULT;
+    *flags=(*p&P_NOACCESS)?P_NOACCESS:(u32)(*p&P_WRITE)|((*p&NX)?0:P_EXEC);
+    return 0;
+}
+int vm_prepare(pte_t *root,uptr va) {
+    if (va%PAGE || !nv_user_address(va)) return -NV_EINVAL;
+    if (leaf(root,va,true)) return 0;
+    vm_unmap(root,va);return -NV_ENOMEM;
+}
+/* Caller prepares every destination leaf before committing any replacement.
+ * Moving ownership never allocates or changes the validated page permissions. */
+int vm_move_page(pte_t *dst,pte_t *src,uptr va) {
+    if (va%PAGE || dst==src) return -NV_EINVAL;
+    pte_t *to=leaf(dst,va,false),*from=leaf(src,va,false);
+    if (!to || !from || !(*from&P_PRESENT) || !(*from&(P_USER|P_NOACCESS)) ||
+        ((*to&P_PRESENT) && !(*to&(P_USER|P_NOACCESS)))) return -NV_EFAULT;
+    if (*to&P_PRESENT) page_free((uptr)(*to&ADDRESS));
+    *to=*from;*from=0;NV_VM_INVALIDATE(va);return 0;
 }
 static bool empty(pte_t *t) {
     for (u32 i = 0; i < 512; ++i) if (t[i] & P_PRESENT) return false;
     return true;
+}
+/* Walk only populated private tables, including retained PROT_NONE leaves.
+ * A multi-gigabyte reservation must not turn into millions of empty probes. */
+static u64 visit_range(pte_t *level,u32 depth,uptr base,uptr start,uptr end,u32 op,u32 flags) {
+    u64 count=0;u32 shift=12+9*(depth-1);
+    for (u32 i=0;i<512;++i) {
+        uptr at=base+((uptr)i<<shift),limit=at+((uptr)1<<shift);
+        if (at>=end || limit<=start) continue;
+        pte_t *p=&level[i],entry=*p;
+        if (!(entry&P_PRESENT) || !(entry&(P_USER|(depth==1?P_NOACCESS:0)))) continue;
+        if (depth>1) {
+            pte_t *child=table(entry);count+=visit_range(child,depth-1,at,start,end,op,flags);
+            if (op==1 && empty(child)) {page_free((uptr)(entry&ADDRESS));*p=0;}
+            continue;
+        }
+        ++count;
+        if (op==1) {page_free((uptr)(entry&ADDRESS));*p=0;NV_VM_INVALIDATE(at);}
+        else if (op==2) {
+            *p=(entry&~((pte_t)P_WRITE|P_USER|P_NOACCESS|NX))|
+                ((flags&P_NOACCESS)?P_NOACCESS:P_USER)|(flags&P_WRITE)|((flags&P_EXEC)?0:NX);
+            NV_VM_INVALIDATE(at);
+        } else if (op==3) memset(phys_ptr((uptr)(entry&ADDRESS)),0,PAGE);
+    }
+    return count;
+}
+static u64 range_operation(pte_t *root,uptr start,uptr end,u32 op,u32 flags) {
+    if (!root || start%PAGE || end%PAGE || end<=start || !nv_user_bounds(start,end-start)) return 0;
+    return visit_range(root,4,0,start,end,op,flags);
+}
+u64 vm_count_range(pte_t *root,uptr start,uptr end) {return range_operation(root,start,end,0,0);}
+void vm_unmap_range(pte_t *root,uptr start,uptr end) {(void)range_operation(root,start,end,1,0);}
+void vm_clear_range(pte_t *root,uptr start,uptr end) {(void)range_operation(root,start,end,3,0);}
+void vm_change_range(pte_t *root,uptr start,uptr end,u32 flags) {
+    if (!user_permissions(flags)) return;
+    (void)range_operation(root,start,end,2,flags);
 }
 void vm_unmap(pte_t *root, uptr va) {
     if (!root || !nv_user_address(va)) return;
@@ -200,7 +261,7 @@ void vm_unmap(pte_t *root, uptr va) {
     }
     if (depth == 3) {
         pte_t *entry = &levels[3][(va >> 12) & 511];
-        if ((*entry & (P_PRESENT | P_USER)) == (P_PRESENT | P_USER)) {
+        if ((*entry&P_PRESENT) && (*entry&(P_USER|P_NOACCESS))) {
             page_free((uptr)(*entry & ADDRESS)); *entry = 0;
             NV_VM_INVALIDATE(va);
         }
@@ -214,7 +275,7 @@ static u64 walk_user(pte_t *level, u32 depth, bool destroy) {
     u64 count = 0;
     for (u32 i = 0; i < 512; ++i) {
         pte_t entry = level[i];
-        if ((entry & (P_PRESENT | P_USER)) != (P_PRESENT | P_USER)) continue;
+        if (!(entry&P_PRESENT) || !(entry&(P_USER|(depth==1?P_NOACCESS:0)))) continue;
         if (depth == 1) ++count;
         else count += walk_user(table(entry), depth - 1, destroy);
         if (destroy) { page_free((uptr)(entry & ADDRESS)); level[i] = 0; }

@@ -134,10 +134,13 @@ bool account_path_allowed(const struct task *t,const char *path,u32 operation) {
     }
     return true;
 }
-static struct task internal_task(void) {
-    struct task t={.auth_internal=true,.uid=NV_UID_NONE};
-    for (u32 i=0;i<NV_OPEN_MAX;++i) t.fd[i].node=-1;
-    return t;
+static struct task *internal_task(void) {
+    /* Only this serialized account service uses the filesystem identity.
+     * Keep the full task record off the bounded interrupt/kernel stack. */
+    static struct task identity;
+    memset(&identity,0,sizeof(identity));identity.auth_internal=true;identity.uid=NV_UID_NONE;
+    for(u32 i=0;i<NV_OPEN_MAX;++i)identity.fd[i].node=-1;
+    return &identity;
 }
 static void database_digest(const struct account_database *db,u8 out[32]) {
     struct nv_sha256 hash;
@@ -173,11 +176,11 @@ static int persist_candidate(void) {
     int r=ensure_directory("/home/.system");
     if (r<0) return r;
     database_digest(&candidate,candidate.checksum);
-    struct task t=internal_task();
-    int fd=fs_open(&t,ACCOUNT_TEMP,NV_WRITE|NV_CREATE|NV_TRUNC);
+    struct task *t=internal_task();
+    int fd=fs_open(t,ACCOUNT_TEMP,NV_WRITE|NV_CREATE|NV_TRUNC);
     if (fd<0) return fd;
-    r=fs_write(&t,fd,&candidate,sizeof(candidate));
-    int closed=fs_close(&t,fd);
+    r=fs_write(t,fd,&candidate,sizeof(candidate));
+    int closed=fs_close(t,fd);
     if (r!=(int)sizeof(candidate)) { fs_remove(0,ACCOUNT_TEMP);return r<0?r:-NV_EIO; }
     if (closed<0) { fs_remove(0,ACCOUNT_TEMP);return closed; }
     r=fs_replace(0,ACCOUNT_TEMP,ACCOUNT_DATABASE);
@@ -194,15 +197,15 @@ void account_init(void) {
     last_activity=ticks;idle_timeout=NV_AUTH_IDLE_DEFAULT;
     database=(struct account_database){.magic="NVACCT1",.version=1,.next_uid=1000};
     if (!enabled) return;
-    struct task t=internal_task();
-    int fd=fs_open(&t,ACCOUNT_DATABASE,NV_READ);
+    struct task *t=internal_task();
+    int fd=fs_open(t,ACCOUNT_DATABASE,NV_READ);
     if (fd==-NV_ENOENT) return;
     if (fd<0) { broken=true;return; }
     struct nv_stat64 st;
-    int r=fs_stat64(&t,fd,&st);
-    if (!r && st.size==sizeof(candidate)) r=fs_read(&t,fd,&candidate,sizeof(candidate));
+    int r=fs_stat64(t,fd,&st);
+    if (!r && st.size==sizeof(candidate)) r=fs_read(t,fd,&candidate,sizeof(candidate));
     else r=-NV_EIO;
-    fs_close(&t,fd);
+    fs_close(t,fd);
     if (r!=(int)sizeof(candidate) || !database_valid(&candidate)) { broken=true;return; }
     database=candidate;
 }

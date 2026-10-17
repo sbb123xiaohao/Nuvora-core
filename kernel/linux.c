@@ -1,25 +1,7 @@
 #include "kernel.h"
 /* Linux x86-64 ABI numbers/layouts are public interface definitions. This is a
- * bounded static-process subset, not a claim to emulate all Linux behavior. */
-#define L_EPERM 1
-#define L_ENOENT 2
-#define L_EIO 5
-#define L_E2BIG 7
-#define L_EBADF 9
-#define L_EAGAIN 11
-#define L_ENOMEM 12
-#define L_EACCES 13
-#define L_EFAULT 14
-#define L_EEXIST 17
-#define L_ENODEV 19
-#define L_ENOTDIR 20
-#define L_EISDIR 21
-#define L_EINVAL 22
-#define L_ENOTTY 25
-#define L_ENOSPC 28
-#define L_ENOSYS 38
-#define L_ENOTEMPTY 39
-#define L_ENOTSUP 95
+ * bounded process/thread subset, not a claim to emulate all Linux behavior. */
+#include "linux_errno.h"
 static iptr linux_error(iptr n) {
     static const u8 errors[]={0,L_EINVAL,L_ENOENT,L_ENOMEM,L_EFAULT,L_EACCES,L_EEXIST,
         L_ENOTDIR,L_EISDIR,L_ENOSPC,16,L_EBADF,L_ENOTEMPTY,8,10,L_ENOSYS,L_EIO,L_ENODEV,L_E2BIG,L_EAGAIN};
@@ -27,73 +9,9 @@ static iptr linux_error(iptr n) {
     u64 index=0ull-(u64)n;
     return index<ARRAY_LEN(errors)?-(iptr)errors[index]:-L_EIO;
 }
-static bool linux_length(uptr address,u64 n) { return n && n<=LINUX_MEMORY_MAX && !(address%PAGE) && n<=~(uptr)0-address-PAGE+1; }
-static u64 mapped_bytes(void) { return vm_page_count(current->pd)*PAGE; }
-static iptr linux_map(uptr hint,u64 length,u64 prot,u64 flags,u64 fd,u64 offset) {
-    if (!length || length>LINUX_MEMORY_MAX || (prot!=1 && prot!=3 && prot!=5) ||
-        (flags&~(0x22ull|0x20000ull)) || (flags&0x22)!=0x22 || fd!=~0ull || offset) return -L_EINVAL;
-    uptr size=ALIGN_UP(length,PAGE);
-    if (mapped_bytes()>LINUX_MEMORY_MAX-size) return -L_ENOMEM;
-    struct linux_vma *maps=current->linux_compat.maps; u32 slot=LINUX_VMAS;
-    for (u32 i=0;i<LINUX_VMAS;++i) if (!maps[i].start) { slot=i; break; }
-    if (slot==LINUX_VMAS) return -L_ENOMEM;
-    uptr address=hint>=LINUX_MAP_BASE && hint<LINUX_MAP_END && !(hint%PAGE)?hint:LINUX_MAP_BASE;
-    for (u32 pass=0;pass<=LINUX_VMAS;++pass) {
-        if (size>LINUX_MAP_END-address) return -L_ENOMEM;
-        bool overlap=false;
-        for (u32 i=0;i<LINUX_VMAS;++i) if (maps[i].start && address<maps[i].end && maps[i].start<address+size) {
-            address=maps[i].end; overlap=true; break;
-        }
-        if (!overlap) break;
-        if (pass==LINUX_VMAS) return -L_ENOMEM;
-    }
-    u32 permissions=((prot&2)?P_WRITE:0)|((prot&4)?P_EXEC:0); uptr done=0;
-    for (;done<size;done+=PAGE) {
-        int r=vm_map(current->pd,address+done,permissions);
-        if (r<0) {
-            while (done) { done-=PAGE; vm_unmap(current->pd,address+done); }
-            return linux_error(r);
-        }
-    }
-    maps[slot]=(struct linux_vma){address,address+size,(u32)prot};
-    return address;
-}
-static iptr linux_unmap(uptr start,u64 length) {
-    if (!linux_length(start,length) || start<LINUX_MAP_BASE || start>=LINUX_MAP_END) return -L_EINVAL;
-    uptr size=ALIGN_UP(length,PAGE); if (size>LINUX_MAP_END-start) return -L_EINVAL;
-    uptr end=start+size; struct linux_vma next[LINUX_VMAS];
-    memcpy(next,current->linux_compat.maps,sizeof(next));
-    /* Prepare every split before dropping a page; metadata exhaustion must
-     * leave the entire old mapping intact. */
-    for (u32 i=0;i<LINUX_VMAS;++i) {
-        struct linux_vma old=next[i];
-        if (!old.start || start>=old.end || old.start>=end) continue;
-        if (start>old.start && end<old.end) {
-            u32 j; for (j=0;j<LINUX_VMAS;++j) if (!next[j].start) break;
-            if (j==LINUX_VMAS) return -L_ENOMEM;
-            next[i].end=start; next[j]=(struct linux_vma){end,old.end,old.protection};
-        } else if (start<=old.start && end>=old.end) next[i]=(struct linux_vma){0};
-        else if (start<=old.start) next[i].start=end;
-        else next[i].end=start;
-    }
-    for (uptr va=start;va<end;va+=PAGE) vm_unmap(current->pd,va);
-    memcpy(current->linux_compat.maps,next,sizeof(next)); return 0;
-}
-static iptr linux_protect(uptr start,u64 length,u64 prot) {
-    if (!linux_length(start,length) || (prot!=1 && prot!=3 && prot!=5)) return -L_EINVAL;
-    uptr size=ALIGN_UP(length,PAGE);
-    if (!user_range(current->pd,start,size,false)) return -L_ENOMEM;
-    u32 flags=((prot&2)?P_WRITE:0)|((prot&4)?P_EXEC:0);
-    for (uptr at=0;at<size;at+=PAGE) {
-        int r=vm_protect(current->pd,start+at,flags);
-        if (r<0) return linux_error(r);
-    }
-    for (u32 i=0;i<LINUX_VMAS;++i) {
-        struct linux_vma *map=&current->linux_compat.maps[i];
-        if (map->start>=start && map->end<=start+size) map->protection=prot;
-    }
-    return 0;
-}
+#include "linux_memory.h"
+#include "linux_process.h"
+#include "linux_signal.h"
 static iptr linux_brk(uptr address) {
     uptr old=current->linux_compat.brk;
     if (!address) return old;
@@ -143,6 +61,12 @@ static iptr linux_readlink(uptr name,uptr output,u64 size) {
     char path[NV_PATH_MAX];int r=user_string(name,path,sizeof(path));
     if (r<0) return linux_error(r);
     if (!user_range(current->pd,output,MIN(size,(u64)NV_PATH_MAX),true)) return -L_EFAULT;
+    if(!strcmp(path,"/proc/self/exe") || !strcmp(path,"/proc/thread-self/exe")) {
+        r=fs_path(current->program_node,path,sizeof(path));
+        if(r>=0)r=fs_authorize(current,0,path,0);
+        if(r<0)return linux_error(r);
+        u32 n=MIN(size,(u64)strlen(path));memcpy((void *)output,path,n);return n;
+    }
     r=fs_authorize(current,current->cwd,path,0);
     /* The native filesystem has no symbolic links. Existing authorized
      * paths return EINVAL; missing/private paths retain their real errors. */
@@ -157,6 +81,7 @@ static iptr linux_open(uptr name,u64 flags) {
     if (flags&512) native|=NV_TRUNC;
     if (flags&1024) native|=NV_APPEND;
     char path[NV_PATH_MAX]; int r=user_string(name,path,sizeof(path));
+    if(r>=0 && current->linux_compat.trace)kprintf("[linux %u] open %s\n",current->pid,path);
     r=r<0?r:fs_open(current,path,native);
     if (r>=0) {
         u32 bit=1u<<r;
@@ -186,10 +111,24 @@ static iptr linux_vectors(bool write,u64 fd,uptr data,u64 count) {
     return total;
 }
 struct linux_time { i64 seconds,nanoseconds; };
+static bool linux_clock_value(u64 id,u64 *value) {
+    if(id==0 || id==5) {*value=clock_realtime_ticks();return true;}
+    if(id==1 || id==4 || id==6 || id==7) {*value=ticks;return true;}
+    u64 group_pid=current->linux_group?current->linux_group->pid:current->pid;
+    bool process=id==2 || ((i64)id<0 && ((~id)>>3)==group_pid && (id&7)==2);
+    if(process) {
+        *value=current->linux_group?current->linux_group->retired_ticks:0;
+        for(u32 i=0;i<NV_TASK_MAX;++i)if(tasks[i].state && tasks[i].pd==current->pd)*value+=tasks[i].cpu_ticks;
+        return true;
+    }
+    if(id==3) {*value=current->cpu_ticks;return true;}
+    if((i64)id<0 && (id&7)==6)for(u32 i=0;i<NV_TASK_MAX;++i)
+        if(tasks[i].state && tasks[i].pd==current->pd && tasks[i].pid==((~id)>>3)) {*value=tasks[i].cpu_ticks;return true;}
+    return false;
+}
 static iptr linux_clock(u64 id,uptr pointer) {
-    if (id!=1 && id!=2 && id!=3 && id!=4 && id!=6 && id!=7) return -L_EINVAL;
+    u64 value;if(!linux_clock_value(id,&value))return -L_EINVAL;
     if (!user_range(current->pd,pointer,sizeof(struct linux_time),true)) return -L_EFAULT;
-    u64 value=(id==2 || id==3)?current->cpu_ticks:ticks;
     struct linux_time out={(i64)(value/100),(i64)(value%100)*10000000};
     memcpy((void *)pointer,&out,sizeof(out)); return 0;
 }
@@ -205,6 +144,7 @@ struct frame *linux_dispatch(struct frame *f) {
     if (!current || (f->cs&3)!=3) panic("Linux syscall outside user mode");
     if (!current->linux_compat.enabled) { f->eax=(u64)(i64)-L_ENOSYS; return f; }
     current->frame=f; task_reap(); usb_poll(); net_poll();
+    task_linux_enter(current);
     u64 op=f->eax,a=f->edi,b=f->esi,c=f->edx,d=f->r10,e=f->r8,g=f->r9;
     iptr result=-L_ENOSYS; bool reschedule=false;
     switch (op) {
@@ -214,6 +154,22 @@ struct frame *linux_dispatch(struct frame *f) {
         break;
     case 1: result=linux_io(true,a,b,c);break;
     case 2: result=linux_open(a,b);break;
+    case 13: result=linux_sigaction(a,b,c,d);break;
+    case 131: result=linux_sigaltstack(a,b,f->useresp);break;
+    case 15:
+        if(linux_sigreturn(f)<0) {task_linux_exit_group(139);return schedule(f);}
+        linux_pending(f);if(current->state!=NV_ZOMBIE)task_linux_leave(current);
+        return current->state==NV_ZOMBIE?schedule(f):f;
+    case 62: case 200: result=linux_self_signal(a,b);break;
+    case 234: result=task_linux_signal(a,b,c);break;
+    case 14: {
+        if(d!=8 || a>2) {result=-L_EINVAL;break;}
+        if((b && !user_range(current->pd,b,8,false)) || (c && !user_range(current->pd,c,8,true))) {result=-L_EFAULT;break;}
+        u64 old=current->linux_compat.signal_mask,next=old,value;
+        if(b) {memcpy(&value,(const void *)b,8);next=a==0?old|value:a==1?old&~value:value;}
+        if(c)memcpy((void *)c,&old,8);
+        current->linux_compat.signal_mask=next&~((1ull<<8)|(1ull<<18));result=0;break;
+    }
     case 3:
         result=a>=NV_OPEN_MAX?-L_EBADF:a<3?(current->linux_compat.closed_stdio&(1u<<a))?-L_EBADF:0:linux_error(fs_close(current,a));
         if (!result) {
@@ -231,6 +187,13 @@ struct frame *linux_dispatch(struct frame *f) {
         int r=fs_seek64(current,a,&io); result=r<0?linux_error(r):(iptr)io.position;break;
     }
     case 9: result=linux_map(a,b,c,d,e,g);break;
+    case 17: {
+        if(a<3 || a>=NV_OPEN_MAX) {result=-L_EBADF;break;}
+        u32 n=MIN(c,0x7ffff000ull);
+        if(!user_range(current->pd,b,n,true)) {result=-L_EFAULT;break;}
+        result=linux_error(fs_pread64(current,a,d,(void *)b,n));break;
+    }
+    case 28: result=linux_advise(a,b,c);break;
     case 10: result=linux_protect(a,b,c);break;
     case 11: result=linux_unmap(a,b);break;
     case 12: result=linux_brk(a);break;
@@ -245,6 +208,9 @@ struct frame *linux_dispatch(struct frame *f) {
         }
         break;
     case 24: result=0;reschedule=true;break;
+    case 21: result=linux_access(a,b);break;
+    case 59: result=linux_execve(a,b,c);break;
+    case 56: result=task_linux_clone(f,a,b,c,d,e);break;
     case 35: {
         if (!user_range(current->pd,a,sizeof(struct linux_time),false) ||
             (b && !user_range(current->pd,b,sizeof(struct linux_time),true))) { result=-L_EFAULT;break; }
@@ -255,8 +221,11 @@ struct frame *linux_dispatch(struct frame *f) {
         if (b) memset((void *)b,0,sizeof(io));
         result=0;reschedule=true;break;
     }
-    case 39: case 186: case 218: result=current->pid;break; /* one thread; no clone */
-    case 60: case 231: task_exit(a&255);result=0;reschedule=true;break;
+    case 39: result=current->linux_group?current->linux_group->pid:current->pid;break;
+    case 186: result=current->pid;break;
+    case 218: current->linux_compat.clear_tid=a;result=current->pid;break;
+    case 60: task_linux_leave(current);task_exit(a&255);result=0;reschedule=true;break;
+    case 231: task_linux_leave(current);task_linux_exit_group(a&255);result=0;reschedule=true;break;
     case 63: {
         char info[6][65]={{0}};
         strlcpy(info[0],"Linux",65);strlcpy(info[1],"nuvora",65);
@@ -303,12 +272,40 @@ struct frame *linux_dispatch(struct frame *f) {
             else { memcpy((void *)b,&current->linux_compat.fs_base,sizeof(u64));result=0; }
         } else result=-L_EINVAL;
         break;
-    case 202: /* Single-thread futex: WAKE; WAIT can only fail immediately. */
-        if (a%4 || !user_range(current->pd,a,4,false)) result=-L_EFAULT;
-        else if ((b&~128ull)==1) result=0;
-        else if ((b&~128ull)==0 && *(const u32 *)a!=(u32)c) result=-L_EAGAIN;
-        break;
+    case 202:
+        result=task_linux_futex(a,b,c,d,e,g);reschedule=current->state==NV_SLEEPING;break;
     case 228: result=linux_clock(a,b);break;
+    case 229: {
+        u64 value;if(!linux_clock_value(a,&value)) {result=-L_EINVAL;break;}
+        if(b && !user_range(current->pd,b,sizeof(struct linux_time),true)) {result=-L_EFAULT;break;}
+        struct linux_time resolution={0,10000000};if(b)memcpy((void *)b,&resolution,sizeof(resolution));result=0;break;
+    }
+    case 96:
+        if((a && !user_range(current->pd,a,16,true)) || (b && !user_range(current->pd,b,8,true)))result=-L_EFAULT;
+        else {
+            u64 value=clock_realtime_ticks();i64 out[2]={(i64)(value/100),(i64)(value%100)*10000};
+            if(a)memcpy((void *)a,out,16);
+            if(b) {u64 zero=0;memcpy((void *)b,&zero,8);}result=0;
+        }
+        break;
+    case 99: {
+        struct {i64 uptime;u64 loads[3],totalram,freeram,sharedram,bufferram,totalswap,freeswap;
+                u16 processes,pad;u32 pad2;u64 totalhigh,freehigh;u32 unit,pad3;} info={0};
+        _Static_assert(sizeof(info)==112,"Linux sysinfo layout");
+        if(!user_range(current->pd,a,sizeof(info),true)) {result=-L_EFAULT;break;}
+        info.uptime=ticks/100;info.totalram=(u64)pages_total()*PAGE;info.freeram=(u64)pages_free()*PAGE;
+        info.processes=task_count();info.unit=1;memcpy((void *)a,&info,sizeof(info));result=0;break;
+    }
+    case 204:
+        if(a && a!=current->pid)result=-L_EPERM;
+        else if(b<8)result=-L_EINVAL;
+        else if(!user_range(current->pd,c,8,true))result=-L_EFAULT;
+        else {u64 mask=1;memcpy((void *)c,&mask,8);result=8;}
+        break;
+    case 309:
+        if((a && !user_range(current->pd,a,4,true)) || (b && !user_range(current->pd,b,4,true)))result=-L_EFAULT;
+        else {u32 zero=0;if(a)memcpy((void *)a,&zero,4);if(b)memcpy((void *)b,&zero,4);result=0;}
+        break;
     case 257:
         if ((i64)a!=-100) result=-L_ENOTSUP;else result=linux_open(b,c);break;
     case 262:
@@ -325,8 +322,11 @@ struct frame *linux_dispatch(struct frame *f) {
         else { u64 limit[2]={LINUX_STACK_PAGES*PAGE,LINUX_STACK_PAGES*PAGE};if (d) memcpy((void *)d,limit,16);result=0; }
         break;
     case 318: result=linux_random(a,b,c);break;
-    default: break; /* clone/signals/sockets/dynamic libraries are not present. */
+    default: break; /* Unsupported calls fail explicitly. */
     }
+    if(current->linux_compat.trace)kprintf("[linux %u] %llu(%llx,%llx,%llx,%llx,%llx,%llx) -> %lld\n",current->pid,op,a,b,c,d,e,g,(i64)result);
     f->eax=(u64)result;
+    if(current->state!=NV_ZOMBIE && linux_pending(f))reschedule=true;
+    if(current->state!=NV_ZOMBIE)task_linux_leave(current);
     return reschedule?schedule(f):f;
 }

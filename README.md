@@ -12,8 +12,8 @@ Files 提供文件卡片、搜索、排序和详情；Music 提供真实播放�
 
 ## 桌面语言与 Minecraft 兼容路线
 
-新增 Linux x86-64 静态进程兼容基础，已在 Nuvora 用户态实际运行 **musl C、
-C++ 核心语法、Lua 5.4.8、QuickJS JavaScript 和 MicroPython 1.26.1**。Terminal 使用
+Linux x86-64 兼容层已在 Nuvora 用户态实际运行 **musl C、C++ 核心语法、
+Lua 5.4.8、QuickJS、MicroPython 1.26.1 和真正的 OpenJDK 21.0.11 / HotSpot**。Terminal 使用
 `compat /home/lua.elf /home/world.lua` 或 `compat /home/js.elf /home/world.js`；
 导入、构建与准确边界见 [运行时说明](docs/RUNTIME-COMPAT.md)。
 
@@ -27,10 +27,24 @@ compat /home/python.elf /home/world.py "hello world"
 
 ![Nuvora 实际运行 Python 与账户访问隔离检查](docs/screenshots/compat-python.png)
 
-Java 主线调整为接入成熟 OpenJDK，让不同 JDK 复用系统接口。首个客户端目标
-为 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3。**目前 Minecraft 仍不能运行**：
-动态库、线程/信号、地址预留、JNI/LWJGL 和 OpenGL 尚需完成。既有 Java
-bootstrap 保留为回归子集，下面的 Java 图片记录此前进度。
+真实 OpenJDK 已通过 `java -version`、JAR 加载、4 个 Java 工作线程、同步、
+BigInteger、SHA-256、NIO 文件读写、时钟与 GC。HotSpot 还实际编译并执行了
+测试方法，20 万轮结果通过校验；重复 JVM 退出后物理内存计数完全一致。
+可选安装步骤、启动参数与限制见[运行时说明](docs/RUNTIME-COMPAT.md)。
+
+```text
+compat --jit /home/jdk/bin/java @/home/java-check.args
+compat --jit /home/jdk/bin/java @/home/java-jit.args
+```
+
+正式 UEFI Terminal 中运行真实 OpenJDK，账户库读取被拒绝，Java 程序正常退出并保存文件：
+
+![Nuvora 真实 OpenJDK 21、线程、标准类库与账户隔离](docs/screenshots/openjdk21.png)
+
+首个游戏目标仍为 Minecraft 1.21.1 / Java 21 / LWJGL 3.3.3。
+**目前 Minecraft 仍不能玩**：LWJGL/GLFW、OpenGL/OpenAL、Linux socket、更多文件
+接口、游戏资源与更大内存预算尚需完成。此次验证限定 Alpine musl x86-64 JDK 21，
+不能推断所有 Java 版本兼容。现有 `java` 命令保留 bootstrap，完整 JVM 使用上述路径。
 
 正式 UEFI 桌面中运行真实 C++、Lua 和 JavaScript（QMP 原始帧缓冲）：
 
@@ -49,8 +63,8 @@ C 运行库、内存、TLS 与受保护账户数据访问检查：
 或用 `java -cp /home MultiMain` 运行多类程序。现在支持目录类路径、最多 16 个
 应用类、跨类对象与方法、按需静态初始化、整数/长整数、数组和基础字符串；
 真实输出与 OpenJDK 21 比对。
-**目前仍不能运行 Minecraft**：完整 JVM/类库、GC、线程、JNI/LWJGL 和 OpenGL
-尚未实现。当前边界、编译导入步骤和 Minecraft 路线见 [Java 说明](docs/JAVA.md)。
+本段说明既有 bootstrap 回归入口；真实 OpenJDK 进度见上一节。
+当前边界、编译导入步骤和 Minecraft 路线见 [Java 说明](docs/JAVA.md)。
 
 正式系统中的 Java 21 多类程序运行画面（实际 Terminal 帧缓冲）：
 

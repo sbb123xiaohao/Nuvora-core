@@ -34,9 +34,13 @@ static void fixture_load_cr3(uptr p) { (void)p; }
 #include "../kernel/memory64.c"
 #include "../kernel/task.c"
 #include "../kernel/usercopy.c"
-static u8 image[PAGE];
+static u8 image[PAGE],linker_image[PAGE];
+static bool linker_allowed=true;
+int fs_authorize(const struct task *t,int cwd,const char *path,u32 operation) {
+    (void)t;(void)cwd;(void)path;(void)operation;return linker_allowed?0:-NV_EACCESS;
+}
 int fs_blob(const char *path,const u8 **data,usize *length,u8 **temporary) {
-    (void)path; *data=image; *length=sizeof(image); *temporary=NULL; return 0;
+    *data=!strcmp(path,"/home/ldso")?linker_image:image; *length=sizeof(image); *temporary=NULL; return 0;
 }
 void kfree(void *p) { assert(!p); }
 static void reset(void) {
@@ -307,6 +311,53 @@ static void linux_initial_stack(void) {
     }
     puts("PASS Linux ELF: static PIE/TLS template, quoted argv/env/auxv, random seed, aligned stack and malformed-image rejection before mapping");
 }
+static void linux_dynamic_entry(void) {
+    reset();linux_fixture();memcpy(linker_image,image,sizeof(image));
+    struct elf_header *h=(void *)image;struct program_header *p=(void *)(image+h->phoff);
+    h->phnum=5;memcpy(image+3000,"/home/ldso",11);
+    p[4]=(struct program_header){.type=3,.offset=3000,.filesz=11,.memsz=11,.align=1};
+    struct task t={.uid=42,.linux_compat={.enabled=true}};struct frame f;
+    assert(!prepare_image(&t,"/home/dynamic","arg",&f));
+    assert(f.eip==LINUX_INTERP_BASE+0x1000 && t.linux_compat.interpreter==LINUX_INTERP_BASE);
+    assert(user_range(t.pd,NV_USER_IMAGE+0x1000,1,false) && user_range(t.pd,LINUX_INTERP_BASE+0x1000,1,false));
+    uptr at=f.useresp+4*8;while(mapped_word(t.pd,at))at+=8;at+=8;u32 seen=0;
+    for(;;at+=16) {
+        u64 key=mapped_word(t.pd,at),value=mapped_word(t.pd,at+8);if(!key)break;
+        if(key==7) {assert(value==LINUX_INTERP_BASE);seen|=1;}
+        if(key==9) {assert(value==NV_USER_IMAGE+0x1000);seen|=2;}
+    }
+    assert(seen==3);vm_destroy(t.pd);assert(!live);
+    linker_allowed=false;t=(struct task){.linux_compat={.enabled=true}};
+    assert(prepare_image(&t,"/home/dynamic","",&f)==-NV_EACCESS);
+    assert(!vm_page_count(t.pd));vm_destroy(t.pd);linker_allowed=true;assert(!live);
+    ((struct elf_header *)linker_image)->phnum=5;
+    ((struct program_header *)(linker_image+sizeof(struct elf_header)))[4]=p[4];
+    memcpy(linker_image+3000,"/home/ldso",11);
+    t=(struct task){.linux_compat={.enabled=true}};
+    assert(prepare_image(&t,"/home/dynamic","",&f)==-NV_ENOEXEC);
+    assert(!vm_page_count(t.pd));vm_destroy(t.pd);assert(!live);
+    puts("PASS dynamic ELF: independently validated interpreter, entry handoff, AT_BASE/AT_ENTRY, permission denial and recursive interpreter rejection");
+}
+static void guarded_pages(void) {
+    reset();pte_t *pd=vm_create(),*staged=vm_create();assert(pd && staged);
+    uptr at=LINUX_MAP_BASE;u32 flags;
+    assert(!vm_map(pd,at,P_WRITE));uptr physical=vm_translate(pd,at);memset(phys_ptr(physical),0xa6,PAGE);
+    assert(!vm_protect(pd,at,P_NOACCESS) && !user_range(pd,at,1,false) && !vm_translate(pd,at));
+    assert(vm_page_count(pd)==1 && vm_count_range(pd,at,at+LINUX_VIRTUAL_MAX)==1);
+    assert(!vm_page_flags(pd,at,&flags) && flags==P_NOACCESS);
+    assert(vm_protect(pd,at,P_WRITE|P_EXEC)==-NV_EINVAL);
+    assert(!vm_protect(pd,at,P_WRITE|P_EXEC|P_JIT));
+    assert(!vm_page_flags(pd,at,&flags) && flags==(P_WRITE|P_EXEC));
+    vm_change_range(pd,at,at+PAGE,P_WRITE);
+    assert(user_range(pd,at,PAGE,true) && *(u8 *)phys_ptr(vm_translate(pd,at))==0xa6);
+    assert(!vm_map(staged,at,P_WRITE));memset(phys_ptr(vm_translate(staged,at)),0x3b,PAGE);
+    assert(!vm_prepare(pd,at) && !vm_move_page(pd,staged,at));
+    assert(!vm_page_count(staged) && *(u8 *)phys_ptr(vm_translate(pd,at))==0x3b);
+    vm_clear_range(pd,at,at+LINUX_VIRTUAL_MAX);assert(!*(u8 *)phys_ptr(vm_translate(pd,at)));
+    assert(!vm_protect(pd,at,P_NOACCESS));vm_unmap_range(pd,at,at+LINUX_VIRTUAL_MAX);
+    assert(!vm_page_count(pd));vm_destroy(staged);vm_destroy(pd);assert(!live);
+    puts("PASS VM retained guards, physical ownership transfer, zeroing and sparse multi-gigabyte unmap without leaks");
+}
 static void framebuffer_masks(void) {
     u32 rgb[]={0xff0000,0xff00,0xff,0};
     u32 bgr[]={0xff,0xff00,0xff0000,0};
@@ -322,7 +373,7 @@ int main(void) {
     void *ram=mmap(phys_ptr(physical_base),bytes,PROT_READ|PROT_WRITE,
                   MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
     assert(ram==phys_ptr(physical_base));
-    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); loader_pie(); pie_relocations(); linux_initial_stack(); framebuffer_masks();
+    mapping_boundaries(); loader_and_heap(); loader_validation_budget(); loader_pie(); pie_relocations(); linux_initial_stack(); linux_dynamic_entry(); guarded_pages(); framebuffer_masks();
     assert(!munmap(ram,bytes));
     puts("PASS native64: high physical backing, cross-4GiB copies, multi-PML4 walks, ELF/stack/heap, full validation before allocation, OOM rollback, legacy ELF and GOP masks");
 }

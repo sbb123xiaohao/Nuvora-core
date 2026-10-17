@@ -1,0 +1,73 @@
+Nuvora / real OpenJDK 21 and process/thread runtime verification
+Date: 2026-10-17. Baseline local/main and GitHub/main: ed2ada8b18440c491fb4509406df606df27511d2
+OS: Arch GCC 16.2.1 20260810; QEMU 11.1.1 TCG; OVMF. No physical hardware or Java TCK validation.
+Runtime: official Alpine musl OpenJDK 21.0.11+10; only launcher PT_INTERP installation path changed.
+Independent disk-byte checks: packaged launcher equals exact interpreter relocation; libjvm, modules and java.security match original APK files.
+Pinned package SHA256, own class/JAR hashes, and all rebuilt musl binaries/licenses/manifests verified.
+
+ALL 53 HOST REGRESSION GROUPS PASSED (including dynamic/static PIE, Linux threads/futex/signals/VMA rollback, RTC clocks, Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, editor failed-save protection, account/session isolation, network, desktop, storage, media and source packaging; C fixtures use UBSan)
+
+PASS Linux VMA: retained PROT_NONE data, sparse 16 GiB reservations, commit rollback, fixed replacement rollback, NOREPLACE, RX/W^X and discard
+PASS Linux file mappings: exact offset/EOF zero tail, descriptor position preserved, read-error rollback, metadata exhaustion and byte brk rollback
+PASS Linux ABI: errno, high descriptors/user pointers, TLS/random/stdio and authorized path metadata/readlink
+PASS Linux process ABI: bounded argv/environment, exec failure preservation, session denial, close-on-exec, signal masks, proc executable and opt-in JIT
+PASS Linux signals: validated actions/context, retained masked signals, user-only returns, sanitized flags/MXCSR and default/ignored delivery
+PASS Linux threads: clone validation/OOM rollback, separate kernel stacks/TLS, shared metadata, futex wake/timeout/EINTR, clear-TID join, whole-group stop/exit and single final VM release
+PASS RTC clocks: BCD/binary, 12/24-hour, Gregorian leap/century, malformed dates, update timeout and monotonic epoch fallback
+PASS console security: locked reads/presents/clear denied without mutation; application ownership revoked, old input flushed, trusted graphical/recovery login and release preserved
+
+PASS Ring 3 probe / 32 MiB: 153 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS Ring 3 probe / 256 MiB: 153 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS CPU model / core2duo: 153 assertions; 1 explicit hardware check skipped; QEMU exit 33
+PASS Fragmented kernel heap / 32 MiB: six reserved-page holes prevent contiguous 8 MiB allocation; scattered heap backing boots and completes the full user probe, OOM rollback and memory reclamation checks
+Created 64 MiB Nuvora data image: /src/build/x86_64/test-results/uefi-boot.img
+PASS UEFI stub boot: OVMF started BOOTX64.EFI; the stub passed the EFI memory map, GOP framebuffer and RSDP through boot_info, exited boot services and the kernel restored the anchored /home from the data disk
+NATIVE BIOS/UEFI REGRESSION PASSED
+
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-dynamic-77odz7d1/data.img
+PASS real guest DYNAMIC PASS
+PASS real guest EXEC PASS
+PASS real guest GUARD PASS
+PASS real guest SIGNAL PASS
+PASS real guest THREAD PASS
+PASS real guest W^X DEFAULT PASS
+PASS real dynamic/exec/signal/guard reclamation: 40580/40580 KiB
+DYNAMIC RUNTIME GUEST TEST PASSED
+
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-compat-rxxctg7z/data.img
+PASS real musl C: TLS, allocation, mmap split/protection, errno, bounds, clocks, descriptors and file I/O
+PASS real lua engine: parser, objects, GC, exceptions and floating point
+PASS real js engine: parser, objects, GC, exceptions and floating point
+PASS real MicroPython: module import, inheritance, generators, Unicode, big integers, math, JSON/regex, GC, files and bounded heap
+PASS Linux/native scheduling: two concurrent TLS processes retain independent FS bases and waitable PIDs
+PASS language exceptions and shell cancellation of the actual compatibility process
+PASS malformed/dynamic ELF rejection, isolated user fault, native Java/PIE recovery and exact reclamation: 40580/40580 KiB
+LINUX RUNTIME GUEST TEST PASSED
+
+PASS real OpenJDK 21.0.11 / HotSpot interpreted startup and version
+PASS real Java 21: JAR/ZIP, four threads, atomics, latch/join, SHA-256 provider, BigInteger, NIO, clocks and GC
+PASS real HotSpot JIT: compiled JavaRuntimeCheck::hot, executed 200000 iterations and matched arithmetic checksum
+PASS JVM group exit, exact reclamation 497220/497220 KiB, missing-class error and native recovery
+OPENJDK21 RUNTIME GUEST TEST PASSED; Minecraft/LWJGL/OpenGL remain separate work
+
+Created UEFI GPT boot image: /tmp/nuvora-openjdk-desktop-6f28o9jc/boot.img (66 MiB)
+PASS production account creation and durable database
+RUN production OpenJDK application and subsequent shell persistence
+PASS production JVM exit 0
+PASS production OpenJDK: authenticated Terminal, real Java NIO/threads/crypto/GC, persisted file, subsequent shell command and account database unchanged
+CAPTURE openjdk21.png: actual GOP framebuffer; original PPM retained
+Independent guest serial counts: dynamic=19, exec=4, guards=4, signals=4, pthread=4, default W^X=1, opt-in machine code=1.
+JVM serial: real version, three Java application successes, compiled JavaRuntimeCheck::hot and 200000-iteration checksum dc9889355911c47f; missing class exits 1.
+Actual production account database read returned EACCES; account digest stayed unchanged and Java/user file persistence passed.
+Screenshot: original QMP PPM and PNG have exact 1280x800 RGB equality; README references the image.
+Committed text logs normalize line endings and trailing spaces; original log SHA256 values are recorded in the fingerprint manifest.
+Account stack regression fixed: persist_candidate 12576 -> 144 bytes; account_init 12672 -> 240 bytes.
+8 KiB compiler frame guard rejects the original account implementation; full current build passes. Kernel stacks remain 16 KiB.
+All 300 source/build/test/fixture paths match the final tested copy byte for byte.
+Source fingerprint SHA256: 7c90f1ac2fd8daf737ef987a6e00b7dd9018998c5f7343b51544fc0d15725029
+Production kernel SHA256: 88de84c59fe2384263ed03db66e03c683e0ec32e7ea5e105d8146f905171f70e
+ESP SHA256: ce8d9ad41f5262e7653423881a8fa9da690860f89f4167b23954d884c066cad8
+
+Limits: only this fixed musl x86-64 JDK/configuration; 32 total tasks, 256 MiB Linux resident leaf budget and bounded file/path interfaces.
+Read-only shared file maps are snapshots, without coherent writeback; no fork/clone3/PI futex/queued realtime signals or full POSIX.
+Minecraft client was not started; no world entry or game FPS claim. LWJGL/GLFW/OpenGL/OpenAL, Linux sockets, larger tested budgets and game resource paths remain work.

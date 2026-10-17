@@ -1,6 +1,9 @@
 # Nuvora ABI 2 与 ABI 1 兼容
 
-ABI 与 Linux 不兼容。共同常量和结构以 `include/nv/abi.h` 为准；第三方 x64 程序可使用 `include/nv/sdk.h`，项目内部封装仍在 `user/runtime.h`。接口约定、工具链和示例见 [SDK.md](SDK.md)。
+本表是原生 ABI，与 Linux 调用编号不同。Linux x86-64 程序通过独立的 `compat`
+入口使用受限兼容层，见 [运行时说明](RUNTIME-COMPAT.md)。共同常量和结构以
+`include/nv/abi.h` 为准；第三方原生 x64 程序可使用 `include/nv/sdk.h`，项目内部
+封装仍在 `user/runtime.h`。接口约定、工具链和示例见 [SDK.md](SDK.md)。
 
 x64 使用 `int 0x81`。原生 ABI 2 将 `NV_CALL_NATIVE`（bit 32）与原调用号合并放入 RAX，RBX / RCX / RDX 传完整 64 位参数，RAX 返回有符号 64 位结果。指针必须处于当前进程实际映射的低半规范地址，内核保留低 1 GiB；不会因指针高 32 位非零而拒绝。fd、PID、索引和子操作等标量仍按协议检查范围，不能以超宽值冒充低位有效编号。
 
@@ -48,6 +51,11 @@ x64 使用 `int 0x81`。原生 ABI 2 将 `NV_CALL_NATIVE`（bit 32）与原调�
 每卷快照独立，但 `anchor` 不是跨卷事务。已有编号保持不变，31–33 为 `SEEK64`、`STAT64`、`LIST64`；34–36 为原生 `INFO64`、`TASK64`、`CLOCK64`。
 
 `INFO64` 写入 64 字节的 `nv_info64`，内存计数与 tick 为 u64；`TASK64` 写入 72 字节的 `nv_taskinfo64`，包括 ABI、u64 CPU tick、页数与堆末地址。`CLOCK64` 直接返回当前 64 位 tick。旧 INFO/TASK/CLOCK 的固定字段仍保留，宽计数请使用新增调用。
+
+37/38 为 `NV_COMPAT_SPAWN` / `NV_COMPAT_EXEC`，仅原生 ABI 2 接受，参数是程序路径、
+引用后的 argv 字符串、`NV_COMPAT_LINUX_X64` 加可选 `NV_COMPAT_TRACE` / `NV_COMPAT_JIT`。
+未知标志拒绝；TRACE 输出串口诊断，JIT 明确允许该进程/线程组的 W+X 用户页。
+普通应用不能通过 EXEC 保留可信会话管理器身份。旧操作编号和公开记录布局不变。
 
 打开标志：READ=1、WRITE=2、CREATE=4、TRUNC=8、APPEND=16、EXCL=32。CREATE/TRUNC/APPEND 要求 WRITE，EXCL 要求 CREATE。追加总是使用当时文件结尾，即使此前调用 SEEK。
 
