@@ -1,5 +1,35 @@
 # 测试与复现
 
+## 未发布：离线导入与旧盘恢复保护
+
+从本地/GitHub 一致的完整 `0e0d93a` 继续，2026-10-18；Arch GCC 16.2.1、
+Python 3.14.7、QEMU 11.1.1 TCG、OVMF。本轮修改原生离线存储工具，
+内核可执行文件与基线摘要相同，没有实体机测试。
+
+- 相同新增测试在旧代码上有 **19 个失败**：重叠分区、截断镜像、异常旧卷几何
+  被继续写入，或结构损坏的最新快照被误选。修复后 7 个测试方法及其子用例通过。
+- 拒绝导入与迁移后逐次核对源盘完整 SHA-256、长度及迁移目标不存在；
+  可恢复情形核对旧槽全部字节不变、代次从 ffffffff 回绕到 0、新树内容正确，
+  迁移保留实际文件数据。合法扩大的镜像、单扇区其他类型分区和已有中文目录继续通过。
+- 默认及 `COMPAT=none` 构建、55 组宿主回归通过，C 夹具使用 UBSan。
+- 两种配置均以 64 MiB 客体执行旧 NVSTORE2 的 BIOS 启动和迁移后 NVSTORE3
+  的 UEFI 启动，核对恢复文件、新导入文件、实际写入、anchor 和重启恢复。
+  双卷用例先在客体保存 D:，再离线导入 C:，核对 D: 的完整分区摘要未变，
+  最后启动与重启检查两个盘符内容。所有数据盘均为临时测试镜像。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/offline_storage_boot_test.py
+make COMPAT=none -j4 diagnostics esp
+make COMPAT=none test-host
+NV_COMPAT=none python3 tests/offline_storage_boot_test.py
+```
+
+主 GPT 无效时离线工具拒绝操作，不实现分区表修复；不能在虚拟机仍运行时
+并发导入。本轮不涉及新的 Java、Minecraft 或桌面功能。
+原始日志、源码及内核摘要见[离线存储验证](verification/0.15.0/offline-storage/README.md)。
+
 ## 未发布：文件 I/O 边界与启动盘配置隔离
 
 从本地/GitHub 一致的完整 `9a6dd1f` 继续，2026-10-18；Arch GCC 16.2.1、

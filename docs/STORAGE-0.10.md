@@ -29,6 +29,13 @@ python3 scripts/migrate_store.py old-store.img new-store.img --size 65536
 分区 GPT 镜像；多 Nuvora 卷会明确拒绝，避免漏掉其他盘。迁移后选择
 新镜像作为数据盘；默认启动器使用 `build/x86_64/nuvora-store.img`。
 
+离线工具先检查完整 GPT 的范围与分区重叠及旧卷几何，再选择快照；
+被截断的镜像或异常分区表会在写入前拒绝。旧 NVSS0001 快照除 CRC 外，
+还检查路径规范、名称长度、重复项和父目录顺序。最新槽结构损坏时使用
+较旧有效槽，导入只改写损坏槽，保留可恢复的提交；两槽均损坏则拒绝。
+已有非 ASCII 目录名按原始字节保留，新增宿主文件仍使用上述 ASCII 名称约束。
+本轮回归与真实客体读写记录见[离线存储验证](verification/0.15.0/offline-storage/README.md)。
+
 ## 磁盘格式
 
 - 512 字节卷头沿用 NVSTORE2 的几何字段布局，magic=`NVSTORE3`、version=3。

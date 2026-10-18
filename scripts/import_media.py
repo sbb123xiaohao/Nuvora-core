@@ -30,6 +30,11 @@ def read_at(stream, offset, count):
 
 
 def partition(stream):
+    stream.seek(0, 2)
+    image_bytes = stream.tell()
+    if image_bytes % SECTOR or image_bytes // SECTOR < 67:
+        raise ValueError('GPT image is truncated or not sector aligned.')
+    image_sectors = image_bytes // SECTOR
     header = bytearray(read_at(stream, SECTOR, SECTOR))
     if header[:8] != b'EFI PART':
         raise ValueError('Expected a GPT data image created by mkgptdisk.py.')
@@ -40,20 +45,41 @@ def partition(stream):
     struct.pack_into('<I', header, 16, 0)
     if crc(header[:length]) != checksum:
         raise ValueError('GPT header checksum failed.')
+    revision, = struct.unpack_from('<I', header, 8)
+    reserved, = struct.unpack_from('<I', header, 20)
+    current, alternate, usable_first, usable_last = struct.unpack_from('<QQQQ', header, 24)
+    if (revision != 0x10000 or reserved or current != 1 or usable_first < 34
+            or usable_first > usable_last or usable_last >= image_sectors - 33
+            or alternate < usable_last + 33 or alternate >= image_sectors):
+        raise ValueError('GPT geometry is outside the image or reserved metadata region.')
     table_lba = struct.unpack_from('<Q', header, 72)[0]
     count, width, expected = struct.unpack_from('<III', header, 80)
-    if not 1 <= count <= 128 or width != 128:
+    if count != 128 or width != 128:
         raise ValueError('Unsupported GPT partition table.')
+    if table_lba < 2 or table_lba + 32 > usable_first:
+        raise ValueError('GPT partition table overlaps writable sectors.')
     table = read_at(stream, table_lba * SECTOR, count * width)
     if crc(table) != expected:
         raise ValueError('GPT partition table checksum failed.')
+    regions, selected = [], None
     for i in range(count):
         item = table[i * width:(i + 1) * width]
+        if item[:16] == bytes(16):
+            continue
+        first, last = struct.unpack_from('<QQ', item, 32)
+        if first < usable_first or last > usable_last or first > last:
+            raise ValueError('GPT partition is outside the usable region.')
+        regions.append((first, last))
         if item[:16] == NV_TYPE.bytes_le:
-            first, last = struct.unpack_from('<QQ', item, 32)
-            if first < 34 or last <= first:
-                break
-            return first, last - first + 1
+            if selected is None:
+                selected = first, last - first + 1
+    # Validate every occupied entry before selecting C:, including other
+    # partition types. Otherwise an alias can redirect a write into D: or GPT.
+    regions.sort()
+    if any(a[1] >= b[0] for a, b in zip(regions, regions[1:])):
+        raise ValueError('GPT partitions overlap; refusing to write through aliases.')
+    if selected is not None:
+        return selected
     raise ValueError('No valid Nuvora C: partition found.')
 
 
@@ -62,9 +88,12 @@ def geometry(stream, first, sectors):
     if header[:8] != b'NVSTORE2':
         raise ValueError('C: needs an NVSTORE2 partition.')
     version, sector, slot0, slot1, slot_sectors = struct.unpack_from('<IIIII', header, 8)
+    total, = struct.unpack_from('<Q', header, 32)
     if version != 2 or sector != SECTOR or crc(header[:40]) != struct.unpack_from('<I', header, 40)[0]:
         raise ValueError('Invalid NVSTORE2 header.')
-    if not slot0 or slot1 < slot0 + slot_sectors or slot1 + slot_sectors > sectors:
+    if (slot0 != 8 or not 8 <= slot_sectors <= SLOT_LIMIT // SECTOR + 1
+            or slot1 != slot0 + slot_sectors or total > sectors
+            or total < slot1 + slot_sectors):
         raise ValueError('NVSTORE2 slots are outside the partition.')
     return slot0, slot1, min(SLOT_LIMIT, (slot_sectors - 1) * SECTOR)
 
@@ -82,8 +111,13 @@ def snapshots(stream, first, slots, capacity):
         if not 4 <= length <= capacity or crc(header) != header_crc:
             continue
         payload = read_at(stream, (first + slot + 1) * SECTOR, length)
-        if crc(payload) == data_crc:
-            available.append((generation, index, payload))
+        if crc(payload) != data_crc:
+            continue
+        try:
+            parse(payload)
+        except ValueError:
+            continue
+        available.append((generation, index, payload))
     if available:
         # The kernel checkpoints a u32 serial number, including ffffffff ->
         # zero. Compare its modular difference rather than numeric magnitude.
@@ -105,7 +139,7 @@ def parse(payload):
     count = struct.unpack_from('<I', payload)[0]
     if count > 480:
         raise ValueError('Snapshot has too many files.')
-    result = []
+    result, seen = [], {b'/home': 1}
     pos = 4
     for _ in range(count):
         if pos + 12 > len(payload):
@@ -120,6 +154,10 @@ def parse(payload):
         pos += size
         if not path.startswith(b'/home/') or b'\0' in path or (kind == 1 and size):
             raise ValueError('Snapshot path or kind is invalid.')
+        if (any(not 1 <= len(part) <= 31 or part in (b'.', b'..') for part in path.split(b'/')[2:])
+                or path in seen or seen.get(path.rsplit(b'/', 1)[0]) != 1):
+            raise ValueError('Snapshot paths must be canonical, unique and parent-before-child.')
+        seen[path] = kind
         result.append((kind, path, body))
     if pos != len(payload):
         raise ValueError('Snapshot contains trailing data.')

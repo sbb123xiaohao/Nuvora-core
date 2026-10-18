@@ -1,0 +1,340 @@
+F.FFFFFFFFFFFFFFFFFF.
+======================================================================
+FAIL: test_both_structurally_invalid_roots_refused (__main__.OfflineStorage.test_both_structurally_invalid_roots_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 179, in test_both_structurally_invalid_roots_refused
+    self.refused_unchanged(image)
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_invalid_newest_tree_does_not_destroy_recovery_root (__main__.OfflineStorage.test_invalid_newest_tree_does_not_destroy_recovery_root) (name='duplicate')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 138, in test_invalid_newest_tree_does_not_destroy_recovery_root
+    self.assertEqual(snapshots(stream, first, (s0, s1), cap), (0xffffffff, 0, valid))
+AssertionError: Tuples differ: (0, 1, b'\x02\x00\x00\x00\x02\x00\x00\x00\[106 chars]xtb') != (4294967295, 0, b'\x01\x00\x00\x00\x02\x00[59 chars] me')
+
+First differing element 0:
+0
+4294967295
+
+- (0,
+-  1,
++ (4294967295,
++  0,
+-  b'\x02\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\x01\x00\x00\x00/home/keep.t'
+?       ^                                             ^^^
+
++  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\n\x00\x00\x00/home/keep.t'
+?       ^                                             ^
+
+-  b'xta\x02\x00\x00\x00\x0e\x00\x00\x00\x01\x00\x00\x00/home/keep.txtb')
++  b'xtrecover me')
+
+======================================================================
+FAIL: test_invalid_newest_tree_does_not_destroy_recovery_root (__main__.OfflineStorage.test_invalid_newest_tree_does_not_destroy_recovery_root) (name='traversal')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 138, in test_invalid_newest_tree_does_not_destroy_recovery_root
+    self.assertEqual(snapshots(stream, first, (s0, s1), cap), (0xffffffff, 0, valid))
+AssertionError: Tuples differ: (0, 1, b'\x01\x00\x00\x00\x02\x00\x00\x00\[45 chars]tex') != (4294967295, 0, b'\x01\x00\x00\x00\x02\x00[59 chars] me')
+
+First differing element 0:
+0
+4294967295
+
+- (0,
+-  1,
++ (4294967295,
++  0,
+-  b'\x01\x00\x00\x00\x02\x00\x00\x00\x10\x00\x00\x00\x01\x00\x00\x00/home/../pri'
+?                                      -              ^^^                   ^^^^^
+
++  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\n\x00\x00\x00/home/keep.t'
+?                                       +             ^                  ++++ ^
+
+-  b'vatex')
++  b'xtrecover me')
+
+======================================================================
+FAIL: test_invalid_newest_tree_does_not_destroy_recovery_root (__main__.OfflineStorage.test_invalid_newest_tree_does_not_destroy_recovery_root) (name='empty-name')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 138, in test_invalid_newest_tree_does_not_destroy_recovery_root
+    self.assertEqual(snapshots(stream, first, (s0, s1), cap), (0xffffffff, 0, valid))
+AssertionError: Tuples differ: (0, 1, b'\x01\x00\x00\x00\x02\x00\x00\x00\[35 chars]e/x') != (4294967295, 0, b'\x01\x00\x00\x00\x02\x00[59 chars] me')
+
+First differing element 0:
+0
+4294967295
+
+- (0,
+-  1,
++ (4294967295,
++  0,
+-  b'\x01\x00\x00\x00\x02\x00\x00\x00\x06\x00\x00\x00\x01\x00\x00\x00/home/x')
+?                                       ^             ^^^                  ^ -
+
++  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\n\x00\x00\x00/home/keep.t'
+?                                       ^             ^                  ^^^^^^
+
++  b'xtrecover me')
+
+======================================================================
+FAIL: test_invalid_newest_tree_does_not_destroy_recovery_root (__main__.OfflineStorage.test_invalid_newest_tree_does_not_destroy_recovery_root) (name='missing-parent')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 138, in test_invalid_newest_tree_does_not_destroy_recovery_root
+    self.assertEqual(snapshots(stream, first, (s0, s1), cap), (0xffffffff, 0, valid))
+AssertionError: Tuples differ: (0, 1, b'\x01\x00\x00\x00\x02\x00\x00\x00\[48 chars]ldx') != (4294967295, 0, b'\x01\x00\x00\x00\x02\x00[59 chars] me')
+
+First differing element 0:
+0
+4294967295
+
+- (0,
+-  1,
++ (4294967295,
++  0,
+-  b'\x01\x00\x00\x00\x02\x00\x00\x00\x13\x00\x00\x00\x01\x00\x00\x00/home/missin'
+?                                      ^^             ^^^                  ^^^^^^
+
++  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\n\x00\x00\x00/home/keep.t'
+?                                      ^^             ^                  ^^^^^^
+
+-  b'g/childx')
++  b'xtrecover me')
+
+======================================================================
+FAIL: test_invalid_newest_tree_does_not_destroy_recovery_root (__main__.OfflineStorage.test_invalid_newest_tree_does_not_destroy_recovery_root) (name='file-parent')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 138, in test_invalid_newest_tree_does_not_destroy_recovery_root
+    self.assertEqual(snapshots(stream, first, (s0, s1), cap), (0xffffffff, 0, valid))
+AssertionError: Tuples differ: (0, 1, b'\x02\x00\x00\x00\x02\x00\x00\x00\[102 chars]ldy') != (4294967295, 0, b'\x01\x00\x00\x00\x02\x00[59 chars] me')
+
+First differing element 0:
+0
+4294967295
+
+- (0,
+-  1,
++ (4294967295,
++  0,
+-  b'\x02\x00\x00\x00\x02\x00\x00\x00\n\x00\x00\x00\x01\x00\x00\x00/home/fi'
+?       ^                             ^             ^^^                  ^^
+
++  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\n\x00\x00\x00/home/keep.t'
+?       ^                             ^^^             ^                  ^^^^^^
+
+-  b'lex\x02\x00\x00\x00\x10\x00\x00\x00\x01\x00\x00\x00/home/file/childy')
++  b'xtrecover me')
+
+======================================================================
+FAIL: test_invalid_newest_tree_does_not_destroy_recovery_root (__main__.OfflineStorage.test_invalid_newest_tree_does_not_destroy_recovery_root) (name='long-name')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 138, in test_invalid_newest_tree_does_not_destroy_recovery_root
+    self.assertEqual(snapshots(stream, first, (s0, s1), cap), (0xffffffff, 0, valid))
+AssertionError: Tuples differ: (0, 1, b'\x01\x00\x00\x00\x02\x00\x00\x00&[64 chars]xxx') != (4294967295, 0, b'\x01\x00\x00\x00\x02\x00[59 chars] me')
+
+First differing element 0:
+0
+4294967295
+
+- (0,
+-  1,
++ (4294967295,
++  0,
+-  b'\x01\x00\x00\x00\x02\x00\x00\x00&\x00\x00\x00\x01\x00\x00\x00/home/xxxxxx'
+?                                    ^             ^^^                  ^^^^^^
+
++  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\n\x00\x00\x00/home/keep.t'
+?                                    ^^^^             ^                  ^^^^^^
+
+-  b'xxxxxxxxxxxxxxxxxxxxxxxxxxx')
++  b'xtrecover me')
+
+======================================================================
+FAIL: test_invalid_newest_tree_does_not_destroy_recovery_root (__main__.OfflineStorage.test_invalid_newest_tree_does_not_destroy_recovery_root) (name='empty-component')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 138, in test_invalid_newest_tree_does_not_destroy_recovery_root
+    self.assertEqual(snapshots(stream, first, (s0, s1), cap), (0xffffffff, 0, valid))
+AssertionError: Tuples differ: (0, 1, b'\x01\x00\x00\x00\x02\x00\x00\x00\[43 chars]ldx') != (4294967295, 0, b'\x01\x00\x00\x00\x02\x00[59 chars] me')
+
+First differing element 0:
+0
+4294967295
+
+- (0,
+-  1,
++ (4294967295,
++  0,
+-  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\x01\x00\x00\x00/home/a//chi'
+?                                                     ^^^                  ^^^^^^
+
++  b'\x01\x00\x00\x00\x02\x00\x00\x00\x0e\x00\x00\x00\n\x00\x00\x00/home/keep.t'
+?                                                     ^                  ^^^^^^
+
+-  b'ldx')
++  b'xtrecover me')
+
+======================================================================
+FAIL: test_legacy_geometry_matches_kernel (__main__.OfflineStorage.test_legacy_geometry_matches_kernel) (name='slot-zero')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 116, in test_legacy_geometry_matches_kernel
+    self.refused_unchanged(image)
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_legacy_geometry_matches_kernel (__main__.OfflineStorage.test_legacy_geometry_matches_kernel) (name='gap')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 116, in test_legacy_geometry_matches_kernel
+    self.refused_unchanged(image)
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_legacy_geometry_matches_kernel (__main__.OfflineStorage.test_legacy_geometry_matches_kernel) (name='capacity')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 116, in test_legacy_geometry_matches_kernel
+    self.refused_unchanged(image)
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_overlapping_partitions_refused (__main__.OfflineStorage.test_overlapping_partitions_refused) (kind='nuvora')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 77, in test_overlapping_partitions_refused
+    self.refused_unchanged(image)
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_overlapping_partitions_refused (__main__.OfflineStorage.test_overlapping_partitions_refused) (kind='foreign')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 77, in test_overlapping_partitions_refused
+    self.refused_unchanged(image)
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_truncation_and_bad_gpt_geometry_refused (__main__.OfflineStorage.test_truncation_and_bad_gpt_geometry_refused) (name='revision')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 91, in test_truncation_and_bad_gpt_geometry_refused
+    image = self.image(name); edit_gpt(image, edit); self.refused_unchanged(image)
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_truncation_and_bad_gpt_geometry_refused (__main__.OfflineStorage.test_truncation_and_bad_gpt_geometry_refused) (name='reserved')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 91, in test_truncation_and_bad_gpt_geometry_refused
+    image = self.image(name); edit_gpt(image, edit); self.refused_unchanged(image)
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_truncation_and_bad_gpt_geometry_refused (__main__.OfflineStorage.test_truncation_and_bad_gpt_geometry_refused) (name='self-lba')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 91, in test_truncation_and_bad_gpt_geometry_refused
+    image = self.image(name); edit_gpt(image, edit); self.refused_unchanged(image)
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_truncation_and_bad_gpt_geometry_refused (__main__.OfflineStorage.test_truncation_and_bad_gpt_geometry_refused) (name='alternate')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 91, in test_truncation_and_bad_gpt_geometry_refused
+    image = self.image(name); edit_gpt(image, edit); self.refused_unchanged(image)
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_truncation_and_bad_gpt_geometry_refused (__main__.OfflineStorage.test_truncation_and_bad_gpt_geometry_refused) (name='partition-after-disk')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 91, in test_truncation_and_bad_gpt_geometry_refused
+    image = self.image(name); edit_gpt(image, edit); self.refused_unchanged(image)
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_truncation_and_bad_gpt_geometry_refused (__main__.OfflineStorage.test_truncation_and_bad_gpt_geometry_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 94, in test_truncation_and_bad_gpt_geometry_refused
+    self.refused_unchanged(image)
+  File "/tmp/nuvora-baseline-offline-vkdgz4_t/tests/offline_storage_test.py", line 59, in refused_unchanged
+    with self.assertRaises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.926s
+
+FAILED (failures=19)
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-q9bdvx3x/data.img
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-offline-boundaries-xih83_gc/data.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-h5g4tl6o/duplicate.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-h5g4tl6o/traversal.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-h5g4tl6o/empty-name.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-h5g4tl6o/missing-parent.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-h5g4tl6o/file-parent.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-h5g4tl6o/long-name.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-h5g4tl6o/empty-component.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-ytxdxo__/slot-zero.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-ytxdxo__/gap.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-ytxdxo__/capacity.img
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pq5egxy_/nuvora.img
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pq5egxy_/foreign.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/revision.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/reserved.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/self-lba.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/alternate.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/table-in-data.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/partition-in-gpt.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/partition-after-disk.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-pl6vqkmc/truncated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-r0w3wyrt/data.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-r0w3wyrt/unicode-migrated.img

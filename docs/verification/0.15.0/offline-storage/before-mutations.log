@@ -1,0 +1,6 @@
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/tmpohdahlw1/overlap.img
+overlap : ACCEPTED changed= True size= 134217728 -> 134217728
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/tmpohdahlw1/truncated.img
+truncated : ACCEPTED changed= True size= 16777216 -> 16777216
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/tmpohdahlw1/duplicate-tree.img
+duplicate-tree : ACCEPTED changed= True size= 67108864 -> 67108864

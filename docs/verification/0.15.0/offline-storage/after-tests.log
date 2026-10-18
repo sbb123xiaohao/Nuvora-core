@@ -1,0 +1,36 @@
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 2.727s
+
+OK
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-ypbcy57y/data.img
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-offline-boundaries-8rx0frk3/data.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/duplicate.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/duplicate-migrated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/traversal.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/traversal-migrated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/empty-name.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/empty-name-migrated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/missing-parent.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/missing-parent-migrated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/file-parent.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/file-parent-migrated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/long-name.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/long-name-migrated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/empty-component.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-dlv37wst/empty-component-migrated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1q92snb_/slot-zero.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1q92snb_/gap.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1q92snb_/capacity.img
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-offline-boundaries-oa6epl31/nuvora.img
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-offline-boundaries-oa6epl31/foreign.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/revision.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/reserved.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/self-lba.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/alternate.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/table-in-data.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/partition-in-gpt.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/partition-after-disk.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-1hwlff6o/truncated.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-nwpr1tq_/data.img
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-boundaries-nwpr1tq_/unicode-migrated.img

@@ -1,0 +1,45 @@
+[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;056;240t[2J[001;001H[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;042;160t[2J[001;001HBdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00002 " from PciRoot(0x0)/Pci(0x1,0x1)/Ata(Primary,Slave,0x0)
+BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00002 " from PciRoot(0x0)/Pci(0x1,0x1)/Ata(Primary,Slave,0x0)
+
+Nuvora Core UEFI stub
+
+Nuvora Core UEFI stub
+entering kernel
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 2 via XSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] OOM rollback: zero through four available pages, no leaks
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] restored /home generation 1
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 51 MiB managed RAM, 5140 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora recovery console / local sign-in required
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/ :: unfold C:/added.txt
+new file
+C:/ :: unfold C:/keep.txt
+recover me
+C:/ :: unfold C:/bad.txt
+unfold: path not found
+
+C:/ :: weave C:/guest.txt migrated-uefi
+
+C:/ :: anchor
+Saved /home.
+
+C:/ :: rest
+
+Nuvora Core halted.

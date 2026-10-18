@@ -1,0 +1,35 @@
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] OOM rollback: zero through four available pages, no leaks
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] restored /home generation 3
+[store] D: restored generation 2
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 63 MiB managed RAM, 10140 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora recovery console / local sign-in required
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/ :: unfold C:/added.txt
+new file
+C:/ :: unfold D:/sentinel.txt
+D-volume-untouched
+
+C:/ :: unfold C:/guest.txt
+dual-bios
+
+C:/ :: rest
+
+Nuvora Core halted.

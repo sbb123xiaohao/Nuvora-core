@@ -52,6 +52,7 @@ def main():
             if name == 'gpt_disk':
                 subprocess.run([str(output), str(raw_image), '64', 'raw'], check=True)
         subprocess.run(['python3', 'scripts/test_media_import.py'], cwd=ROOT, check=True)
+        subprocess.run(['python3', 'tests/offline_storage_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'scripts/test_extent_import.py', str(pathlib.Path(directory) / 'extent')], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/qemu_options_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'tests/boot_media_test.py'], cwd=ROOT, check=True)
@@ -59,7 +60,7 @@ def main():
         subprocess.run(['python3', 'compat/tests/compat_runtimes_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'compat/tests/dynamic_tools_test.py'], cwd=ROOT, check=True)
         subprocess.run(['python3', 'compat/tests/minecraft_tools_test.py'], cwd=ROOT, check=True)
-    print('ALL 54 HOST REGRESSION GROUPS PASSED (including dynamic/static PIE, Linux threads/futex/signals/VMA rollback, official-client download boundaries, RTC clocks, Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, editor failed-save protection, account/session isolation, network, desktop, storage, media and source packaging; C fixtures use UBSan)')
+    print('ALL 55 HOST REGRESSION GROUPS PASSED (including offline GPT/import/recovery guards, dynamic/static PIE, Linux threads/futex/signals/VMA rollback, official-client download boundaries, RTC clocks, Java 21 bytecode, malformed classes and execution limits, bounded scalar memory, editor failed-save protection, account/session isolation, network, desktop, storage, media and source packaging; C fixtures use UBSan)')
 
 if __name__ == '__main__':
     main()

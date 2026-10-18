@@ -1,0 +1,12 @@
+Imported 1 file(s) into C: (75 metadata/snapshot bytes).
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-guest-8etbwz9h/migrated.img
+Copied 2 entries to /tmp/nuvora-offline-guest-8etbwz9h/migrated.img. Original image unchanged.
+Created 64 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-offline-guest-8etbwz9h/legacy.img
+PASS import preserves recovery slot; migration preserves whole source
+PASS legacy-bios guest read/write/save/reboot
+PASS migrated-uefi guest read/write/save/reboot
+Imported 1 file(s) into C: (67 metadata/snapshot bytes).
+Created 128 MiB GPT disk with 2 Nuvora partition(s): /tmp/nuvora-offline-guest-8etbwz9h/dual.img
+PASS C: import leaves every byte of D: unchanged
+PASS dual-bios guest read/write/save/reboot
+PASS all offline storage guest checks
