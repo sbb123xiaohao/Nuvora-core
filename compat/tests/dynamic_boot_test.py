@@ -21,7 +21,7 @@ def main():
         try:
             checks=[('','DYNAMIC PASS'),('--exec','EXEC PASS'),('--guard-check','GUARD PASS'),
                     ('--signal-check','SIGNAL PASS'),('--thread-check','THREAD PASS'),
-                    ('--sleep-check','SLEEP PASS'),('--jit-check','W^X DEFAULT PASS')]
+                    ('--sleep-check','SLEEP PASS'),('--io-check','IO PASS'),('--jit-check','W^X DEFAULT PASS')]
             for option,marker in checks:
                 out=vm.send('compat /home/dynamic.elf '+option,marker,timeout=30)
                 assert 'exited 0' in out and 'DYNAMIC FAIL' not in out and '[isolate' not in out,out
@@ -35,6 +35,7 @@ def main():
                 vm.send('compat /home/dynamic.elf --signal-check','SIGNAL PASS',timeout=30)
                 vm.send('compat /home/dynamic.elf --thread-check','THREAD PASS',timeout=30)
                 vm.send('compat /home/dynamic.elf --sleep-check','SLEEP PASS',timeout=30)
+                vm.send('compat /home/dynamic.elf --io-check','IO PASS',timeout=30)
                 vm.send('compat /home/dynamic.elf --guard-check','GUARD PASS',timeout=30)
             after=free();assert before==after,(before,after)
             vm.send('java --self-test','JAVA21 GUEST PASS',timeout=30)

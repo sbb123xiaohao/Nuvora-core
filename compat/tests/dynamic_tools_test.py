@@ -29,12 +29,15 @@ def main():
     java=json.loads((ROOT/'compat/examples/java/runtime-manifest.json').read_text())
     for name,wanted in java['files'].items():assert hashlib.sha256((ROOT/'compat/examples/java'/name).read_bytes()).hexdigest()==wanted,name
     assert (ROOT/'compat/examples/java/JavaRuntimeCheck.class').read_bytes()[:8]==bytes.fromhex('cafebabe00000041')
-    for arguments in ([str(fixtures/'libnvprobe.so')],['--signal-check',str(fixtures/'libnvprobe.so')],
-                      ['--sleep-check',str(fixtures/'libnvprobe.so')]):
-        run=subprocess.run([str(fixtures/'ldso'),str(fixtures/'dynamic.elf'),*arguments],capture_output=True,timeout=20,check=True)
-        assert b'DYNAMIC PASS' in run.stdout and not run.stderr
-        if arguments[0]=='--signal-check':assert b'SIGNAL PASS' in run.stdout
-        if arguments[0]=='--sleep-check':assert b'SLEEP PASS' in run.stdout
+    with tempfile.TemporaryDirectory(prefix='nuvora-dynamic-reference-') as directory:
+        for arguments in ([str(fixtures/'libnvprobe.so')],['--signal-check',str(fixtures/'libnvprobe.so')],
+                          ['--sleep-check',str(fixtures/'libnvprobe.so')],['--io-check',str(fixtures/'libnvprobe.so')]):
+            run=subprocess.run([str(fixtures/'ldso'),str(fixtures/'dynamic.elf'),*arguments],cwd=directory,
+                               capture_output=True,timeout=20,check=True)
+            assert b'DYNAMIC PASS' in run.stdout and not run.stderr
+            if arguments[0]=='--signal-check':assert b'SIGNAL PASS' in run.stdout
+            if arguments[0]=='--sleep-check':assert b'SLEEP PASS' in run.stdout
+            if arguments[0]=='--io-check':assert b'IO PASS' in run.stdout
     image=bytearray(256);image[:7]=b'\x7fELF\x02\x01\x01';struct.pack_into('<Q',image,32,64);struct.pack_into('<HH',image,54,56,1)
     old=b'/lib/ld-musl-x86_64.so.1\0';struct.pack_into('<IIQQQQQQ',image,64,3,4,192,192,192,len(old),len(old),1);image[192:192+len(old)]=old
     changed=patch_interpreter(image);assert len(changed)==len(image) and changed[192:203]==b'/home/ldso\0'

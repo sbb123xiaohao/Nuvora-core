@@ -1,0 +1,12 @@
+PASS Linux VMA: retained PROT_NONE data, sparse 16 GiB reservations, commit rollback, fixed replacement rollback, NOREPLACE, RX/W^X and discard
+PASS Linux file mappings: exact offset/EOF zero tail, descriptor position preserved, read-error rollback, metadata exhaustion and byte brk rollback
+PASS Linux ABI: errno, high descriptors/user pointers, TLS/random/stdio and authorized path metadata/readlink
+PASS Linux process ABI: bounded argv/environment, exec failure preservation, session denial, close-on-exec, signal masks, proc executable and opt-in JIT
+PASS Linux exec: 16 KiB argument and 128 argv entries, oversized/unterminated input rejected before image replacement
+PASS Linux descriptors: slots 31/63 retain independent 64-bit CLOEXEC/nonblock flags; full table returns EMFILE
+PASS Linux directories: native authorization, mkdir/chdir/unlink/rmdir/rename, type checks and no mutations on denied/invalid requests
+PASS Linux directory streams: aligned getdents64 records, continuation/EOF, short buffers, invalid memory, ACL checks and separate descriptor/shared status flags
+PASS Linux socket capability: unsupported families return EAFNOSUPPORT without allocating a descriptor or pretending connectivity
+PASS Linux signals: validated actions/context, retained masked signals, user-only returns, sanitized flags/MXCSR and default/ignored delivery
+PASS Linux waits: unchanged successful rem, SA_RESTART/EINTR, exact interrupted remainder, pending futex/sleep signals, ignored defaults, revoked output and aliased req/rem
+PASS Linux I/O: empty-vector descriptor/access checks, invalid-length/range preflight without writes, legitimate partial transfers, negative pread rejection and closed descriptor errors

@@ -1,5 +1,44 @@
 # 测试与复现
 
+## 未发布：文件 I/O 边界与启动盘配置隔离
+
+从本地/GitHub 一致的完整 `9a6dd1f` 继续，2026-10-18；Arch GCC 16.2.1、
+QEMU 11.1.1 TCG、OVMF，未进行实体硬件测试。
+
+- 真实 Linux 对照与旧客体复现：非法 writev 应返回 EINVAL 且不改文件，旧客体
+  实际写入 16,385 字节。同一 musl ELF 在修复后通过；另覆盖内核地址、零长度
+  向量、无效/错误方向 fd、负数定位偏移、关闭 fd，以及真实保护页触发的部分写入。
+- 默认与原生配置各通过 **54 组宿主回归**，C 夹具使用 UBSan；Linux ABI 另通过
+  ASan/UBSan。新增的配置打包测试不依赖 mtools，替代 mtools 后运行真实 CLI，
+  用两组不同内容和相反配置残留检测误取文件、缺失输入覆盖旧产物等问题。
+- 64 MiB 客体的动态 ELF/DSO、pthread/信号/睡眠/I/O、exec、保护与 JIT 回归通过；
+  重复退出精确回收 **40,420 / 40,420 KiB**。512 MiB/NVMe 的真实 OpenJDK 21
+  JAR/线程/NIO/熵/JIT/错误退出继续通过，回收为 **497,060 / 497,060 KiB**。
+- 默认和原生独立配置的 32/256 MiB BIOS 探测各通过 153 项断言、保留一项 TCG
+  SSE #XM SKIP；UEFI 保存/重载通过，原生配置另通过碎片堆与 trial。
+- 原生 ESP 原始内核、EFI loader、命令行逐文件核对；原生 USB 镜像内嵌 ESP
+  与所选 ESP 的 64 MiB 内容完全一致。五个原生可执行产物与此前基线字节一致。
+  原生生产 UEFI/q35/256 MiB/NVMe/USB 桌面实际通过 1280×800 最大化/半屏/还原、
+  GOP 像素边界和文件保存。
+
+此前 UEFI 诊断测试会替换 ESP 中的内核，未发现打包脚本误取默认目录。
+原始生产 ESP 的独立性现在由新增载荷检查和生产启动验证覆盖；旧记录不能单独
+证明修复前的生产原生 ESP 正确。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 compat/tests/dynamic_boot_test.py
+python3 compat/tests/openjdk_boot_test.py --disk PATH/TO/PRIVATE/data.img
+make COMPAT=none -j4 diagnostics esp media
+make COMPAT=none test-host
+python3 compat/tests/native_independence_test.py
+NV_COMPAT=none python3 tests/resolution_desktop_test.py --resolutions 1280x800
+```
+
+源码、产物摘要和实际日志见[本轮记录](../compat/verification/io/README.md)。
+本轮未重跑 Minecraft，socketpair 与图形后端等阻塞仍未解决。
+
 ## 未发布：睡眠与线程信号修复
 
 以本地/GitHub 一致的完整 `e0d2f59` 为基线。Arch GCC 16.2.1、QEMU 11.1.1

@@ -1,0 +1,27 @@
+Initial host assertion before repair:
+linux: compat/tests/linux_test.c:410: io_boundaries: Assertion `invoke(20,~0ull,0,0)==-L_EBADF && invoke(19,63,0,0)==-L_EBADF' failed.
+
+Same real musl ELF on the previous guest kernel:
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-dynamic-o35f39rr/data.img
+PASS real guest DYNAMIC PASS
+PASS real guest EXEC PASS
+PASS real guest GUARD PASS
+PASS real guest SIGNAL PASS
+PASS real guest THREAD PASS
+PASS real guest SLEEP PASS
+Traceback (most recent call last):
+  File "/workspace/Nuvora-core/compat/tests/dynamic_boot_test.py", line 49, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "/workspace/Nuvora-core/compat/tests/dynamic_boot_test.py", line 26, in main
+    out=vm.send('compat /home/dynamic.elf '+option,marker,timeout=30)
+  File "/workspace/Nuvora-core/scripts/test.py", line 117, in send
+    assert expect in out, f'{self.name}: {line!r} did not produce {expect!r}:\n{out}'
+           ^^^^^^^^^^^^^
+AssertionError: dynamic-runtime: 'compat /home/dynamic.elf --io-check' did not produce 'IO PASS':
+compat /home/dynamic.elf --io-check
+IO malformed write observed result=16385 errno=0 offset=16385
+DYNAMIC FAIL line 75 errno 0: result==-1 && error==EINVAL && position==0
+Process 12 exited 10
+
+C:/ ::

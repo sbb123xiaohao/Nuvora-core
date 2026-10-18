@@ -1,0 +1,11 @@
+negative positioned offset: result=-1 errno=22 offset=0
+negative positioned offset and invalid fd: result=-1 errno=22 offset=0
+empty writev invalid fd: result=-1 errno=9 offset=0
+empty readv invalid fd: result=-1 errno=9 offset=0
+empty writev read-only fd: result=-1 errno=9 offset=0
+empty readv write-only fd: result=-1 errno=9 offset=0
+zero-vector writev read-only fd: result=-1 errno=9 offset=0
+oversized second iovec: result=-1 errno=22 offset=0
+supervisor second iovec: result=-1 errno=14 offset=0
+unmapped second iovec: result=1 errno=0 offset=1
+closed lseek: result=-1 errno=9 offset=1

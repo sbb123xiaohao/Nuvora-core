@@ -10,6 +10,7 @@ struct test_page {uptr address;u32 flags;u8 *data;};
 struct test_space {struct test_page pages[1024];u32 count;};
 static struct test_space primary;
 static u32 available=512,allocated,polls,fs_calls;
+static u32 positioned_reads;
 static int path_error=-NV_EACCESS,read_budget=-1,prepare_budget=-1;
 static bool writable=true,random_ok=true,metadata_ok=true;
 static bool session_allowed=true,manager;
@@ -97,7 +98,7 @@ void fs_descriptor_sync(struct task *t,int fd){for(u32 i=3;i<NV_OPEN_MAX;++i)if(
 int fs_list64(int cwd,const char *path,u32 index,struct nv_dirent64 *out){(void)cwd;(void)path;if(index)return 0;*out=(struct nv_dirent64){.kind=NV_FILE};strlcpy(out->name,"child",sizeof(out->name));return 1;}
 int fs_close(struct task *t,int fd){fs_calls++;if(fd<3 || fd>=NV_OPEN_MAX || t->fd[fd].node<0)return -NV_EBADF;t->fd[fd].node=-1;return 0;}
 int fs_stat64(struct task *t,int fd,struct nv_stat64 *st){fs_calls++;if(fd==3 && t->fd[fd].node>=0){*st=(struct nv_stat64){.kind=NV_FILE,.size=sizeof(file_data)};return 0;}return -NV_EBADF;}
-int fs_pread64(struct task *t,int fd,u64 off,void *out,u32 n){(void)t;assert(fd==3);if(!read_budget)return -NV_EIO;if(read_budget>0)--read_budget;if(off>=sizeof(file_data))return 0;n=MIN(n,sizeof(file_data)-off);memcpy(out,file_data+off,n);return n;}
+int fs_pread64(struct task *t,int fd,u64 off,void *out,u32 n){(void)t;assert(fd==3);++positioned_reads;if(!read_budget)return -NV_EIO;if(read_budget>0)--read_budget;if(off>=sizeof(file_data))return 0;n=MIN(n,sizeof(file_data)-off);memcpy(out,file_data+off,n);return n;}
 int fs_stat_path64(struct task *t,const char *name,struct nv_stat64 *st){(void)t;(void)name;fs_calls++;if(path_error)return path_error;*st=(struct nv_stat64){.size=513,.allocated=4096,.kind=NV_FILE};return 0;}
 int fs_lookup(int cwd,const char *name){(void)cwd;(void)name;return 3;}
 int fs_authorize(const struct task *t,int cwd,const char *name,u32 op){(void)t;(void)cwd;(void)name;authorization_mode=op;fs_calls++;return path_error;}
@@ -131,6 +132,7 @@ static void reset(void) {
     available=512;buffer=0;buffer_size=0;writable=random_ok=metadata_ok=true;fs_calls=0;read_budget=prepare_budget=-1;
     session_allowed=true;manager=false;exec_result=-NV_ENOEXEC;exec_calls=0;path_error=-NV_EACCESS;
     fs_mutations=0;mock_kind=NV_FILE;authorization_mode=0;
+    positioned_reads=0;
 }
 static i64 invoke(u64 op,u64 a,u64 b,u64 c){struct frame f={.cs=0x1b,.eax=op,.edi=a,.esi=b,.edx=c};assert(linux_dispatch(&f)==&f);return (i64)f.eax;}
 static void mappings(void) {
@@ -398,4 +400,41 @@ static void nanosleep_signals(void) {
     assert((i64)f.eax==-L_EINTR && !request->seconds && request->nanoseconds==750000000);
     puts("PASS Linux waits: unchanged successful rem, SA_RESTART/EINTR, exact interrupted remainder, pending futex/sleep signals, ignored defaults, revoked output and aliased req/rem");
 }
-int main(void){mappings();files_and_limits();interfaces();process_interfaces();large_exec_arguments();high_file_descriptors();directory_operations();directory_streams();unavailable_sockets();signal_contexts();nanosleep_signals();reset();return 0;}
+static void io_boundaries(void) {
+    reset();
+    struct {struct {uptr address;u64 length;} vectors[3];u8 bytes[64];} io={0};
+    buffer=(uptr)&io;buffer_size=sizeof(io);
+    current->fd[3]=(struct descriptor){.node=3,.flags=NV_READ|NV_WRITE,.offset=17};
+    current->fd[4]=(struct descriptor){.node=3,.flags=NV_READ};
+    current->fd[5]=(struct descriptor){.node=3,.flags=NV_WRITE};
+    assert(invoke(20,~0ull,0,0)==-L_EBADF && invoke(19,63,0,0)==-L_EBADF);
+    assert(invoke(20,4,0,0)==-L_EBADF && invoke(19,5,0,0)==-L_EBADF);
+    assert(!invoke(20,3,0,0) && !invoke(19,3,0,0) && !fs_calls);
+    io.vectors[0].address=(uptr)io.bytes;
+    assert(!invoke(20,3,buffer,1) && invoke(20,4,buffer,1)==-L_EBADF && !fs_calls);
+    io.vectors[0].address=~0ull;
+    assert(invoke(20,3,buffer,1)==-L_EFAULT && !fs_calls);
+    io.vectors[0].address=(uptr)io.bytes;
+    assert(invoke(1,4,1,1)==-L_EBADF && invoke(0,5,1,1)==-L_EBADF && !fs_calls);
+    io.vectors[0].length=1;io.vectors[1].address=(uptr)io.bytes;io.vectors[1].length=~0ull;
+    assert(invoke(20,3,buffer,2)==-L_EINVAL && !fs_calls);
+    io.vectors[1].address=0xffff800000000000ull;io.vectors[1].length=1;
+    assert(invoke(20,3,buffer,2)==-L_EFAULT && !fs_calls);
+    /* Check canonical ranges up front; a later unmapped user page can still
+     * cause a legitimate short transfer after the preceding vector succeeds. */
+    io.vectors[1].address=buffer+sizeof(io);
+    assert(invoke(20,3,buffer,2)==1 && fs_calls==1);
+    io.vectors[1].address=(uptr)io.bytes;io.vectors[1].length=2;
+    assert(invoke(20,3,buffer,2)==3 && fs_calls==3);
+    struct frame f={.cs=0x1b,.eax=17,.edi=3,.esi=(uptr)io.bytes,.edx=1,.r10=~0ull};
+    linux_dispatch(&f);assert((i64)f.eax==-L_EINVAL && !positioned_reads && current->fd[3].offset==17);
+    f.eax=17;f.edi=~0ull;linux_dispatch(&f);assert((i64)f.eax==-L_EINVAL);
+    f.eax=17;f.edi=3;f.r10=0;linux_dispatch(&f);
+    assert(f.eax==1 && positioned_reads==1 && current->fd[3].offset==17);
+    current->compat_state.closed_stdio=1;
+    assert(invoke(8,0,0,0)==-L_EBADF && invoke(8,1,0,0)==-29);
+    assert(invoke(8,63,0,3)==-L_EBADF && invoke(5,63,1,0)==-L_EBADF);
+    assert(invoke(19,0,0,0)==-L_EBADF && invoke(20,1,0,0)==0);
+    puts("PASS Linux I/O: empty-vector descriptor/access checks, invalid-length/range preflight without writes, legitimate partial transfers, negative pread rejection and closed descriptor errors");
+}
+int main(void){mappings();files_and_limits();interfaces();process_interfaces();large_exec_arguments();high_file_descriptors();directory_operations();directory_streams();unavailable_sockets();signal_contexts();nanosleep_signals();io_boundaries();reset();return 0;}

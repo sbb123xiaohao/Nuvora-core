@@ -178,9 +178,9 @@ QuickJS 嵌入设 16 MiB 引擎堆、128 KiB 引擎栈、执行中断与待处�
 
 | Linux 接口 | 实现范围 |
 | --- | --- |
-| read/write/readv/writev、open/openat、close、lseek、fstat | 使用现有文件/Terminal 路径；openat 仅 AT_FDCWD，最多 64 个 descriptor 槽位（0–63，含标准流）；短 I/O 保留 |
+| read/write/readv/writev、open/openat、close、lseek、fstat | 使用现有文件/Terminal 路径；openat 仅 AT_FDCWD，最多 64 个 descriptor 槽位（0–63，含标准流）；向量最多 16 项，传输前检查全部长度与地址范围，保留合法用户页中途失效的短 I/O；空向量也检查 fd 与读写方向，关闭 fd 返回 EBADF |
 | stat/lstat/newfstatat、readlink/readlinkat | 路径元数据无需占用 fd；复用账户授权；at 接口仅 AT_FDCWD，fstatat 支持 0/AT_SYMLINK_NOFOLLOW；原生文件系统没有符号链接，readlink 对已存在的授权路径返回 EINVAL，缺失/私有路径保留相应错误 |
-| pread64、fcntl、execve | 定位读不改 fd 偏移，取消人为 16 KiB 截断；64 位 CLOEXEC/NONBLOCK 掩码；dup/F_DUPFD/F_DUPFD_CLOEXEC 共享偏移和状态标志，CLOEXEC 逐句柄独立；exec 先复制最多 128 项/32 KiB argv 与 64 项/8 KiB 环境，失败保留映像与 fd，成功关闭 CLOEXEC；活动多线程组不支持 exec |
+| pread64、fcntl、execve | 定位读不改 fd 偏移，负偏移返回 EINVAL，取消人为 16 KiB 截断；64 位 CLOEXEC/NONBLOCK 掩码；dup/F_DUPFD/F_DUPFD_CLOEXEC 共享偏移和状态标志，CLOEXEC 逐句柄独立；exec 先复制最多 128 项/32 KiB argv 与 64 项/8 KiB 环境，失败保留映像与 fd，成功关闭 CLOEXEC；活动多线程组不支持 exec |
 | O_DIRECTORY、getdents64、mkdir/chdir/unlink/rmdir/rename | 目录持有真实引用；目录记录按 8 字节对齐并保留续读位置；沿用原生账户授权、文件系统事务与路径限制；mkdirat/unlinkat 目前仅 AT_FDCWD |
 | ioctl | 无 TTY 模拟；有效 fd 返回 ENOTTY，非法 fd 返回 EBADF |
 | mmap/brk/munmap/mprotect/madvise | 上述事务映射、预留/提交与保护；默认 W^X，可显式 --jit；匿名 discard 与部分可忽略 advisory |

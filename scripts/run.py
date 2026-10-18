@@ -28,20 +28,21 @@ if args.resolution and not args.uefi:
     parser.error('--resolution requires --uefi')
 
 esp = BUILD / 'esp.img'
+esp_command = 'make COMPAT=none esp' if BUILD.name.endswith('-native') else 'make esp'
 firmware = None
 if args.uefi:
     if ARCH != 'x86_64':
         raise SystemExit('UEFI boot is only implemented for x86_64.')
     if args.no_ecam:
-        raise SystemExit('For UEFI, put nv.no-ecam=1 in build/x86_64/uefi-cmdline.txt '
-                         'and rebuild with make esp.')
+        raise SystemExit(f'For UEFI, put nv.no-ecam=1 in {BUILD / "uefi-cmdline.txt"} '
+                         f'and rebuild with {esp_command}.')
     firmware = find_uefi_firmware()
     if not firmware:
         raise SystemExit('UEFI firmware not found. Install OVMF (or QEMU edk2 firmware) or set NV_OVMF '
                          'to the firmware file, e.g. /usr/share/OVMF/OVMF_CODE.fd '
                          'or /usr/share/edk2/x64/OVMF_CODE.4m.fd on Arch Linux.')
     if not esp.is_file():
-        raise SystemExit(f'Missing {esp}. Build it with: make esp (needs mtools).')
+        raise SystemExit(f'Missing {esp}. Build it with: {esp_command} (needs mtools).')
 cmd = command(memory=args.memory, disk=BUILD / 'nuvora-store.img', cpu=args.cpu, machine=args.machine,
               kernel=not args.uefi, esp=esp if args.uefi else None, disk_bus=args.disk_bus,
               resolution=args.resolution)

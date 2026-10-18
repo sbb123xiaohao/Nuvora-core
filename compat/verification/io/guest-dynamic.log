@@ -1,0 +1,176 @@
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] OOM rollback: zero through four available pages, no leaks
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] restored /home generation 1
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 63 MiB managed RAM, 10140 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora recovery console / local sign-in required
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/ :: compat /home/dynamic.elf
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 2 exited 0
+
+C:/ :: compat /home/dynamic.elf --exec
+EXEC PASS: argv0, quoted/empty-safe arguments, exact environment, AT_EXECFN, failure preservation and CLOEXEC
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 3 exited 0
+
+C:/ :: compat /home/dynamic.elf --guard-check
+GUARD PASS: sparse 16 GiB reservation, retained protected-page data and read-only file snapshot
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 4 exited 0
+
+C:/ :: compat /home/dynamic.elf --signal-check
+SIGNAL PASS: masked self signal, alternate stack, SIGILL context recovery and XMM restoration
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 5 exited 0
+
+C:/ :: compat /home/dynamic.elf --thread-check
+THREAD PASS: pthread TLS/DSO TLS, mutex/condition, join and targeted signal delivery
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 6 exited 0
+
+C:/ :: compat /home/dynamic.elf --sleep-check
+SLEEP PASS: targeted signal interrupts nanosleep despite SA_RESTART, valid remainder, ignored SIGCHLD and successful sleep preservation
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 10 exited 0
+
+C:/ :: compat /home/dynamic.elf --io-check
+IO PASS: malformed vectors leave files untouched, real short I/O, empty-vector access checks, negative pread and closed descriptors
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 12 exited 0
+
+C:/ :: compat /home/dynamic.elf --jit-check
+W^X DEFAULT PASS
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 13 exited 0
+
+C:/ :: compat --jit /home/dynamic.elf --jit-check
+JIT OPT IN PASS: generated x86-64 code executed
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 14 exited 0
+
+C:/ :: horizon
+RAM managed: 65016 KiB; free: 40420 KiB
+Kernel heap: 5859648 / 8388608 bytes
+Tasks: 1; filesystem nodes: 35; uptime: 41 s
+Data disk ready; committed generation: 1
+
+C:/ :: compat /home/dynamic.elf --exec
+EXEC PASS: argv0, quoted/empty-safe arguments, exact environment, AT_EXECFN, failure preservation and CLOEXEC
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 15 exited 0
+
+C:/ :: compat /home/dynamic.elf --signal-check
+SIGNAL PASS: masked self signal, alternate stack, SIGILL context recovery and XMM restoration
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 16 exited 0
+
+C:/ :: compat /home/dynamic.elf --thread-check
+THREAD PASS: pthread TLS/DSO TLS, mutex/condition, join and targeted signal delivery
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 17 exited 0
+
+C:/ :: compat /home/dynamic.elf --sleep-check
+SLEEP PASS: targeted signal interrupts nanosleep despite SA_RESTART, valid remainder, ignored SIGCHLD and successful sleep preservation
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 21 exited 0
+
+C:/ :: compat /home/dynamic.elf --io-check
+IO PASS: malformed vectors leave files untouched, real short I/O, empty-vector access checks, negative pread and closed descriptors
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 23 exited 0
+
+C:/ :: compat /home/dynamic.elf --guard-check
+GUARD PASS: sparse 16 GiB reservation, retained protected-page data and read-only file snapshot
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 24 exited 0
+
+C:/ :: compat /home/dynamic.elf --exec
+EXEC PASS: argv0, quoted/empty-safe arguments, exact environment, AT_EXECFN, failure preservation and CLOEXEC
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 25 exited 0
+
+C:/ :: compat /home/dynamic.elf --signal-check
+SIGNAL PASS: masked self signal, alternate stack, SIGILL context recovery and XMM restoration
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 26 exited 0
+
+C:/ :: compat /home/dynamic.elf --thread-check
+THREAD PASS: pthread TLS/DSO TLS, mutex/condition, join and targeted signal delivery
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 27 exited 0
+
+C:/ :: compat /home/dynamic.elf --sleep-check
+SLEEP PASS: targeted signal interrupts nanosleep despite SA_RESTART, valid remainder, ignored SIGCHLD and successful sleep preservation
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 31 exited 0
+
+C:/ :: compat /home/dynamic.elf --io-check
+IO PASS: malformed vectors leave files untouched, real short I/O, empty-vector access checks, negative pread and closed descriptors
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 33 exited 0
+
+C:/ :: compat /home/dynamic.elf --guard-check
+GUARD PASS: sparse 16 GiB reservation, retained protected-page data and read-only file snapshot
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 34 exited 0
+
+C:/ :: compat /home/dynamic.elf --exec
+EXEC PASS: argv0, quoted/empty-safe arguments, exact environment, AT_EXECFN, failure preservation and CLOEXEC
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 35 exited 0
+
+C:/ :: compat /home/dynamic.elf --signal-check
+SIGNAL PASS: masked self signal, alternate stack, SIGILL context recovery and XMM restoration
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 36 exited 0
+
+C:/ :: compat /home/dynamic.elf --thread-check
+THREAD PASS: pthread TLS/DSO TLS, mutex/condition, join and targeted signal delivery
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 37 exited 0
+
+C:/ :: compat /home/dynamic.elf --sleep-check
+SLEEP PASS: targeted signal interrupts nanosleep despite SA_RESTART, valid remainder, ignored SIGCHLD and successful sleep preservation
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 41 exited 0
+
+C:/ :: compat /home/dynamic.elf --io-check
+IO PASS: malformed vectors leave files untouched, real short I/O, empty-vector access checks, negative pread and closed descriptors
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 43 exited 0
+
+C:/ :: compat /home/dynamic.elf --guard-check
+GUARD PASS: sparse 16 GiB reservation, retained protected-page data and read-only file snapshot
+DYNAMIC PASS: real musl linker, shared-library relocation, TLS, constructor, dlsym and dlclose
+Process 44 exited 0
+
+C:/ :: horizon
+RAM managed: 65016 KiB; free: 40420 KiB
+Kernel heap: 5859648 / 8388608 bytes
+Tasks: 1; filesystem nodes: 35; uptime: 111 s
+Data disk ready; committed generation: 1
+
+C:/ :: java --self-test
+JAVA21 GUEST PASS: real class bytes, objects, arrays, strings and arithmetic
+Process 45 exited 74
+
+C:/ :: rest
+
+Nuvora Core halted.

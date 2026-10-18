@@ -1,0 +1,14 @@
+{
+  "native_esp_sha256": "78c86e952ff989216af7c3cdd2b7b4c62f82bf8d968e17e17a29e94b5401543a",
+  "native_usb_embedded_esp_sha256": "78c86e952ff989216af7c3cdd2b7b4c62f82bf8d968e17e17a29e94b5401543a",
+  "esp_bytes": 67108864,
+  "media_bytes": 69206016,
+  "same_payload": true,
+  "native_executables_unchanged": {
+    "build/x86_64-native/nuvora.elf": "6e36f4fca66afe4e2765a49c34d9cce089e1c5da8c3aee4e19847895d4adec44",
+    "build/x86_64-native/boot-test.elf": "ff50ee8a0700ca6cce5900f6661008a6bdf82312f90aeab453ea468767f74ab1",
+    "build/x86_64-native/nuvora-uefi.elf": "0f8cf47349e48fcd8a7893f1e2288920893de4604f02fc00baf9b0e8d6b810e1",
+    "build/x86_64-native/nuvora-uefi-test.elf": "8ccf1ee9300a29e2e6e9788dde054535e81556d5f632408a9288e55d0a74d9a9",
+    "build/x86_64-native/BOOTX64.EFI": "8ed04f3974dc90434fd1db7f3069dcebea644198859975f22063e625fbc0e3ca"
+  }
+}

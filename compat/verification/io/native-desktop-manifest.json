@@ -1,0 +1,25 @@
+{
+  "capture": "production UEFI / q35 / 256 MiB / NVMe / USB keyboard",
+  "kernel_sha256": "0f8cf47349e48fcd8a7893f1e2288920893de4604f02fc00baf9b0e8d6b810e1",
+  "esp_sha256": "78c86e952ff989216af7c3cdd2b7b4c62f82bf8d968e17e17a29e94b5401543a",
+  "images": [
+    {
+      "file": "1280x800/maximized.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "c4f458b2e20aaeebfabef7b8cab90bf7b6659f78b67e6d9890bb9e239efe85dd"
+    },
+    {
+      "file": "1280x800/half-screen.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "9419b67bdd99de742e89a5e78f930d847f8e75fb8625da383ea99128aaf27b2d"
+    },
+    {
+      "file": "1280x800/floating.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "0c24f131e61705498efac1503b6e1a65385a084f8e7d8139ccb90e670339dc9d"
+    }
+  ]
+}

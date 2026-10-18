@@ -1,0 +1,409 @@
+
+Nuvora Core 0.15.0
+x86-64 kernel | private ABI | built from original sources
+
+[ok] CPU AuthenticAMD family 6 model 6; FXSAVE context; 1 CPU online
+[ok] kernel execute protection: SMEP enabled
+[ok] ACPI rev 0 via RSDT, OEM BOCHS; MCFG 0, ECAM 0, rejected 0
+[ok] GDT, TSS, IDT, PIT 100 Hz, supervisor paging
+[ok] OOM rollback: zero through four available pages, no leaks
+[ok] physical pages, heap coalescing, page permissions
+[ok] ramfs, devfs, proc views, embedded ELF programs
+[store] restored /home generation 2
+[ok] PCI display discovery: 1 adapter(s), 0 omitted
+[audio] no HDA controller
+[net] 0 PCI network device(s), physical wired driver unavailable
+[ok] PCI USB discovery: 0 controller(s)
+[ok] 511 MiB managed RAM, 124300 free pages
+[ok] entering Ring 3: /apps/loom, pid 1
+
+Nuvora recovery console / local sign-in required
+Loom / Nuvora command environment
+Type help for all commands; NAME --help explains one command.
+
+C:/ :: compat --jit /home/jdk/bin/java -Xint -Xmx32m -XX:+UseSerialGC -XX:ActiveProcessorCount=1 -XX:-UsePerfData -XX:-UseCompressedOops -XX:-UseCompressedClassPointers -version
+openjdk version "21.0.11" 2026-04-21
+OpenJDK Runtime Environment (build 21.0.11+10-alpine-r0)
+OpenJDK 64-Bit Server VM (build 21.0.11+10-alpine-r0, interpreted mode)
+Process 2 exited 0
+
+C:/ :: compat --jit /home/jdk/bin/java @/home/java-check.args
+OPENJDK NIO DIRECTORY AND ENTROPY PASS
+OPENJDK JAVA PASS: threads, atomics, latch, join, BigInteger, SHA-256, NIO, clocks and GC
+sum=200020000 epochMillis=1792302822260
+Process 12 exited 0
+
+C:/ :: unfold /home/jvm-proof.txt
+Real OpenJDK 21 on Nuvora: threads=4 sum=200020000
+
+C:/ :: horizon
+RAM managed: 523732 KiB; free: 497060 KiB
+Kernel heap: 5881344 / 8388608 bytes
+Tasks: 1; filesystem nodes: 172; uptime: 4 s
+Data disk ready; committed generation: 2
+
+C:/ :: compat --jit /home/jdk/bin/java @/home/java-check.args
+OPENJDK NIO DIRECTORY AND ENTROPY PASS
+OPENJDK JAVA PASS: threads, atomics, latch, join, BigInteger, SHA-256, NIO, clocks and GC
+sum=200020000 epochMillis=1792302825300
+Process 27 exited 0
+
+C:/ :: horizon
+RAM managed: 523732 KiB; free: 497060 KiB
+Kernel heap: 5881344 / 8388608 bytes
+Tasks: 1; filesystem nodes: 172; uptime: 7 s
+Data disk ready; committed generation: 2
+
+C:/ :: compat --jit /home/jdk/bin/java @/home/java-jit.args
+1019    1    b  3       java.lang.String::isLatin1 (19 bytes)
+1119    2    b  3       jdk.internal.util.ArraysSupport::signedHashCode (37 bytes)
+1179    3    b  3       java.lang.Object::<init> (1 bytes)
+1249    4     n 0       jdk.internal.misc.Unsafe::getReferenceVolatile (native)
+1279    5    b  3       java.lang.String::hashCode (60 bytes)
+1299    6    b  3       jdk.internal.util.ArraysSupport::vectorizedHashCode (158 bytes)
+1319    7    b  3       java.lang.StringLatin1::hashCode (52 bytes)
+1329    8    b  3       java.lang.Math::floorMod (20 bytes)
+1329    9    b  3       java.util.ImmutableCollections$SetN::probe (56 bytes)
+1349   10    b  3       java.lang.String::equals (56 bytes)
+1379   11    b  3       java.lang.StringLatin1::equals (36 bytes)
+1389   12    b  3       java.util.Objects::equals (23 bytes)
+1389   13    b  4       java.lang.Object::<init> (1 bytes)
+1409    3       3       java.lang.Object::<init> (1 bytes)   made not entrant
+1409   14    b  4       jdk.internal.util.ArraysSupport::signedHashCode (37 bytes)
+1519    2       3       jdk.internal.util.ArraysSupport::signedHashCode (37 bytes)   made not entrant
+1519   15    b  3       java.lang.module.ModuleDescriptor$Exports::<init> (20 bytes)
+1529   16    b  3       java.lang.module.ModuleDescriptor::modsHashCode (43 bytes)
+1539   17    b  3       java.util.Set::of (4 bytes)
+1539   18    b  3       java.util.ImmutableCollections$SetN::iterator (9 bytes)
+1539   19    b  3       java.util.ImmutableCollections$SetN$SetNIterator::hasNext (13 bytes)
+1539   20    b  3       java.lang.module.ModuleDescriptor$Exports::hashCode (36 bytes)
+1549   21    b  3       java.util.Objects::requireNonNull (14 bytes)
+1559   22    b  3       java.util.AbstractCollection::<init> (5 bytes)
+1559   23    b  3       java.util.ImmutableCollections$AbstractImmutableCollection::<init> (5 bytes)
+1559   24    b  3       java.util.ImmutableCollections$AbstractImmutableSet::<init> (5 bytes)
+1569   25    b  3       java.util.Set::of (68 bytes)
+1589   26    b  3       java.lang.String::coder (15 bytes)
+1589   27    b  1       java.lang.module.ModuleDescriptor::name (5 bytes)
+1589   28    b  3       java.lang.String::length (11 bytes)
+1599   29     n 0       java.lang.System::arraycopy (native)   (static)
+1599   30    b  3       java.lang.String::charAt (25 bytes)
+1609   31    b  3       jdk.internal.util.Preconditions::checkIndex (18 bytes)
+1609   32    b  1       java.lang.module.ModuleReference::descriptor (5 bytes)
+1689   33     n 0       jdk.internal.misc.Unsafe::compareAndSetLong (native)
+1689   34     n 0       jdk.internal.misc.Unsafe::compareAndSetReference (native)
+1699   35    b  3       java.util.concurrent.ConcurrentHashMap::tabAt (22 bytes)
+1709   36    b  3       java.util.concurrent.ConcurrentHashMap::spread (10 bytes)
+1709   37    b  3       java.util.ImmutableCollections$SetN$SetNIterator::next (90 bytes)
+1719   38    b  1       java.util.KeyValueHolder::getKey (5 bytes)
+1729   39    b  1       java.util.KeyValueHolder::getValue (5 bytes)
+1729   40    b  3       java.util.KeyValueHolder::<init> (21 bytes)
+1739   41    b  3       java.util.ImmutableCollections$MapN::probe (60 bytes)
+1749   42    b  3       java.util.ImmutableCollections$SetN$SetNIterator::<init> (36 bytes)
+1749   43    b  3       java.util.ImmutableCollections$MapN::get (35 bytes)
+1749   44     n 0       java.lang.Object::hashCode (native)
+1759   45    b  3       jdk.internal.module.ModuleReferenceImpl::hashCode (56 bytes)
+1769   46   !b  3       java.util.concurrent.ConcurrentHashMap::putVal (432 bytes)
+1809   47    b  3       java.util.concurrent.ConcurrentHashMap::putIfAbsent (8 bytes)
+1809   48    b  3       java.util.HashMap::hash (20 bytes)
+1819   49    b  3       java.util.concurrent.ConcurrentHashMap::addCount (280 bytes)
+1829   50    b  3       java.util.concurrent.ConcurrentHashMap::casTabAt (21 bytes)
+1849   51    b  3       java.lang.String::getBytes (44 bytes)
+1869   52    b  3       java.util.HashMap::putVal (300 bytes)
+1879   53    b  3       java.lang.module.ResolvedModule::name (11 bytes)
+1879   54    b  1       java.lang.module.ResolvedModule::reference (5 bytes)
+1879   55    b  3       java.util.ImmutableCollections$Set12$1::hasNext (13 bytes)
+1889   56    b  3       java.util.HashMap$Node::<init> (26 bytes)
+1899   57    b  3       java.util.HashMap::put (13 bytes)
+1899   58    b  3       java.util.HashMap::getNode (150 bytes)
+1909   59    b  3       java.util.HashMap::get (19 bytes)
+1909   60    b  3       java.util.HashMap::newNode (13 bytes)
+1919   61    b  1       java.lang.module.ModuleDescriptor$Exports::source (5 bytes)
+1929   62     n 0       java.lang.Module::addExports0 (native)   (static)
+1939   63    b  3       java.util.HashSet::add (20 bytes)
+1939   64    b  3       java.util.ImmutableCollections$Set12$1::next (95 bytes)
+1939   65     n 0       java.lang.Module::addExportsToAll0 (native)   (static)
+1949   66    b  3       java.lang.module.ModuleDescriptor$Exports::isQualified (18 bytes)
+1949   67    b  3       java.lang.module.ResolvedModule::hashCode (16 bytes)
+1959   68    b  1       java.lang.module.ModuleDescriptor::isAutomatic (5 bytes)
+1959   69    b  3       java.util.ImmutableCollections$SetN::isEmpty (13 bytes)
+1969   70    b  3       java.util.AbstractMap::<init> (5 bytes)
+1969   71    b  3       java.util.ImmutableCollections$Set12::iterator (9 bytes)
+1979   72    b  1       java.lang.module.ModuleDescriptor$Exports::targets (5 bytes)
+1979   73    b  3       java.util.HashMap::<init> (11 bytes)
+1989   74    b  3       java.util.HashMap::resize (356 bytes)
+1999   75    b  1       java.lang.module.ResolvedModule::configuration (5 bytes)
+1999   76     n 0       java.lang.Module::addReads0 (native)   (static)
+2009   77    b  1       java.util.ImmutableCollections$Set12::isEmpty (2 bytes)
+2129   78    b  3       java.lang.Math::min (11 bytes)
+2319   52       3       java.util.HashMap::putVal (300 bytes)   made not entrant
+2319   57       3       java.util.HashMap::put (13 bytes)   made not entrant
+2319   59       3       java.util.HashMap::get (19 bytes)   made not entrant
+2319   63       3       java.util.HashSet::add (20 bytes)   made not entrant
+2319   73       3       java.util.HashMap::<init> (11 bytes)   made not entrant
+2339   79    b  3       java.lang.String::isEmpty (14 bytes)
+2449   80    b  3       java.lang.StringLatin1::indexOfChar (33 bytes)
+2509   81     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLLLLLL)L (native)   (static)
+2529   82     n 0       java.lang.Class::isPrimitive (native)
+2539   83     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLLL)V (native)   (static)
+2579   84    b  3       java.lang.AbstractStringBuilder::ensureCapacityInternal (39 bytes)
+2589   85    b  3       java.lang.Math::max (11 bytes)
+2619   86     n 0       java.lang.invoke.MethodHandle::invokeBasic(LLLLLL)L (native)
+2619   87     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLLLL)L (native)   (static)
+2629   88    b  1       java.lang.Enum::ordinal (5 bytes)
+2659   89     n 0       java.lang.Object::clone (native)
+2659   90     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLLLL)V (native)   (static)
+2669   91    b  1       jdk.internal.util.StrongReferenceKey::get (5 bytes)
+2669   92     n 0       java.lang.invoke.MethodHandle::invokeBasic(LLL)L (native)
+2669   93     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLLLL)L (native)   (static)
+2679   94    b  1       java.lang.module.ModuleDescriptor::isOpen (5 bytes)
+2679   95     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLLLLL)L (native)   (static)
+2689   96     n 0       java.lang.Class::isArray (native)
+2689   97    b  3       java.util.concurrent.ConcurrentHashMap::get (162 bytes)
+2709   98     n 0       java.lang.invoke.MethodHandle::invokeBasic(LLLLL)L (native)
+2709   99     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLLLLLL)L (native)   (static)
+2719  100     n 0       java.lang.invoke.MethodHandle::linkToStatic(LJL)L (native)   (static)
+2719  101    b  1       java.lang.invoke.MethodType::returnType (5 bytes)
+2729  102    b  3       java.lang.ref.ReferenceQueue::headIsNull (13 bytes)
+2739  103    b  3       java.lang.invoke.MethodTypeForm::canonicalize (74 bytes)
+2739  104    b  3       jdk.internal.util.ReferencedKeyMap::removeStaleReferences (30 bytes)
+2749  105   !b  3       java.lang.ref.NativeReferenceQueue::poll (28 bytes)
+2769  106    b  3       java.util.concurrent.ConcurrentHashMap$Node::<init> (20 bytes)
+2769  107     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLL)L (native)   (static)
+2779  108     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLLL)L (native)   (static)
+2789  109    b  3       java.util.Objects::requireNonNull (15 bytes)
+2799  110     n 0       java.lang.invoke.MethodHandle::invokeBasic(LJ)L (native)
+2799  111     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLJL)L (native)   (static)
+2799  112    b  3       java.lang.invoke.MethodType::hashCode (53 bytes)
+2809  113    b  3       jdk.internal.util.ReferencedKeyMap::lookupKey (9 bytes)
+2809  114    b  3       jdk.internal.util.StrongReferenceKey::hashCode (8 bytes)
+2829  115    b  3       java.lang.AbstractStringBuilder::isLatin1 (19 bytes)
+2839  116     n 0       java.lang.invoke.MethodHandle::linkToStatic(JLILL)J (native)   (static)
+2839  117     n 0       java.lang.invoke.MethodHandle::invokeBasic(JLIL)J (native)
+2839  118     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJLILL)J (native)   (static)
+2849  119    b  1       java.lang.invoke.MemberName::getDeclaringClass (5 bytes)
+2849  120    b  3       java.lang.invoke.MethodType::checkSlotCount (33 bytes)
+2859  121     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLLLL)L (native)   (static)
+2869  122    b  3       java.lang.invoke.MethodType::parameterType (7 bytes)
+2869  123    b  1       java.lang.AbstractStringBuilder::length (5 bytes)
+2879  124     n 0       java.lang.invoke.MethodHandle::invokeBasic(LLLL)L (native)
+2879  125    b  1       java.lang.invoke.MethodType::ptypes (5 bytes)
+2879  126    b  1       java.lang.AbstractStringBuilder::getValue (5 bytes)
+2889  127    b  4       java.lang.String::hashCode (60 bytes)
+2909    5       3       java.lang.String::hashCode (60 bytes)   made not entrant
+2919  128    b  3       java.lang.StringLatin1::canEncode (17 bytes)
+2919  129    b  3       java.util.Arrays::copyOfRange (25 bytes)
+2929  130     n 0       java.lang.invoke.MethodHandle::invokeBasic(JLI)J (native)
+2929  131    b  3       java.lang.invoke.MemberName::isInvocable (8 bytes)
+2939  132     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJLIL)J (native)   (static)
+2939  133    b  3       java.lang.AbstractStringBuilder::putStringAt (19 bytes)
+2949  134    b  3       java.lang.StringBuilder::append (8 bytes)
+2949  135    b  3       java.lang.AbstractStringBuilder::append (45 bytes)
+2949  136    b  3       jdk.internal.org.objectweb.asm.SymbolTable::get (13 bytes)
+2959  137    b  3       jdk.internal.util.ReferencedKeyMap::get (10 bytes)
+2969  138     n 0       java.lang.invoke.MethodHandle::linkToStatic(JL)L (native)   (static)
+2979  139     n 0       java.lang.invoke.MethodHandle::invokeBasic(J)L (native)
+2979  140     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJL)L (native)   (static)
+2979  141    b  1       java.lang.invoke.MethodType::form (5 bytes)
+2989  142    b  3       jdk.internal.org.objectweb.asm.SymbolTable::hash (10 bytes)
+2989  143    b  3       jdk.internal.org.objectweb.asm.ByteVector::putUTF8 (144 bytes)
+2999  144    b  3       jdk.internal.org.objectweb.asm.Symbol::<init> (38 bytes)
+3009  145    b  3       jdk.internal.org.objectweb.asm.SymbolTable::put (150 bytes)
+3019  146     n 0       java.lang.invoke.MethodHandle::linkToStatic(JIL)J (native)   (static)
+3019  147    b  3       java.lang.invoke.LambdaForm::argument (27 bytes)
+3029  148     n 0       java.lang.invoke.MethodHandle::invokeBasic(JI)J (native)
+3029  149     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJIL)J (native)   (static)
+3029  150    b  3       java.lang.invoke.LambdaForm$BasicType::basicType (187 bytes)
+3039  151    b  3       java.lang.Number::<init> (5 bytes)
+3049  152    b  3       java.lang.Long::<init> (10 bytes)
+3049  153     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLLJL)L (native)   (static)
+3059  154    b  3       java.lang.Class::getClassLoader (28 bytes)
+3059  155    b  3       java.lang.invoke.LambdaForm$BasicType::basicType (8 bytes)
+3069  156    b  3       java.util.Objects::hashCode (13 bytes)
+3069  157    b  1       jdk.internal.util.WeakReferenceKey::hashCode (5 bytes)
+3079  158     n 0       java.lang.invoke.MethodHandle::invokeBasic(LLLJ)L (native)
+3079  159    b  3       jdk.internal.org.objectweb.asm.ByteVector::putShort (52 bytes)
+3089  160     n 0       java.lang.invoke.MethodHandle::invokeBasic(I)J (native)
+3089  161     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LIL)J (native)   (static)
+3099  162    b  3       java.lang.invoke.LambdaForm$Name::initIndex (26 bytes)
+3099  163    b  3       jdk.internal.org.objectweb.asm.SymbolTable$Entry::<init> (17 bytes)
+3109  164    b  3       jdk.internal.org.objectweb.asm.ByteVector::putByte (39 bytes)
+3109  165    b  1       java.lang.invoke.MethodTypeForm::parameterSlotCount (5 bytes)
+3119  166    b  3       jdk.internal.org.objectweb.asm.SymbolTable::addConstantUtf8 (98 bytes)
+3129  167    b  3       java.lang.invoke.MemberName::allFlagsSet (16 bytes)
+3129  168     n 0       java.lang.Class::isAssignableFrom (native)
+3129  169     n 0       java.lang.invoke.MethodHandle::invokeBasic(I)L (native)
+3139  170    b  3       java.lang.invoke.MethodType::checkPtypes (76 bytes)
+3139  171     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LIL)L (native)   (static)
+3169  172     n 0       jdk.internal.misc.Unsafe::getLongVolatile (native)
+3199  175    b  3       java.util.concurrent.atomic.AtomicLong::addAndGet (14 bytes)
+3199  173    b  2       jdk.internal.misc.Unsafe::getAndAddLong (27 bytes)
+3199  174    b  2       jdk.internal.misc.Unsafe::weakCompareAndSetLong (11 bytes)
+3219  176    b  4       java.util.concurrent.atomic.AtomicLong::addAndGet (14 bytes)
+3229  175       3       java.util.concurrent.atomic.AtomicLong::addAndGet (14 bytes)   made not entrant
+3269  177     n 0       java.lang.invoke.MethodHandle::linkToStatic(L)L (native)   (static)
+3269  178    b  3       java.lang.invoke.MethodType::makeImpl (109 bytes)
+3289  179     n 0       java.lang.invoke.MethodHandleNatives::resolve (native)   (static)
+3289  180    b  3       java.lang.invoke.MemberName::initResolved (53 bytes)
+3299  181     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LL)V (native)   (static)
+3299  182     n 0       java.lang.invoke.MethodHandle::invokeBasic()L (native)
+3299  183     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LL)L (native)   (static)
+3309  184    b  3       java.lang.StringLatin1::canEncode (13 bytes)
+3309  185    b  3       java.lang.String::<init> (15 bytes)
+3319  186    b  3       java.lang.String::indexOf (37 bytes)
+3349  187     n 0       jdk.internal.misc.Unsafe::putReferenceVolatile (native)
+3369  188 %  b  3       java.util.Properties$LineReader::readLine @ 224 (584 bytes)
+3389  189    b  3       java.util.Properties$LineReader::readLine (584 bytes)
+3429  190    b  3       java.lang.CharacterDataLatin1::toLowerCase (44 bytes)
+3439  191    b  3       java.util.HashMap::putVal (300 bytes)
+3439  192    b  3       java.util.HashMap::afterNodeInsertion (1 bytes)
+3509  193    b  3       java.lang.Enum::<init> (15 bytes)
+3519  194    b  1       java.lang.Enum::name (5 bytes)
+3529  195    b  3       jdk.internal.misc.Unsafe::putReferenceRelease (9 bytes)
+3539  196    b  3       java.util.concurrent.ConcurrentHashMap::setTabAt (20 bytes)
+3549  197    b  3       java.lang.CharacterDataLatin1::getProperties (11 bytes)
+3549  198    b  3       java.lang.CharacterDataLatin1::toUpperCaseEx (71 bytes)
+3569  199    b  4       java.util.concurrent.ConcurrentHashMap::casTabAt (21 bytes)
+3589   50       3       java.util.concurrent.ConcurrentHashMap::casTabAt (21 bytes)   made not entrant
+3599  200    b  3       java.util.concurrent.ConcurrentHashMap::put (8 bytes)
+3599  201    b  1       sun.util.locale.BaseLocale::getLanguage (5 bytes)
+3609  202    b  1       sun.security.util.KnownOIDs::registerNames (2 bytes)
+3619  203    b  3       java.lang.StringLatin1::toUpperCase (186 bytes)
+3629  204    b  4       jdk.internal.misc.Unsafe::putReferenceRelease (9 bytes)
+3639  195       3       jdk.internal.misc.Unsafe::putReferenceRelease (9 bytes)   made not entrant
+3639  205    b  4       java.util.concurrent.ConcurrentHashMap::tabAt (22 bytes)
+3649   35       3       java.util.concurrent.ConcurrentHashMap::tabAt (22 bytes)   made not entrant
+3659  206    b  3       java.lang.String::toUpperCase (29 bytes)
+3659  207    b  3       java.util.Objects::nonNull (10 bytes)
+3659  208    b  3       sun.security.util.KnownOIDs::register (349 bytes)
+3689  209    b  3       java.util.HashMap::put (13 bytes)
+3699  210    b  3       java.util.Locale::getLanguage (8 bytes)
+3699  211     n 0       java.lang.Object::getClass (native)
+3699  212    b  3       java.util.HashMap::get (19 bytes)
+3709  213    b  1       java.util.HashMap$Node::getKey (5 bytes)
+3709  214    b  1       java.util.HashMap$Node::getValue (5 bytes)
+3719  215    b  3       java.lang.StringBuilder::length (5 bytes)
+3719  216    b  3       java.lang.AbstractStringBuilder::<init> (39 bytes)
+3729  217    b  3       java.lang.StringBuilder::toString (9 bytes)
+3729  218    b  3       java.lang.String::<init> (7 bytes)
+3729  219    b  3       java.lang.String::<init> (98 bytes)
+3749  220     n 0       jdk.internal.misc.Unsafe::compareAndSetInt (native)
+3749  221    b  3       java.lang.StringBuilder::<init> (7 bytes)
+3749  222    b  3       jdk.internal.util.ArraysSupport::newLength (27 bytes)
+3759  223    b  3       java.lang.AbstractStringBuilder::newCapacity (59 bytes)
+3759  224    b  3       java.util.Arrays::copyOf (33 bytes)
+3769  225    b  4       java.lang.CharacterDataLatin1::toUpperCaseEx (71 bytes)
+3779  198       3       java.lang.CharacterDataLatin1::toUpperCaseEx (71 bytes)   made not entrant
+3779  226     n 0       java.lang.String::intern (native)
+3779  227    b  3       java.util.HashMap$HashIterator::hasNext (13 bytes)
+3789  228    b  3       java.util.AbstractSet::<init> (5 bytes)
+3789  229  s b  3       java.util.Properties::put (10 bytes)
+3809  230     n 0       java.lang.Class::isInterface (native)
+3869  231    b  3       java.lang.ref.Reference::<init> (25 bytes)
+3879  232    b  3       sun.invoke.util.VerifyAccess::isTypeVisible (118 bytes)
+3889  233     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLIIL)V (native)   (static)
+3889  234    b  1       sun.invoke.util.Wrapper::basicTypeChar (5 bytes)
+3889  235    b  1       java.lang.invoke.MethodTypeForm::erasedType (5 bytes)
+3889  236     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLIL)I (native)   (static)
+3899  237    b  3       java.lang.Integer::rotateRight (9 bytes)
+3909  238     n 0       java.lang.invoke.MethodHandle::linkToStatic(JLJLL)J (native)   (static)
+3909  239     n 0       java.lang.invoke.MethodHandle::invokeBasic(JLJL)J (native)
+3919  240     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJLJLL)J (native)   (static)
+3919  241    b  3       java.lang.invoke.MethodType::parameterCount (6 bytes)
+3929  242     n 0       java.lang.invoke.MethodHandle::invokeBasic(JLJ)J (native)
+3929  243     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJLJL)J (native)   (static)
+3929  244    b  1       java.lang.invoke.LambdaForm$Name::index (5 bytes)
+3939  245    b  3       java.util.Arrays::copyOf (40 bytes)
+3939  246    b  3       jdk.internal.org.objectweb.asm.Frame::execute (2305 bytes)
+3989  247    b  3       java.util.ArrayList$Itr::hasNext (20 bytes)
+3989  248    b  3       java.lang.StringLatin1::indexOf (37 bytes)
+3999  249     n 0       java.lang.invoke.MethodHandle::linkToStatic(JJL)J (native)   (static)
+3999  250    b  3       sun.invoke.util.Wrapper::forPrimitiveType (122 bytes)
+4009  251     n 0       java.lang.invoke.MethodHandle::invokeBasic(JJ)J (native)
+4009  252     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJJL)J (native)   (static)
+4019  253    b  3       java.lang.invoke.LambdaForm::internArgument (85 bytes)
+4019  254     n 0       java.lang.invoke.MethodHandle::invokeBasic(J)J (native)
+4029  255     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJL)J (native)   (static)
+4029  256    b  1       java.lang.invoke.LambdaForm$BasicType::basicTypeClass (5 bytes)
+4039  257    b  3       java.lang.System::getSecurityManager (12 bytes)
+4039  258    b  3       java.lang.System::allowSecurityManager (13 bytes)
+4109  259    b  3       java.lang.StringCoding::countPositives (33 bytes)
+4129  260     n 0       java.lang.Thread::currentCarrierThread (native)   (static)
+4139  261     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLL)V (native)   (static)
+4149  262    b  3       java.lang.invoke.LambdaForm$Name::<init> (66 bytes)
+4149  263    b  3       java.lang.invoke.LambdaForm::parameter (38 bytes)
+4149  264     n 0       java.lang.invoke.MethodHandle::invokeBasic(L)L (native)
+4159  265     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLL)L (native)   (static)
+4169  266     n 0       java.lang.invoke.MethodHandle::invokeBasic(LL)L (native)
+4169  267    b  3       java.lang.invoke.MemberName::isConstructor (8 bytes)
+4169  268     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LLLL)L (native)   (static)
+4179  269    b  3       java.lang.invoke.LambdaForm$NamedFunction::methodType (28 bytes)
+4179  270    b  3       java.lang.invoke.MethodType::methodType (69 bytes)
+4189  271    b  3       jdk.internal.org.objectweb.asm.ByteVector::put12 (64 bytes)
+4199  272    b  3       jdk.internal.org.objectweb.asm.Frame::push (109 bytes)
+4199  273    b  3       jdk.internal.util.Preconditions::checkFromToIndex (24 bytes)
+4209  274    b  3       java.lang.invoke.LambdaForm::parameterType (9 bytes)
+4219  275    b  3       java.lang.Integer::rotateLeft (9 bytes)
+4219  276    b  3       java.lang.String::checkBoundsBeginEnd (11 bytes)
+OPENJDK NIO DIRECTORY AND ENTROPY PASS
+4279  277    b  3       JavaRuntimeCheck::hot (15 bytes)
+4289  278    b  4       JavaRuntimeCheck::hot (15 bytes)
+4289  277       3       JavaRuntimeCheck::hot (15 bytes)   made not entrant
+4299  279 % !b  3       JavaRuntimeCheck::main @ 784 (870 bytes)
+4389  280   !b  3       JavaRuntimeCheck::main (870 bytes)
+4469  281 % !b  4       JavaRuntimeCheck::main @ 784 (870 bytes)
+4499  279 % !   3       JavaRuntimeCheck::main @ 784 (870 bytes)   made not entrant
+4519  281 % !   4       JavaRuntimeCheck::main @ 784 (870 bytes)   made not entrant
+4519  282    b  3       java.lang.String::substring (58 bytes)
+4539  283    b  3       java.lang.StringBuilder::append (8 bytes)
+4539  284    b  3       java.lang.AbstractStringBuilder::append (77 bytes)
+4549  285    b  1       java.lang.invoke.MethodHandle::type (5 bytes)
+4549  286    b  3       java.lang.invoke.MethodType::parameterSlotCount (8 bytes)
+HOTSPOT JIT PASS checksum=dc9889355911c47f
+OPENJDK JAVA PASS: threads, atomics, latch, join, BigInteger, SHA-256, NIO, clocks and GC
+4559  287    b  4       jdk.internal.org.objectweb.asm.SymbolTable::get (13 bytes)
+4569  136       3       jdk.internal.org.objectweb.asm.SymbolTable::get (13 bytes)   made not entrant
+4579  288    b  1       java.lang.invoke.LambdaForm$Name::type (5 bytes)
+4589  289    b  3       java.lang.invoke.MemberName::getReferenceKind (12 bytes)
+4589  290    b  3       jdk.internal.org.objectweb.asm.SymbolTable::addConstantClass (8 bytes)
+4599  291    b  4       java.lang.String::charAt (25 bytes)
+4609   30       3       java.lang.String::charAt (25 bytes)   made not entrant
+4609  292     n 0       java.lang.invoke.MethodHandle::invokeBasic(JLJJ)J (native)
+4609  293    b  3       java.lang.invoke.MemberName::isResolved (13 bytes)
+4619  294     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJLJJL)J (native)   (static)
+4619  295    b  3       java.lang.invoke.LambdaForm$Name::useCount (51 bytes)
+4619  296    b  3       java.util.Arrays::equals (57 bytes)
+4629  297    b  3       jdk.internal.org.objectweb.asm.ByteVector::put122 (93 bytes)
+4639  298    b  3       jdk.internal.org.objectweb.asm.MethodWriter::visitVarInsn (302 bytes)
+4649  299    b  3       jdk.internal.org.objectweb.asm.SymbolTable::addType (81 bytes)
+4659  300    b  3       java.lang.String::indexOf (7 bytes)
+4659  301    b  3       jdk.internal.org.objectweb.asm.Frame::pop (42 bytes)
+4669  302    b  3       java.lang.ref.WeakReference::<init> (7 bytes)
+4669  303     n 0       java.lang.invoke.MethodHandle::linkToStatic(LLLLJL)L (native)   (static)
+4679  304    b  3       java.lang.reflect.Modifier::isStatic (13 bytes)
+4679  305    b  3       java.lang.invoke.MemberName::isStatic (8 bytes)
+4679  306    b  3       java.lang.invoke.MethodType::equals (25 bytes)
+4689  307    b  3       java.lang.invoke.LambdaForm$NamedFunction::returnType (11 bytes)
+4689  308    b  3       java.lang.invoke.LambdaForm$Name::isParam (13 bytes)
+4699  309     n 0       java.lang.invoke.MethodHandle::invokeBasic(LLLLJ)L (native)
+4699  310    b  3       jdk.internal.util.StrongReferenceKey::equals (28 bytes)
+4709  311    b  3       jdk.internal.org.objectweb.asm.Frame::getLocal (46 bytes)
+4719  312     n 0       java.lang.invoke.MethodHandle::invokeBasic(JJ)L (native)
+4719  313    b  3       java.lang.invoke.MethodType::insertParameterTypes (121 bytes)
+4729  314    b  3       java.lang.invoke.MethodTypeForm::canonicalizeAll (63 bytes)
+4729  315     n 0       java.lang.invoke.MethodHandle::linkToSpecial(LJJL)L (native)   (static)
+4739  316    b  3       jdk.internal.util.ReferencedKeyMap::entryKey (33 bytes)
+sum=200020000 epochMillis=1792302830140
+Process 42 exited 0
+
+C:/ :: compat --jit /home/jdk/bin/java -Xint -Xmx32m -XX:+UseSerialGC -XX:ActiveProcessorCount=1 -XX:-UsePerfData -XX:-UseCompressedOops -XX:-UseCompressedClassPointers MissingClass
+Error: Could not find or load main class MissingClass
+Caused by: java.lang.ClassNotFoundException: MissingClass
+Process 59 exited 1
+
+C:/ :: java --self-test
+JAVA21 GUEST PASS: real class bytes, objects, arrays, strings and arithmetic
+Process 70 exited 74
+
+C:/ :: rest
+
+Nuvora Core halted.

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Build the EFI system partition image for UEFI boot (requires mtools)."""
 import argparse
-import os
 import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-ARCH = os.environ.get('NV_ARCH', 'x86_64')
-BUILD = ROOT / 'build' / ARCH
+try:
+    from .qemu import BUILD
+except ImportError:
+    from qemu import BUILD
 
 
 def main() -> None:

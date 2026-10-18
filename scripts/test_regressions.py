@@ -27,7 +27,7 @@ def main():
             if name == 'net_tools':
                 cmd.insert(cmd.index('-Iinclude'), '-Wno-unused-function')
             subprocess.run(cmd, cwd=ROOT, check=True)
-            args = [str(output)] + ([str(ROOT / 'build/x86_64/nuvora-uefi.elf')] if name == 'uefi' else [])
+            args = [str(output)] + ([str(BUILD / 'nuvora-uefi.elf')] if name == 'uefi' else [])
             if name in ('gpt_disk', 'nvme'):
                 args += [str(disk_image), '128']
             if name == 'media':

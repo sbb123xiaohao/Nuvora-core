@@ -31,8 +31,14 @@ struct linux_stat {
     i64 atime,atime_ns,mtime,mtime_ns,ctime,ctime_ns,reserved[3];
 };
 _Static_assert(sizeof(struct linux_stat)==144,"Linux x86-64 stat");
+static bool linux_fd_valid(u64 fd,u32 access) {
+    if(fd>=NV_OPEN_MAX)return false;
+    if(fd<3)return !(current->compat_state.closed_stdio&(1u<<fd)) &&
+        (((fd==0?NV_READ:NV_WRITE)&access)==access);
+    return current->fd[fd].node>=0 && (current->fd[fd].flags&access)==access;
+}
 static iptr linux_stat_fd(u64 fd,uptr output) {
-    if (fd>=NV_OPEN_MAX || (fd<3 && (current->compat_state.closed_stdio&(1u<<fd)))) return -L_EBADF;
+    if (!linux_fd_valid(fd,0)) return -L_EBADF;
     if (!user_range(current->pd,output,sizeof(struct linux_stat),true)) return -L_EFAULT;
     struct linux_stat out={.nlink=1,.uid=current->uid,.gid=current->uid,.blksize=PAGE};
     if (fd<3) out.mode=0020000|0600;
@@ -99,16 +105,25 @@ static iptr linux_open(uptr name,u64 flags) {
     return linux_error(r);
 }
 static iptr linux_io(bool write,u64 fd,uptr data,u64 count) {
-    if (fd>=NV_OPEN_MAX || (fd<3 && (current->compat_state.closed_stdio&(1u<<fd)))) return -L_EBADF;
+    if (!linux_fd_valid(fd,write?NV_WRITE:NV_READ)) return -L_EBADF;
     u32 bytes=(u32)MIN(count,16384ull);
     if (!user_range(current->pd,data,bytes,!write)) return -L_EFAULT;
     return linux_error(write?fs_write(current,fd,(const void *)data,bytes):fs_read(current,fd,(void *)data,bytes));
 }
 static iptr linux_vectors(bool write,u64 fd,uptr data,u64 count) {
+    if (!linux_fd_valid(fd,write?NV_WRITE:NV_READ)) return -L_EBADF;
     if (count>16) return -L_EINVAL;
+    if (!count) return 0;
     struct { uptr address; u64 length; } vectors[16];
     if (!user_range(current->pd,data,count*sizeof(vectors[0]),false)) return -L_EFAULT;
     memcpy(vectors,(const void *)data,count*sizeof(vectors[0])); iptr total=0;
+    /* Reject malformed ABI lengths and supervisor/overflowing ranges before
+     * any vector can change a file. Unmapped user pages remain short-I/O
+     * faults at the actual transfer, matching Linux's access_ok/copy split. */
+    for (u32 i=0;i<count;++i) {
+        if (vectors[i].length>0x7fffffffffffffffull) return -L_EINVAL;
+        if (vectors[i].address>NV_USER_END || !nv_user_bounds(vectors[i].address,vectors[i].length)) return -L_EFAULT;
+    }
     for (u32 i=0;i<count;++i) {
         if (!vectors[i].length) continue;
         iptr r=linux_io(write,fd,vectors[i].address,vectors[i].length);
@@ -189,7 +204,7 @@ struct frame *linux_dispatch(struct frame *f) {
     case 4: case 6: result=linux_stat_path(a,b);break;
     case 5: result=linux_stat_fd(a,b);break;
     case 8: {
-        if (a>=NV_OPEN_MAX) { result=-L_EBADF;break; }
+        if (!linux_fd_valid(a,0)) { result=-L_EBADF;break; }
         if (a<3) { result=-29;break; }
         if (c>2) { result=-L_EINVAL;break; }
         struct nv_seek64 io={.offset=(i64)b,.origin=c};
@@ -197,7 +212,8 @@ struct frame *linux_dispatch(struct frame *f) {
     }
     case 9: result=linux_map(a,b,c,d,e,g);break;
     case 17: {
-        if(a<3 || a>=NV_OPEN_MAX) {result=-L_EBADF;break;}
+        if((i64)d<0) {result=-L_EINVAL;break;}
+        if(a<3 || !linux_fd_valid(a,NV_READ)) {result=-L_EBADF;break;}
         u32 n=MIN(c,0x7ffff000ull);
         if(!user_range(current->pd,b,n,true)) {result=-L_EFAULT;break;}
         result=linux_error(fs_pread64(current,a,d,(void *)b,n));break;

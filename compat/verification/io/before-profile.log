@@ -1,0 +1,24 @@
+Packaging host regression before repair:
+Created UEFI GPT boot image: /tmp/tmp68asthsu/media.img (3 MiB)
+Traceback (most recent call last):
+  File "/workspace/Nuvora-core/tests/boot_media_test.py", line 123, in <module>
+    main()
+  File "/workspace/Nuvora-core/tests/boot_media_test.py", line 118, in main
+    profile_payloads(pathlib.Path(directory) / 'profiles', payload)
+  File "/workspace/Nuvora-core/tests/boot_media_test.py", line 56, in profile_payloads
+    assert selected.read_bytes() == expected, f'{mode}: ESP used another profile'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: none: ESP used another profile
+
+Production ESP extraction before the packaging repair:
+Traceback (most recent call last):
+  File "/workspace/Nuvora-core/compat/tests/native_independence_test.py", line 65, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "/workspace/Nuvora-core/compat/tests/native_independence_test.py", line 41, in main
+    verify_esp(build)
+    ~~~~~~~~~~^^^^^^^
+  File "/workspace/Nuvora-core/compat/tests/native_independence_test.py", line 29, in verify_esp
+    assert actual == expected, f'Native ESP {path}: expected {expected}, actual {actual}'
+           ^^^^^^^^^^^^^^^^^^
+AssertionError: Native ESP EFI/NUVORA/NUVORA.ELF: expected 0f8cf47349e48fcd8a7893f1e2288920893de4604f02fc00baf9b0e8d6b810e1, actual 9079da31e4fa022872d4e675bc52ee3bf24c8b0aaf48769283536b25e95d34e4

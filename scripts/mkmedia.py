@@ -14,14 +14,15 @@ import zlib
 
 try:
     from .mkgptdisk import _gpt_header
+    from .qemu import BUILD
 except ImportError:
     from mkgptdisk import _gpt_header
+    from qemu import BUILD
 
 SECTOR = 512
 ESP_START = 2048  # 1 MiB alignment
 ENTRIES_SIZE = 128 * 128
 ESP_TYPE = uuid.UUID('c12a7328-f81f-11d2-ba4b-00a0c93ec93b')
-BUILD = pathlib.Path(__file__).resolve().parent.parent / 'build' / 'x86_64'
 
 
 def create(esp: pathlib.Path, output: pathlib.Path) -> None:

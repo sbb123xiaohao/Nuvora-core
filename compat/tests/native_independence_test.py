@@ -6,10 +6,28 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
+import hashlib
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 os.environ['NV_COMPAT']='none'
 sys.path.insert(0,str(ROOT/'scripts'))
 import test
+
+
+def verify_esp(build):
+    # Verify the production payload before VM's diagnostic override can hide a
+    # packager that took its kernel from a different build profile.
+    payloads = {'EFI/BOOT/BOOTX64.EFI': 'BOOTX64.EFI', 'EFI/NUVORA/NUVORA.ELF': 'nuvora-uefi.elf'}
+    if (build / 'uefi-cmdline.txt').is_file():
+        payloads['EFI/NUVORA/CMDLINE'] = 'uefi-cmdline.txt'
+    with tempfile.TemporaryDirectory(prefix='nuvora-native-esp-') as directory:
+        for path, source in payloads.items():
+            target = pathlib.Path(directory) / source
+            subprocess.run(['mcopy', '-i', str(build / 'esp.img'), '::/' + path, str(target)], check=True)
+            actual = hashlib.sha256(target.read_bytes()).hexdigest()
+            expected = hashlib.sha256((build / source).read_bytes()).hexdigest()
+            assert actual == expected, f'Native ESP {path}: expected {expected}, actual {actual}'
+    print('PASS native production ESP: kernel, EFI loader and optional command line match the selected native build', flush=True)
 
 
 def main():
@@ -20,6 +38,7 @@ def main():
     assert not re.search(r'\b(?:linux_|task_linux_)\w*$',symbols,re.M), 'Linux implementation linked into native profile'
     assert not (build/'compat/linux').exists(), 'Native profile unexpectedly compiled Linux objects'
     assert not subprocess.check_output(['nm','-u',str(kernel)]).strip()
+    verify_esp(build)
     archive=(build/'init.nvar').read_bytes();assert archive[:8]==b'NVAR0001'
     count,=struct.unpack_from('<I',archive,8);at=12;apps=[]
     for _ in range(count):

@@ -12,6 +12,8 @@
 #include <stdatomic.h>
 #include <sys/auxv.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #include <ucontext.h>
 #include <time.h>
@@ -61,6 +63,45 @@ static void signal_handler(int signo,siginfo_t *info,void *context) {
 }
 
 int main(int argc,char **argv) {
+    if(argc>=2 && !strcmp(argv[1],"--io-check")) {
+        const char *path="io-boundary.tmp";
+        int fd=open(path,O_CREAT|O_TRUNC|O_RDWR,0600);CHECK(fd>=3);
+        CHECK(write(fd,"abcdef",6)==6 && lseek(fd,0,SEEK_SET)==0);
+        struct iovec vectors[3]={{"Z",1},{"!",SIZE_MAX},{0}};
+        errno=0;long result=syscall(SYS_writev,fd,vectors,2);int error=errno;
+        off_t position=lseek(fd,0,SEEK_CUR);
+        if(result!=-1 || error!=EINVAL || position!=0)
+            printf("IO malformed write observed result=%ld errno=%d offset=%lld\n",result,error,(long long)position);
+        CHECK(result==-1 && error==EINVAL && position==0);
+        vectors[1]=(struct iovec){(void *)(uintptr_t)0xffff800000000000ull,1};
+        errno=0;CHECK(syscall(SYS_writev,fd,vectors,2)==-1 && errno==EFAULT && lseek(fd,0,SEEK_CUR)==0);
+        char bytes[16];memset(bytes,0x55,sizeof(bytes));vectors[0]=(struct iovec){bytes,1};
+        errno=0;CHECK(syscall(SYS_readv,fd,vectors,2)==-1 && errno==EFAULT && bytes[0]==0x55);
+        CHECK(lseek(fd,0,SEEK_CUR)==0 && pread(fd,bytes,6,0)==6 && !memcmp(bytes,"abcdef",6));
+        errno=0;CHECK(pread(fd,bytes,1,-1)==-1 && errno==EINVAL && lseek(fd,0,SEEK_CUR)==0);
+        errno=0;CHECK(syscall(SYS_pread64,-1,bytes,1,-1ll)==-1 && errno==EINVAL);
+        int ro=open(path,O_RDONLY),wo=open(path,O_WRONLY);CHECK(ro>=3 && wo>=3);
+        errno=0;CHECK(syscall(SYS_writev,-1,NULL,0)==-1 && errno==EBADF);
+        errno=0;CHECK(syscall(SYS_readv,-1,NULL,0)==-1 && errno==EBADF);
+        errno=0;CHECK(syscall(SYS_writev,ro,NULL,0)==-1 && errno==EBADF);
+        errno=0;CHECK(syscall(SYS_readv,wo,NULL,0)==-1 && errno==EBADF);
+        vectors[0]=(struct iovec){NULL,0};
+        CHECK(syscall(SYS_writev,fd,vectors,1)==0 && syscall(SYS_readv,fd,NULL,0)==0);
+        errno=0;CHECK(syscall(SYS_writev,ro,vectors,1)==-1 && errno==EBADF);
+        vectors[0]=(struct iovec){(void *)(uintptr_t)~0ull,0};
+        errno=0;CHECK(syscall(SYS_writev,fd,vectors,1)==-1 && errno==EFAULT);
+        void *guard=mmap(NULL,4096,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);CHECK(guard!=MAP_FAILED);
+        vectors[0]=(struct iovec){"Z",1};vectors[1]=(struct iovec){guard,1};
+        CHECK(syscall(SYS_writev,fd,vectors,2)==1 && lseek(fd,0,SEEK_CUR)==1 && !munmap(guard,4096));
+        vectors[0]=(struct iovec){bytes,2};vectors[1]=(struct iovec){bytes+2,3};
+        CHECK(lseek(fd,0,SEEK_SET)==0 && readv(fd,vectors,2)==5 && !memcmp(bytes,"Zbcde",5));
+        int closed=dup(fd);CHECK(closed>=3 && !close(closed));
+        errno=0;CHECK(lseek(closed,0,SEEK_SET)==-1 && errno==EBADF);
+        errno=0;CHECK(syscall(SYS_fstat,closed,(void *)1)==-1 && errno==EBADF);
+        CHECK(!close(2));errno=0;CHECK(lseek(2,0,SEEK_SET)==-1 && errno==EBADF);
+        CHECK(!close(ro) && !close(wo) && !close(fd) && !unlink(path));
+        puts("IO PASS: malformed vectors leave files untouched, real short I/O, empty-vector access checks, negative pread and closed descriptors");
+    }
     if(argc>=2 && !strcmp(argv[1],"--sleep-check")) {
         struct sigaction action={.sa_handler=thread_signal,.sa_flags=SA_RESTART};
         CHECK(!sigaction(SIGUSR1,&action,NULL));
