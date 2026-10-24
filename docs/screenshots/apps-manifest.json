@@ -1,0 +1,45 @@
+{
+  "capture": "actual production UEFI / q35 / NVMe / USB / 256 MiB; lossless GOP PPM to PNG",
+  "baseline_commit": "0bb5a2e9fe0ec9e9cb7051f67e9f7e7d4e318c3f",
+  "source_sha256": {
+    "user/desktop.c": "9ea8a10496daff1bfa353a1111816f540d0cd91a4802c3b042e9274aab6d3c97",
+    "user/desktop_shell.h": "d0dff973a7b623a0cc6aebe753f9bddae7cbc3c60180cea7aef3773c756dd53f",
+    "user/desktop_ui.h": "c81a476fbcf918a4675668a378890c24ef9416ac8addd333611cb55269a1c6da",
+    "tests/desktop_shell_test.c": "5c3bf6b42863e3b750691bee6b69d63439a9321ac62d679ae448996a0a224fb4",
+    "tests/display_test.c": "575d8c73f2fc7db74b29da3452065100848c332d432b9a06f19aeb4c0c16ae17",
+    "tests/desktop_boot_test.py": "59dbe00c69ede8ad087ae989f633189889240002b794207342aed6e5705a3da5",
+    "tests/launcher_boot_test.py": "6073dadfef64728a8c62ed1d5326279e69e8e1a1404db2f17770376ce36aaf87"
+  },
+  "build_artifacts": {
+    "build/x86_64/apps/desktop.elf": "d097d293b079af0702830ff3281b534ae37eebcc1b4089051d873edc67054abb",
+    "build/x86_64/nuvora.elf": "79eb9df9c4a6e3e4eb006b5d0c78d8dcbbbf68af748016052047d6c6ed9d0cb8",
+    "build/x86_64/boot-test.elf": "2f8725b190944495655706abbde6e10ce14eb2cf84c4a7b32c413270e445fcb7",
+    "build/x86_64/nuvora-uefi.elf": "ec69531d7b6564f6f07cb3d0e60d0efb139f2e6acb2b53261950ade06c9c87f2",
+    "build/x86_64/nuvora-uefi-test.elf": "63a9358553537f94a3ee509d3a9c95a62e890f44e6c6c7f83fa2f795004c7911",
+    "build/x86_64/BOOTX64.EFI": "8ed04f3974dc90434fd1db7f3069dcebea644198859975f22063e625fbc0e3ca",
+    "build/x86_64/esp.img": "0145da2718cc3286edda5a4e802cdf6851a7afe9434923a53f091cb150e908b9",
+    "build/x86_64-native/apps/desktop.elf": "bd2884665eae087eef44f09a9ee87b65ede10f2df95c3b5efe9dafe5f3ed6fb5",
+    "build/x86_64-native/nuvora.elf": "45370a205b73061cb1b3568cb7cdfb614764191b77f63949395f886b7c6347d4",
+    "build/x86_64-native/boot-test.elf": "746e196fc55f370fc31a46be0bc9f0f721703718885b2d436862f59711d51d10",
+    "build/x86_64-native/nuvora-uefi.elf": "961e9555f18dec175adabb5638313f5185ee91e2e62163113bfc124a8760dcf0",
+    "build/x86_64-native/nuvora-uefi-test.elf": "9ad57c8e7c453caff6f64ecf79a9e4acbdbc69c70d8337aa7241c00fd5107651",
+    "build/x86_64-native/BOOTX64.EFI": "8ed04f3974dc90434fd1db7f3069dcebea644198859975f22063e625fbc0e3ca",
+    "build/x86_64-native/esp.img": "1c857c9f4f7ff1ae0468685ca03e4da180adb10546712cee2bbffe5c63e6eae4"
+  },
+  "images": [
+    {
+      "file": "docs/screenshots/apps-pinned.png",
+      "source": "build/x86_64/launcher-desktop/1280x800/pinned-menu.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "3840e8c5bfc132cf803fc83581253ef29f697434e16f8835df84e16a6bdd5b7a"
+    },
+    {
+      "file": "docs/screenshots/apps-drop.png",
+      "source": "build/x86_64/launcher-desktop/1280x800/drop-preview.png",
+      "width": 1280,
+      "height": 800,
+      "sha256": "7849da8f3259e8dedef96711b0f55dd88fc606425fe9264d781fae962b11ce9d"
+    }
+  ]
+}

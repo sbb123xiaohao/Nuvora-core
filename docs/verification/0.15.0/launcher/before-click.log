@@ -1,0 +1,7 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-menu-press-0mv0vpck/data.img
+Menu remains open while app button held: False
+Traceback (most recent call last):
+  File "/workspace/scratch/round29-launcher/check_press.py", line 36, in <module>
+    assert retained,'Application launched on pointer-down; dragging away cannot cancel'
+           ^^^^^^^^
+AssertionError: Application launched on pointer-down; dragging away cannot cancel

@@ -17,6 +17,7 @@ struct desktop_window {
     bool open, minimized, maximized;
     u32 tiled;
     u32 client, pid, generation, pixel_width, pixel_height;
+    u32 app; /* Registered launcher identity + 1; zero for unknown clients. */
     const u32 *pixels;
     const struct nv_surface *text;
     const struct nv_terminal_view *grid;
@@ -43,8 +44,41 @@ struct desktop_launcher {
     char query[64];
     bool select_all;
     u8 ids[ARRAY_LEN(desktop_apps)];
-    u32 count, selected;
+    u32 count, selected, pinned;
 };
+struct desktop_app_press { bool active, moved; u32 app, x, y; };
+static inline void desktop_app_press_begin(struct desktop_app_press *p,u32 app,u32 x,u32 y) {
+    *p=(struct desktop_app_press){.active=true,.app=app,.x=x,.y=y};
+}
+static inline void desktop_app_press_move(struct desktop_app_press *p,u32 x,u32 y) {
+    if (p->active && ((i64)x-p->x>5 || (i64)p->x-x>5 ||
+                      (i64)y-p->y>5 || (i64)p->y-y>5)) p->moved=true;
+}
+static inline bool desktop_app_press_end(struct desktop_app_press *p,u32 app,u32 x,u32 y) {
+    desktop_app_press_move(p,x,y);
+    bool click=p->active && !p->moved && p->app==app;
+    *p=(struct desktop_app_press){0};
+    return click;
+}
+struct desktop_pins { u32 magic, mask; };
+static inline bool desktop_pins_valid(const struct desktop_pins *p) {
+    return p->magic==0x3150414e && !(p->mask&~((1u<<ARRAY_LEN(desktop_apps))-1));
+}
+static inline u32 desktop_registered_app(const struct desktop_window *w,u32 id) {
+    if (w->client) return w->app && w->app<=ARRAY_LEN(desktop_apps)?w->app-1:ARRAY_LEN(desktop_apps);
+    return id<DESKTOP_BUILTINS?id:id==DESKTOP_ACCOUNTS?5:id==DESKTOP_SETTINGS?6:ARRAY_LEN(desktop_apps);
+}
+static inline void desktop_restore_geometry(struct desktop_window *w,const struct desktop_window *old) {
+    w->x=old->x;w->y=old->y;w->w=old->w;w->h=old->h;
+    w->saved_x=old->saved_x;w->saved_y=old->saved_y;
+    w->saved_w=old->saved_w;w->saved_h=old->saved_h;
+    w->maximized=old->maximized;w->tiled=old->tiled;
+}
+static inline void desktop_fit(struct desktop_window *w,u32 width,u32 height) {
+    w->w=MIN(w->w,width);w->h=MIN(w->h,height);
+    w->x=MAX(0,MIN(w->x,(i32)(width-w->w)));
+    w->y=MAX(0,MIN(w->y,(i32)(height-w->h)));
+}
 struct desktop_switcher {
     bool open;
     u8 ids[DESKTOP_WINDOW_COUNT];
@@ -63,7 +97,8 @@ static inline bool desktop_contains(const char *text, const char *term, u32 leng
 static inline void desktop_search(struct desktop_launcher *l) {
     l->count=l->selected=0;
     l->select_all=false;
-    for (u32 app=0;app<ARRAY_LEN(desktop_apps);++app) {
+    for (u32 pass=0;pass<2;++pass) for (u32 app=0;app<ARRAY_LEN(desktop_apps);++app) {
+        if (!!(l->pinned&(1u<<app))!=(pass==0)) continue;
         bool match=true;
         const char *q=l->query;
         while (*q) {

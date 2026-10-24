@@ -1,0 +1,20 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-apps-pin-ianjmh8e/data.img
+PASS 1280x800 release-only launch; leave/return cancels click
+PASS 1280x800 native window pin restores geometry; durable private mask
+PASS 1280x800 client identity and maximized window restored after pin
+PASS 1280x800 lock cancels pending click
+PASS 1280x800 reboot restores pin order and launches the correct app
+PASS launcher pointer, pin persistence and production desktop checks
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-apps-pin-tgxbuht1/data.img
+PASS 640x480 release-only launch; leave/return cancels click
+PASS 640x480 native window pin restores geometry; durable private mask
+PASS 640x480 client identity and maximized window restored after pin
+PASS 640x480 lock cancels pending click
+PASS 640x480 reboot restores pin order and launches the correct app
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-apps-pin-ewoiibzs/data.img
+PASS 1920x1080 release-only launch; leave/return cancels click
+PASS 1920x1080 native window pin restores geometry; durable private mask
+PASS 1920x1080 client identity and maximized window restored after pin
+PASS 1920x1080 lock cancels pending click
+PASS 1920x1080 reboot restores pin order and launches the correct app
+PASS launcher pointer, pin persistence and production desktop checks

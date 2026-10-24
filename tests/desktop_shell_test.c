@@ -1,6 +1,38 @@
 #include <assert.h>
 #include <stdio.h>
+#include <nv/sdk.h>
 #include "../user/desktop_shell.h"
+static int pin_open_error,pin_close_error,pin_replace_error,pin_sync_error,pin_info_error;
+static bool pin_short_write;
+static u32 pin_opens,pin_syncs,pin_commits,pin_removes,pin_committed_mask;
+static struct desktop_pins pin_pending;
+static iptr launcher_test_syscall(u32 op,uptr a,uptr b,uptr c) {
+    if (op==NV_OPEN) {
+        assert(!strcmp((const char *)a,"/home/users/alice/.apps-new"));
+        assert(b==(NV_WRITE|NV_CREATE|NV_TRUNC));++pin_opens;
+        return pin_open_error?pin_open_error:3;
+    }
+    if (op==NV_EMIT) {
+        assert(a==3 && c==sizeof(pin_pending));memcpy(&pin_pending,(void *)b,c);
+        return pin_short_write?4:(iptr)c;
+    }
+    if (op==NV_CLOSE) { assert(a==3);return pin_close_error; }
+    if (op==NV_REPLACE) {
+        assert(!strcmp((const char *)a,"/home/users/alice/.apps-new"));
+        assert(!strcmp((const char *)b,"/home/users/alice/.apps"));
+        if (pin_replace_error) return pin_replace_error;
+        assert(desktop_pins_valid(&pin_pending));pin_committed_mask=pin_pending.mask;++pin_commits;return 0;
+    }
+    if (op==NV_REMOVE) { ++pin_removes;return 0; }
+    if (op==NV_INFO) {
+        if (pin_info_error) return pin_info_error;
+        *(struct nv_info *)a=(struct nv_info){.disk_present=1};return 0;
+    }
+    if (op==NV_CONTROL) { assert(a==NV_CTL_SYNC);++pin_syncs;return pin_sync_error; }
+    /* Keep the ordinary SDK semantics for unrelated, discarded desktop code. */
+    return nv_syscall(op,a,b,c);
+}
+#define nv_syscall launcher_test_syscall
 #include "../user/desktop.c"
 
 static void search(void) {
@@ -42,6 +74,64 @@ static void notices(void) {
     assert(!note_expire(1299) && *message);assert(note_expire(1300));
     strlcpy(message,"Wrap",sizeof(message));message_tick=~(u64)0-199;
     assert(!note_expire(399) && *message);assert(note_expire(400) && !*message);
+}
+static void launcher_gestures(void) {
+    struct desktop_app_press p={0};
+    assert(!desktop_app_press_end(&p,0,20,20));
+    desktop_app_press_begin(&p,3,100,120);
+    assert(p.active && !p.moved); /* Down alone must never start an app. */
+    assert(desktop_app_press_end(&p,3,102,122) && !p.active);
+    desktop_app_press_begin(&p,3,100,120);
+    assert(!desktop_app_press_end(&p,4,100,120));
+    desktop_app_press_begin(&p,3,100,120);
+    desktop_app_press_move(&p,130,120);desktop_app_press_move(&p,100,120);
+    assert(!desktop_app_press_end(&p,3,100,120)); /* Returning cannot turn a drag into a click. */
+    desktop_app_press_begin(&p,3,0,0);
+    assert(!desktop_app_press_end(&p,3,0xffffffffu,0));
+    struct desktop_pins pins={0x3150414e,0x7f};assert(desktop_pins_valid(&pins));
+    pins.mask=0x80;assert(!desktop_pins_valid(&pins));
+    pins.mask=0;pins.magic=0;assert(!desktop_pins_valid(&pins));
+    struct desktop_launcher l={.pinned=(1u<<6)|(1u<<3)};
+    desktop_search(&l);assert(l.count==7 && l.ids[0]==3 && l.ids[1]==6 && l.ids[2]==0);
+    strlcpy(l.query,"files",sizeof(l.query));desktop_search(&l);
+    assert(l.count==1 && l.ids[0]==0);
+    struct desktop_window w={.client=10};strlcpy(w.title,"Terminal",sizeof(w.title));
+    assert(desktop_registered_app(&w,DESKTOP_TERMINAL)==ARRAY_LEN(desktop_apps));
+    w.app=5;assert(desktop_registered_app(&w,DESKTOP_CLIENT_FIRST)==4);
+    w.app=99;assert(desktop_registered_app(&w,DESKTOP_TERMINAL)==ARRAY_LEN(desktop_apps));
+    w.client=0;assert(desktop_registered_app(&w,DESKTOP_ACCOUNTS)==5);
+    assert(desktop_registered_app(&w,DESKTOP_SETTINGS)==6);
+    struct desktop_window old={.x=12,.y=40,.w=300,.h=220,.maximized=true,.saved_w=240};
+    w.client=10;w.generation=91;desktop_restore_geometry(&w,&old);
+    assert(w.x==12 && w.y==40 && w.w==300 && w.h==220 && w.maximized && w.saved_w==240);
+    assert(w.client==10 && w.generation==91); /* Never restore stale client buffers/generations. */
+    w=(struct desktop_window){.x=140,.y=62,.w=485,.h=376};
+    desktop_fit(&w,640,424);
+    assert(w.x>=0 && w.y>=0 && (u32)w.x+w.w<=640 && (u32)w.y+w.h<=424);
+    assert(w.w==485 && w.h==376); /* Keep the requested size when it fits. */
+}
+static void launcher_io(void) {
+    strlcpy(account.info.home,"/home/users/alice",sizeof(account.info.home));launcher.pinned=0;
+    assert(launcher_pin(99,true)==-NV_EINVAL && !pin_opens);
+    assert(!launcher_pin(1,true) && launcher.pinned==2 && pin_committed_mask==2 && pin_syncs==1);
+    assert(!launcher_pin(1,true) && pin_opens==1 && pin_syncs==2);
+    pin_sync_error=-NV_EIO;
+    assert(launcher_pin(2,true)==-NV_EIO && launcher.pinned==6 && pin_committed_mask==6);
+    u32 opens=pin_opens,syncs=pin_syncs;pin_sync_error=0;
+    assert(!launcher_pin(2,true) && pin_opens==opens && pin_syncs==syncs+1);
+    for (u32 stage=0;stage<4;++stage) {
+        pin_open_error=stage==0?-NV_EACCESS:0;pin_short_write=stage==1;
+        pin_close_error=stage==2?-NV_EIO:0;pin_replace_error=stage==3?-NV_ENOSPC:0;
+        u32 commits=pin_commits;syncs=pin_syncs;
+        assert(launcher_pin(1,false)<0 && launcher.pinned==6 && pin_committed_mask==6);
+        assert(pin_commits==commits && pin_syncs==syncs);
+    }
+    pin_open_error=pin_close_error=pin_replace_error=0;pin_short_write=false;
+    assert(pin_removes==3);
+    pin_info_error=-NV_EIO;syncs=pin_syncs;
+    assert(launcher_pin(1,false)==-NV_EIO && launcher.pinned==4 && pin_syncs==syncs);
+    pin_info_error=0;
+    assert(!launcher_pin(1,false) && pin_syncs==syncs+1);
 }
 static void switching(void) {
     struct desktop_window w[DESKTOP_WINDOW_COUNT]={0};
@@ -188,7 +278,7 @@ static void spaces_model(void) {
     assert(settings_activate(SETTINGS_ACTION)==-NV_ENODEV);
 }
 int main(void) {
-    search(); notices(); switching(); placement(); editor_navigation(); spaces_model();
-    puts("PASS desktop shell: launcher/MRU/tiling/editor, Spaces filter/sort/grid, legacy/new preferences and settings roles");
+    search(); notices(); launcher_gestures(); launcher_io(); switching(); placement(); editor_navigation(); spaces_model();
+    puts("PASS desktop shell: release/cancel gestures, private pins and failed-write/sync retry, MRU/tiling/editor, Spaces filter/sort/grid, preferences and settings roles");
     return 0;
 }

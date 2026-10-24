@@ -1,5 +1,34 @@
 # 测试与复现
 
+## 未发布：Apps 拖放固定与窗口交互
+
+基于本地/GitHub 一致的完整 `0bb5a2e`；Arch GCC 16.2.1、QEMU 11.1.1 TCG、
+OVMF。生产系统使用私有 NVMe 数据盘、USB 键盘和 Tablet、256 MiB 内存。
+没有使用诊断内核绕过图形登录，也没有实体硬件测试。
+
+- 旧生产桌面复现应用卡片按下鼠标即启动；修复后保持按下可见状态，在同一卡片
+  松手才启动。拖离、移回再松手不启动；锁屏取消尚未完成的点击。
+- 默认/原生构建及各 **55 组宿主回归**通过；桌面模型与渲染另通过 ASan/UBSan。
+  覆盖规范应用身份、伪造标题拒绝、私有路径、短写/关闭/替换失败保留、同步失败
+  的重试、无效固定记录，以及两种像素格式下卡片圆角/标记/按下态与分块绘制一致。
+- 1280×800 默认生产系统及 640×480、1920×1080 原生生产系统验证真实鼠标启动、
+  拖放固定、Esc 还原、右键/Ctrl-P 切换、窗口恢复与最大化恢复、锁屏解锁及重启。
+  暂停客体后读取已提交根，核对实际 `.apps` 内容；重启后由第一项启动真正 Terminal，
+  不只检查菜单截图。原有桌面客户端、Alt-Tab、平铺、保存等交互另跑回归。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/launcher_boot_test.py --resolutions 1280x800
+make COMPAT=none -j4 diagnostics esp
+make COMPAT=none test-host
+NV_COMPAT=none python3 tests/launcher_boot_test.py --resolutions 640x480 1920x1080
+python3 tests/desktop_boot_test.py
+```
+
+固定仅限七个已注册系统应用；不提供向桌面拖出图标或任意第三方程序注册。
+日志、产物摘要与截图来源见[Apps 验证](verification/0.15.0/launcher/README.md)。
+
 ## 未发布：离线导入与旧盘恢复保护
 
 从本地/GitHub 一致的完整 `0e0d93a` 继续，2026-10-18；Arch GCC 16.2.1、

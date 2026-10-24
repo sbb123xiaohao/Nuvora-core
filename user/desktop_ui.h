@@ -34,8 +34,8 @@ struct desktop_view {
     u32 volume_percent;
     const struct desktop_launcher *launcher;
     const struct desktop_switcher *switcher;
-    bool overview;
-    u32 overview_selected, snap_preview;
+    bool overview, pin_target;
+    u32 overview_selected, snap_preview, pressed_app;
     const struct desktop_window *windows;
     const u8 *order;
     u32 active, hover_kind, hover_window, hover_index;
@@ -276,9 +276,12 @@ static struct desktop_hit desktop_hit(u32 width, u32 height,
         struct desktop_rect r=desktop_menu_rect(sw,sh);
         if (x>=r.x+16 && x<r.x+r.w-16 && y>=r.y+48 && y<r.y+84)
             return (struct desktop_hit){DESKTOP_HIT_SEARCH,0,DESKTOP_WINDOW_COUNT};
-        for (u32 i=0;i<v->launcher->count;++i)
-            if (desktop_inside(desktop_menu_app_rect(sw,sh,i),x,y))
+        for (u32 i=0;i<v->launcher->count;++i) {
+            struct desktop_rect cell=desktop_menu_app_rect(sw,sh,i);
+            if (desktop_inside(cell,x,y) && desktop_round_coverage(px-cell.x*s,py-cell.y*s,
+                cell.w*s,cell.h*s,10*s))
                 return (struct desktop_hit){DESKTOP_HIT_MENU,v->launcher->ids[i],DESKTOP_WINDOW_COUNT};
+        }
         if (y>=r.y+r.h-42 && y<r.y+r.h-14 && v->account) {
             if (x>=r.x+12 && x<r.x+102) return (struct desktop_hit){DESKTOP_HIT_LOCK,0,0};
             if (x>=r.x+110 && x<r.x+210) return (struct desktop_hit){DESKTOP_HIT_LOGOUT,0,0};
@@ -758,7 +761,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
     desktop_text(c,screen,118*s,14*s,"/  Personal",11,s,0xa1b9bd);
     struct desktop_rect apps=desktop_apps_button(sw);
     desktop_round(c,screen,apps.x*s,apps.y*s,apps.w*s,apps.h*s,8*s,
-        v->menu?0x457d70:0x29434b);
+        v->pin_target?0x658346:v->menu?0x457d70:0x29434b);
     ui_line_icon(c,screen,(apps.x+10)*s,(apps.y+5)*s,14*s,UI_ICON_APP,
         0xcce3cd);
     desktop_text(c,screen,(apps.x+32)*s,(apps.y+3)*s,"Apps",4,s,0xf0f5ef);
@@ -862,6 +865,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         desktop_shadow(c,screen,x,top,r.w*s,r.h*s,16*s,s);
         desktop_round(c,screen,x,top,r.w*s,r.h*s,16*s,0xf5f8ff);
         desktop_bold_text(c,screen,x+20*s,top+16*s,"Your apps",9,s,UI_TEXT);
+        if (l->pinned) desktop_text(c,screen,x+126*s,top+16*s,"Pinned first",12,s,0x477c51);
         desktop_text(c,screen,x+(r.w-126)*s,top+16*s,"Esc to close",12,s,UI_MUTED);
         desktop_round(c,screen,x+16*s,top+48*s,(r.w-32)*s,36*s,9*s,0xd2ddf2);
         desktop_round(c,screen,x+17*s,top+49*s,(r.w-34)*s,34*s,8*s,0xffffff);
@@ -876,7 +880,7 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
         for (u32 i=0;i<l->count;++i) {
             u32 id=l->ids[i];struct desktop_rect cell=desktop_menu_app_rect(sw,sh,i);
             desktop_round(c,screen,cell.x*s,cell.y*s,cell.w*s,cell.h*s,10*s,
-                i==l->selected?0xe0e9fc:UI_WHITE);
+                v->pressed_app==id+1?0xcddfe6:i==l->selected?0xe0e9fc:UI_WHITE);
             const char *name=desktop_apps[id].name;u32 length=strlen(name);
             if (cell.h>=76) {
                 desktop_icon(c,screen,(cell.x+cell.w/2-20)*s,(cell.y+8)*s,40*s,id);
@@ -888,6 +892,9 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
                 while (length && desktop_text_width(name,length,s)>(cell.w-size-20)*s) --length;
                 desktop_text(c,screen,label_x*s,(cell.y+MAX(1u,(cell.h-18)/2))*s,name,length,s,UI_TEXT);
             }
+            if (l->pinned&(1u<<id)) {
+                desktop_round(c,screen,(cell.x+cell.w-13)*s,(cell.y+5)*s,8*s,8*s,4*s,0x477c51);
+            }
         }
         if (!l->count) desktop_text(c,screen,x+24*s,top+115*s,"No matching apps",16,s,0x75859e);
         if (l->count) desktop_label(c,screen,x+20*s,top+(r.h-70)*s,
@@ -896,6 +903,15 @@ static void desktop_render_clip(struct nv_canvas *c, u32 height,
             account_button(c,screen,x+12*s,top+(r.h-42)*s,90*s,"Lock",s,true,false,false);
             account_button(c,screen,x+110*s,top+(r.h-42)*s,100*s,"Sign out",s,true,false,false);
         }
+        if (r.w>=470) desktop_text(c,screen,x+(r.w-220)*s,top+(r.h-34)*s,
+            "Ctrl+P: pin / unpin",sizeof("Ctrl+P: pin / unpin")-1,s,UI_MUTED);
+    }
+    if (v->pin_target) {
+        struct desktop_rect apps=desktop_apps_button(sw);
+        desktop_round(c,screen,apps.x*s,apps.y*s,apps.w*s,apps.h*s,8*s,0x658346);
+        desktop_text(c,screen,(apps.x+18)*s,(apps.y+3)*s,"Pin to Apps",11,s,0xf0f5ef);
+        desktop_round(c,screen,(apps.x-70)*s,42*s,190*s,30*s,9*s,0xe5efd9);
+        desktop_text(c,screen,(apps.x-58)*s,48*s,"Release to pin app",18,s,0x36502d);
     }
     if ((v->hover_kind==DESKTOP_HIT_TASK || v->hover_kind==DESKTOP_HIT_MEDIA) &&
         !v->menu && !v->overview && !(v->switcher && v->switcher->open)) {

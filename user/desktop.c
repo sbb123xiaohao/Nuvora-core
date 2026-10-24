@@ -31,6 +31,8 @@ static struct nv_net_info settings_network;
 static bool settings_network_present;
 static u32 settings_network_index,volume_restore=70;
 static struct desktop_launcher launcher;
+static struct desktop_app_press app_press, title_press;
+static bool pin_target;
 static struct desktop_switcher switcher;
 static bool overview, meta_down, super_armed;
 static u32 overview_selected=DESKTOP_WINDOW_COUNT, snap_preview;
@@ -38,6 +40,7 @@ static u32 volume_percent = 100;
 static u32 drag_window, drag_kind;
 static u32 drag_offset_x, drag_offset_y;
 static struct desktop_rect drag_restore;
+static struct desktop_window drag_initial;
 static char editor_text[EDITOR_CAP+1], editor_scratch[EDITOR_CAP+1];
 static char editor_path[NV_PATH_MAX], editor_input[NV_PATH_MAX], editor_next_path[NV_PATH_MAX];
 static u32 editor_length, editor_cursor, editor_scroll, editor_mode, editor_next_action;
@@ -55,6 +58,7 @@ struct client_cache {
 };
 static struct client_cache client_cache[DESKTOP_WINDOW_COUNT];
 static u32 child_pids[NV_TASK_MAX];
+static u8 child_apps[NV_TASK_MAX];
 static u32 hover_kind, hover_index, hover_window = DESKTOP_WINDOW_COUNT, captured = DESKTOP_WINDOW_COUNT;
 static u32 drag_edges;
 static struct desktop_clip damage;
@@ -148,7 +152,9 @@ static int reap_children(bool shutdown) {
         if (r!=1) continue;
         for (u32 child=0;child<NV_TASK_MAX;++child) if (child_pids[child]==t.pid) {
             if (shutdown && t.state!=NV_ZOMBIE) stop_task((int)t.pid);
-            if (shutdown || t.state==NV_ZOMBIE) { wait_task((int)t.pid); child_pids[child]=0; }
+            if (shutdown || t.state==NV_ZOMBIE) {
+                wait_task((int)t.pid); child_pids[child]=0;child_apps[child]=0;
+            }
             break;
         }
     }
@@ -177,6 +183,7 @@ static void shell_grab(void) {
         send_client(captured,NV_WINDOW_EVENT_POINTER,0,&release);
     }
     captured=DESKTOP_WINDOW_COUNT; drag_kind=snap_preview=0;
+    app_press.active=title_press.active=pin_target=false;
 }
 
 static void terminal_new_line(void) {
@@ -326,6 +333,8 @@ static struct desktop_view view(void) {
     v.audio_ready=audio_ready; v.menu=menu; v.launcher=&launcher;
     v.switcher=&switcher; v.overview=overview; v.overview_selected=overview_selected;
     v.snap_preview=snap_preview;
+    v.pin_target=pin_target;
+    v.pressed_app=app_press.active?app_press.app+1:0;
     v.volume_open=volume_open; v.volume_percent=volume_percent;
     v.windows=windows; v.order=order; v.active=active;
     v.hover_kind=hover_kind; v.hover_window=hover_window;
@@ -416,6 +425,8 @@ static int launch(const char *app, const char *arg) {
     int pid=spawn(app,arg);
     if (pid<0) return pid;
     child_pids[free_slot]=(u32)pid;
+    child_apps[free_slot]=!strcmp(app,"/apps/terminal")?3:
+        !strcmp(app,"/apps/media")?4:!strcmp(app,"/apps/folio")?5:0;
     return 0;
 }
 static int client_poll(bool *dirty) {
@@ -437,6 +448,8 @@ static int client_poll(bool *dirty) {
             *w=(struct desktop_window){.client=e.id,.pid=e.pid,.open=true,
                 .w=MIN(sw-16,(e.requested_width+s-1)/s+2),
                 .h=MIN(sh-DESKTOP_BAR_HEIGHT-16,(e.requested_height+s-1)/s+29)};
+            for (u32 child=0;child<NV_TASK_MAX;++child)
+                if (child_pids[child]==e.pid) w->app=child_apps[child];
             w->x=MIN((i32)(sw-w->w), (i32)(sw-w->w)/2+(i32)(id%4)*12);
             w->y=MIN((i32)(sh-DESKTOP_BAR_HEIGHT-w->h),(i32)(sh-DESKTOP_BAR_HEIGHT-w->h)/2+(i32)(id%4)*12);
             strlcpy(w->title,e.title,sizeof(w->title));
@@ -459,7 +472,9 @@ static int client_poll(bool *dirty) {
     for (u32 id=0;id<DESKTOP_WINDOW_COUNT;++id) if (windows[id].client && !seen[id]) {
         windows[id]=(struct desktop_window){0};
         if (captured==id) captured=DESKTOP_WINDOW_COUNT;
-        if (drag_kind && drag_window==id) drag_kind=snap_preview=0;
+        if (drag_kind && drag_window==id) {
+            drag_kind=snap_preview=0;title_press.active=pin_target=false;
+        }
         if (active==id) focus_top();
         *dirty=true;
     }
@@ -731,6 +746,35 @@ static void preference_path(char *out,const char *name) {
     strlcpy(out,account.info.home,NV_PATH_MAX);
     u32 end=strlen(out);strlcpy(out+end,name,NV_PATH_MAX-end);
 }
+static int launcher_sync(void) {
+    struct nv_info disk;
+    int r=info(&disk);
+    return r<0?r:disk.disk_present?control(NV_CTL_SYNC,0):0;
+}
+static int launcher_pin(u32 app,bool pinned) {
+    if (app>=ARRAY_LEN(desktop_apps)) return -NV_EINVAL;
+    u32 mask=pinned?launcher.pinned|(1u<<app):launcher.pinned&~(1u<<app);
+    if (mask==launcher.pinned) return launcher_sync();
+    struct desktop_pins p={0x3150414e,mask};
+    char path[NV_PATH_MAX],temp[NV_PATH_MAX];
+    preference_path(path,"/.apps");preference_path(temp,"/.apps-new");
+    int fd=open_file(temp,NV_WRITE|NV_CREATE|NV_TRUNC);
+    if (fd<0) return fd;
+    int r=emit(fd,&p,sizeof(p)),closed=close_file(fd);
+    if (r!=(int)sizeof(p) || closed<0) {
+        remove_path(temp);return r<0?r:closed<0?closed:-NV_EIO;
+    }
+    r=replace_file(temp,path);
+    if (r<0) { remove_path(temp);return r; }
+    launcher.pinned=mask;desktop_search(&launcher);
+    return launcher_sync();
+}
+static bool title_pin_target(u32 sw,u32 x,u32 y) {
+    return drag_kind==DESKTOP_HIT_TITLE && title_press.active && title_press.moved &&
+        drag_window<DESKTOP_WINDOW_COUNT && windows[drag_window].open &&
+        desktop_registered_app(&windows[drag_window],drag_window)<ARRAY_LEN(desktop_apps) &&
+        desktop_inside(desktop_apps_button(sw),x,y);
+}
 static void wallpaper_update(void) {
     if (!wallpaper) return;
     struct nv_canvas c={wallpaper,mode.width,0,mode.height,mode.format};
@@ -750,6 +794,7 @@ static int preferences_save(void) {
 }
 static void preferences_load(void) {
     theme=0;idle_minutes=5;file_view=file_sort=0;show_hidden=false;volume_percent=100;
+    launcher.pinned=0;
     char path[NV_PATH_MAX];preference_path(path,"/.desktop");
     int fd=open_file(path,NV_READ);
     if (fd>=0) {
@@ -764,6 +809,14 @@ static void preferences_load(void) {
         }
         close_file(fd);
     }
+    preference_path(path,"/.apps");fd=open_file(path,NV_READ);
+    if (fd>=0) {
+        struct desktop_pins p;struct nv_stat64 st;
+        if (!stat_file64(fd,&st) && st.size==sizeof(p) && take(fd,&p,sizeof(p))==(int)sizeof(p) &&
+            desktop_pins_valid(&p)) launcher.pinned=p.mask;
+        close_file(fd);
+    }
+    desktop_search(&launcher);
     struct nv_account_policy policy={idle_minutes*60*100,0};
     account_call(NV_ACCOUNT_POLICY_SET,&policy);
     nv_audio_set_volume(volume_percent);
@@ -818,6 +871,7 @@ static int session_signout(void) {
         w->pixels=NULL;w->text=NULL;w->grid=NULL;w->title[0]=0;order[i]=(u8)i;
     }
     memset(child_pids,0,sizeof(child_pids));account_wipe(editor_text,sizeof(editor_text));
+    memset(child_apps,0,sizeof(child_apps));account_wipe(&launcher,sizeof(launcher));
     account_wipe(editor_scratch,sizeof(editor_scratch));
     account_wipe(editor_path,sizeof(editor_path));account_wipe(editor_input,sizeof(editor_input));
     account_wipe(editor_next_path,sizeof(editor_next_path));
@@ -1158,7 +1212,9 @@ int user_main(const char *args) {
     windows[DESKTOP_SETTINGS].h=MIN(610u,sh-DESKTOP_BAR_HEIGHT-20);
     windows[DESKTOP_SETTINGS].x=(i32)(sw-windows[DESKTOP_SETTINGS].w)/2;
     settings_refresh();
-    for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) order[i]=(u8)i;
+    for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) {
+        order[i]=(u8)i;desktop_fit(&windows[i],sw,sh-DESKTOP_BAR_HEIGHT);
+    }
     desktop_search(&launcher);
     terminal_new_line();
     terminal_println("Nuvora desktop terminal. Type help for commands.");
@@ -1296,6 +1352,17 @@ int user_main(const char *args) {
                 i32 page=(i32)desktop_overview_page_size(sw);
                 overview_move(event.wheel>0?-page:page); dirty=true;
             }
+            desktop_app_press_move(&app_press,x,y);
+            desktop_app_press_move(&title_press,x,y);
+            bool offer=title_pin_target(sw,x,y);
+            if (offer!=pin_target) { pin_target=offer;dirty=true; }
+            if (menu && (event.buttons&NV_POINTER_RIGHT) && !(pointer_buttons&NV_POINTER_RIGHT) &&
+                hover.kind==DESKTOP_HIT_MENU) {
+                app_press.active=false;
+                r=launcher_pin(hover.index,!(launcher.pinned&(1u<<hover.index)));
+                if (r<0) { note_error("Pin preference",r);r=0; }
+                dirty=true;
+            }
             if ((event.buttons&NV_POINTER_LEFT) && (pointer_buttons&NV_POINTER_LEFT) && drag_kind) {
                 if (drag_kind==DESKTOP_HIT_VOLUME_SLIDER || drag_kind==DESKTOP_HIT_SETTINGS_VOLUME) {
                     u32 level;
@@ -1324,7 +1391,7 @@ int user_main(const char *args) {
                         } else { w->x+=(i32)x-(i32)oldx; w->y+=(i32)y-(i32)oldy; }
                         w->x=MAX(0,MIN((i32)sw-(i32)w->w,w->x));
                         w->y=MAX(0,MIN((i32)sh-DESKTOP_BAR_HEIGHT-(i32)w->h,w->y));
-                        u32 next=desktop_snap_target(sw,x,y);
+                        u32 next=pin_target?DESKTOP_FLOATING:desktop_snap_target(sw,x,y);
                         if (next!=snap_preview) { snap_preview=next; dirty=true; }
                     } else if (drag_kind==DESKTOP_HIT_RESIZE) {
                         w->tiled=DESKTOP_FLOATING;
@@ -1387,8 +1454,7 @@ int user_main(const char *args) {
                     set_menu(!menu);
                 }
                 else if (hit.kind==DESKTOP_HIT_MENU) {
-                    r=start_app(hit.index);
-                    if (r<0) note_error("Start",r);
+                    desktop_app_press_begin(&app_press,hit.index,x,y);
                 } else if (hit.kind==DESKTOP_HIT_HOME) {
                     static const u32 apps[]={0,2,6};
                     if (hit.index<ARRAY_LEN(apps)) r=start_app(apps[hit.index]);
@@ -1429,6 +1495,10 @@ int user_main(const char *args) {
                         tick-last_title_tick<40) maximize_window(hit.window);
                     else {
                         drag_kind=hit.kind; drag_window=hit.window; drag_edges=hit.index;
+                        drag_initial=windows[hit.window];
+                        if (hit.kind==DESKTOP_HIT_TITLE)
+                            desktop_app_press_begin(&title_press,
+                                desktop_registered_app(&windows[hit.window],hit.window),x,y);
                         drag_offset_x=x-(u32)windows[hit.window].x;
                         drag_offset_y=y-(u32)windows[hit.window].y;
                         struct desktop_window *w=&windows[hit.window];
@@ -1506,11 +1576,29 @@ int user_main(const char *args) {
                 } else if (hit.kind==DESKTOP_HIT_TERMINAL) focus_window(DESKTOP_TERMINAL);
             }
             if (!(event.buttons&NV_POINTER_LEFT)) {
+                if (app_press.active) {
+                    struct desktop_view current=view();
+                    struct desktop_hit hit=desktop_hit(mode.width,mode.height,&current,pointer_x,pointer_y);
+                    u32 app=hit.kind==DESKTOP_HIT_MENU?hit.index:ARRAY_LEN(desktop_apps);
+                    if (desktop_app_press_end(&app_press,app,x,y)) {
+                        r=start_app(app);if (r<0) { note_error("Start",r);r=0; }
+                    }
+                    dirty=true;
+                }
                 if (volume_dirty) {
                     r=preferences_save();volume_dirty=false;
                     if (r<0) { note_error("Volume preference",r);r=0; }
                 }
-                if (drag_kind==DESKTOP_HIT_TITLE && snap_preview &&
+                if (title_pin_target(sw,x,y)) {
+                    u32 app=desktop_registered_app(&windows[drag_window],drag_window);
+                    damage_window(&windows[drag_window]);
+                    desktop_restore_geometry(&windows[drag_window],&drag_initial);
+                    set_menu(true);
+                    r=launcher_pin(app,true);
+                    if (r<0) { note_error("Pin preference",r);r=0; }
+                    for (u32 i=0;i<launcher.count;++i) if (launcher.ids[i]==app) launcher.selected=i;
+                    dirty=true;
+                } else if (drag_kind==DESKTOP_HIT_TITLE && snap_preview &&
                     windows[drag_window].open) {
                     struct desktop_window *w=&windows[drag_window];
                     desktop_place(w,sw,sh-DESKTOP_BAR_HEIGHT,snap_preview);
@@ -1519,7 +1607,7 @@ int user_main(const char *args) {
                     dirty=true;
                 }
                 if (snap_preview) dirty=true;
-                drag_kind=snap_preview=0;
+                drag_kind=snap_preview=0;title_press.active=pin_target=false;
             }
             sync_clients();
             bool changed_buttons=(pointer_buttons^event.buttons)&NV_POINTER_LEFT;
@@ -1567,6 +1655,15 @@ keyboard_input:;
         if ((flags&NV_KEY_META) && (key=='l' || key=='L')) {
             super_armed=false;r=session_lock();if (r<0) note_error("Lock",r);dirty=true;continue;
         }
+        if (key==27 && (drag_kind==DESKTOP_HIT_TITLE || drag_kind==DESKTOP_HIT_RESIZE)) {
+            if (drag_window<DESKTOP_WINDOW_COUNT && windows[drag_window].open) {
+                damage_window(&windows[drag_window]);
+                desktop_restore_geometry(&windows[drag_window],&drag_initial);
+                damage_window(&windows[drag_window]);
+            }
+            shell_grab();sync_clients();dirty=true;continue;
+        }
+        if (app_press.active) { app_press.active=false;dirty=true; }
         if (key==NV_KEY_MODIFIERS) {
             bool next_meta=(flags&NV_KEY_META)!=0;
             if (next_meta && !meta_down) super_armed=!(flags&(NV_KEY_ALT|NV_KEY_CTRL|NV_KEY_SHIFT));
@@ -1631,7 +1728,12 @@ keyboard_input:;
             dirty=true; continue;
         }
         if (menu) {
-            if ((flags&NV_KEY_CTRL) && (key=='l' || key=='L')) {
+            if ((flags&NV_KEY_CTRL) && (key=='p' || key=='P') && launcher.count) {
+                u32 app=launcher.ids[launcher.selected];
+                r=launcher_pin(app,!(launcher.pinned&(1u<<app)));
+                if (r<0) { note_error("Pin preference",r);r=0; }
+                for (u32 i=0;i<launcher.count;++i) if (launcher.ids[i]==app) launcher.selected=i;
+            } else if ((flags&NV_KEY_CTRL) && (key=='l' || key=='L')) {
                 r=session_lock();
             } else if ((flags&NV_KEY_CTRL) && (key=='q' || key=='Q')) {
                 r=session_request_signout();

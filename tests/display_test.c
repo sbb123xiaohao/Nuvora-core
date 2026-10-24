@@ -181,6 +181,22 @@ static void case_render(u32 width,u32 height,u32 format,u32 tile_rows,bool all_o
     desktop_render(&all,height,&v);
     if (width==1280 && height==800 && format==NV_DISPLAY_BGRX8 && all_open)
         preview(getenv("NV_START_PREVIEW"),full+1,width,height);
+    launcher.pinned=1u<<2;desktop_search(&launcher);v.pressed_app=3;
+    cell=desktop_menu_app_rect(sw,sh,0);
+    hit=desktop_hit(width,height,&v,(cell.x+cell.w/2)*s,(cell.y+cell.h/2)*s);
+    assert(hit.kind==DESKTOP_HIT_MENU && hit.index==2);
+    hit=desktop_hit(width,height,&v,cell.x*s,cell.y*s);
+    assert(hit.kind==DESKTOP_HIT_NONE); /* Rounded app corners never activate. */
+    desktop_render(&all,height,&v);
+    assert(full[1+(cell.y+3)*s*width+(cell.x+cell.w/2)*s]==nv_display_rgb(format,0xcddfe6));
+    assert(full[1+(cell.y+9)*s*width+(cell.x+cell.w-9)*s]==nv_display_rgb(format,0x477c51));
+    for (u32 y=0;y<height;y+=tile_rows) {
+        struct nv_canvas tile={tiled+1+y*width,width,y,MIN(tile_rows,height-y),format};
+        desktop_render(&tile,height,&v);
+    }
+    assert(!memcmp(full+1,tiled+1,(usize)n*sizeof(u32)));
+    assert(full[0]==0x9173ace4 && full[n+1]==0x27607845);
+    v.pressed_app=0;launcher.pinned=0;desktop_search(&launcher);
     v.menu=false;
     v.file_mode=DESKTOP_FILE_DELETE;
     v.file_input="sample.txt"; v.file_target="sample.txt";

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Boot the real UEFI desktop and exercise native windows through QMP.
 
-Requires make all/esp, QEMU, OVMF and FFmpeg. Uses a private disk/firmware copy and
+Requires make all/esp, QEMU, OVMF and FFmpeg (or --clip). Uses a private disk/firmware copy and
 exports PPM screenshots for human review; never opens the user's data image.
 """
 import argparse
@@ -69,9 +69,8 @@ class Monitor:
     def start(self, index, mouse=False):
         self.key('f10')
         if mouse:
-            # The USB device reports its current button state. Keep the click
-            # held until the busy guest consumes it, rather than sending a
-            # short down/up pulse during a full software repaint.
+            # Wait for the pressed state before releasing: short USB down/up
+            # pulses can be coalesced while the guest repaints the full screen.
             with tempfile.TemporaryDirectory(prefix='nuvora-start-click-') as directory:
                 output=pathlib.Path(directory)
                 width,height,_=self.shot(output,'start')
@@ -91,10 +90,18 @@ class Monitor:
                 target_y=(y+98+(index//columns)*row+(row-4)//2)*scale
                 self.pointer(width,height,target_x,target_y,True)
                 try:
-                    while opened(self.shot(output,'start-click')[2]):
-                        if time.monotonic()>=deadline: raise AssertionError('Start app click was not consumed')
+                    mark_x=target_x;mark_y=(y+98+(index//columns)*row+3)*scale
+                    deadline=time.monotonic()+15
+                    while True:
+                        pixels=self.shot(output,'start-press')[2]
+                        at=(mark_y*width+mark_x)*3
+                        if pixels[at:at+3]==b'\xcd\xdf\xe6': break
+                        if time.monotonic()>=deadline: raise AssertionError('Start app press was not consumed')
                 finally:
                     self.pointer(width,height,target_x,target_y,False)
+                deadline=time.monotonic()+15
+                while opened(self.shot(output,'start-click')[2]):
+                    if time.monotonic()>=deadline: raise AssertionError('Start app release was not consumed')
         else:
             for _ in range(index):
                 self.key('right')
@@ -245,6 +252,7 @@ def main():
     parser.add_argument('--memory', type=int, default=256)
     parser.add_argument('--keyboard', choices=['usb', 'ps2'], default='usb')
     parser.add_argument('--keypad-only', action='store_true', help='Run only the keypad input regression')
+    parser.add_argument('--clip', type=pathlib.Path, help='Use an already prepared six-second MPEG fixture')
     parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'build/desktop-smoke')
     args = parser.parse_args()
     output = args.output.resolve()
@@ -256,7 +264,7 @@ def main():
     if not esp.is_file():
         raise SystemExit('Build the current UEFI image first: make all esp')
     ffmpeg = shutil.which('ffmpeg')
-    if not ffmpeg:
+    if not ffmpeg and args.clip is None:
         raise SystemExit('Install ffmpeg to extend the short playback fixture for interactive checks')
     with tempfile.TemporaryDirectory(prefix='nuvora-window-') as directory:
         private = pathlib.Path(directory)
@@ -264,9 +272,12 @@ def main():
         private_esp = private / 'esp.img'
         shutil.copyfile(esp, private_esp)
         clip = private / 'clip.mpg'
-        subprocess.run([ffmpeg, '-v', 'error', '-stream_loop', '12', '-i',
-                        str(ROOT / 'tests/fixtures/clip.mpg'), '-t', '6', '-c', 'copy',
-                        '-y', str(clip)], check=True)
+        if args.clip is not None:
+            shutil.copyfile(args.clip, clip)
+        else:
+            subprocess.run([ffmpeg, '-v', 'error', '-stream_loop', '12', '-i',
+                            str(ROOT / 'tests/fixtures/clip.mpg'), '-t', '6', '-c', 'copy',
+                            '-y', str(clip)], check=True)
         create(disk, size_mib=128, partitions=1)
         import_files(disk, [clip, ROOT / 'tests/fixtures/tone.mp3'])
         original_build = qemu.BUILD
