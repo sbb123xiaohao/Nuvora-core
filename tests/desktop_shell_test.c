@@ -183,6 +183,27 @@ static void placement(void) {
         }
     }
 }
+static void resize_bounds(void) {
+    struct desktop_window w={.x=320,.y=0,.w=320,.h=424,.tiled=DESKTOP_TILE_RIGHT};
+    desktop_resize(&w,2,640,424,340,310,-30,0);
+    assert(w.x==320 && w.w==320 && w.h==424 && !w.tiled);
+    w=(struct desktop_window){.x=140,.y=300,.w=400,.h=124};
+    desktop_resize(&w,8,640,424,300,310,0,-20);
+    assert(w.y==300 && w.h==124);
+    w=(struct desktop_window){.x=100,.y=50,.w=400,.h=300};
+    desktop_resize(&w,10,640,424,300,160,-40,-20);
+    assert(w.x==100 && w.y==50 && w.w==360 && w.h==280);
+    const struct desktop_window frames[]={
+        {.x=0,.y=0,.w=640,.h=424}, {.x=320,.y=212,.w=320,.h=212},
+        {.x=500,.y=300,.w=140,.h=124}, {.x=50,.y=40,.w=420,.h=310}};
+    const i32 deltas[]={-700,-40,0,30,700};
+    for (u32 i=0;i<ARRAY_LEN(frames);++i) for (u32 edges=1;edges<16;++edges)
+        for (u32 dx=0;dx<ARRAY_LEN(deltas);++dx) for (u32 dy=0;dy<ARRAY_LEN(deltas);++dy) {
+            w=frames[i];desktop_resize(&w,edges,640,424,482,354,deltas[dx],deltas[dy]);
+            assert(w.x>=0 && w.y>=0 && w.w && w.h);
+            assert((u32)w.x+w.w<=640 && (u32)w.y+w.h<=424);
+        }
+}
 static void editor_navigation(void) {
     /* A 340-pixel editor has 38 visible columns. Exercise the actual key and
      * pointer paths so keyboard navigation agrees with the rendered rows. */
@@ -278,7 +299,7 @@ static void spaces_model(void) {
     assert(settings_activate(SETTINGS_ACTION)==-NV_ENODEV);
 }
 int main(void) {
-    search(); notices(); launcher_gestures(); launcher_io(); switching(); placement(); editor_navigation(); spaces_model();
+    search(); notices(); launcher_gestures(); launcher_io(); switching(); placement(); resize_bounds(); editor_navigation(); spaces_model();
     puts("PASS desktop shell: release/cancel gestures, private pins and failed-write/sync retry, MRU/tiling/editor, Spaces filter/sort/grid, preferences and settings roles");
     return 0;
 }

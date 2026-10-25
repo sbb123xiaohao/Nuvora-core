@@ -1,0 +1,16 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-pointer-release-8_ko4cib/data.img
+FAIL 640x480 final release moves window ((140, 48, 485, 376), (155, 48, 485, 376))
+FAIL 640x480 final release resizes window ((140, 48, 485, 376), (140, 48, 445, 376))
+FAIL 640x480 release position replaces stale snap preview ('old edge preview was committed', (0, 0, 320, 424), (485, 376))
+FAIL 640x480 undersized tiled window stays within workspace right window border escaped the framebuffer
+Traceback (most recent call last):
+  File "/workspace/Nuvora-core/tests/pointer_release_boot_test.py", line 98, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "/workspace/Nuvora-core/tests/pointer_release_boot_test.py", line 95, in main
+    args=parser.parse_args();run(args.resolution,args.output.resolve())
+                             ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Nuvora-core/tests/pointer_release_boot_test.py", line 88, in run
+    assert not failures,failures
+           ^^^^^^^^^^^^
+AssertionError: ['final release moves window: ((140, 48, 485, 376), (155, 48, 485, 376))', 'final release resizes window: ((140, 48, 485, 376), (140, 48, 445, 376))', "release position replaces stale snap preview: ('old edge preview was committed', (0, 0, 320, 424), (485, 376))", 'undersized tiled window stays within workspace: right window border escaped the framebuffer']

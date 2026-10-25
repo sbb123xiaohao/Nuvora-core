@@ -1,0 +1,17 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-pointer-release-nql9__n1/data.img
+PASS 640x480 final release moves window
+PASS 640x480 final release resizes window
+PASS 640x480 release position replaces stale snap preview
+PASS 640x480 undersized tiled window stays within workspace
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-pointer-release-4zyfycxh/data.img
+PASS 640x480 final release moves window
+PASS 640x480 final release resizes window
+PASS 640x480 release position replaces stale snap preview
+PASS 640x480 undersized tiled window stays within workspace
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-apps-pin-cdwzgq02/data.img
+PASS 1280x800 release-only launch; leave/return cancels click
+PASS 1280x800 native window pin restores geometry; durable private mask
+PASS 1280x800 client identity and maximized window restored after pin
+PASS 1280x800 lock cancels pending click
+PASS 1280x800 reboot restores pin order and launches the correct app
+PASS launcher pointer, pin persistence and production desktop checks

@@ -1,5 +1,33 @@
 # 测试与复现
 
+## 未发布：鼠标松手位置与缩放边界
+
+以完整 `24b0685` 为基线，2026-10-25。Arch GCC 16.2.1、QEMU 11.1.1 TCG、
+OVMF；生产 UEFI/q35/256 MiB、NVMe 数据盘、USB 键盘和 Tablet，未测试实体硬件。
+
+- 同一生产 USB 输入序列在旧桌面有四个失败：最终松手位移不移动窗口、
+  最终松手位移不改变尺寸、移离屏幕边缘后仍提交旧预览，以及右半屏 Files
+  缩放时边框逃出屏幕。基线 ESP/内核摘要与上一提交的记录一致。
+- 默认和原生独立配置在 640×480 验证上述实际输入；同一 QMP 调用同时提交
+  绝对坐标和按钮释放，没有额外的保持按下移动报告替代最终报告。
+  还验证不移动的缩放点击不会退出平铺。
+- 两种配置各 55 组宿主回归通过，C 夹具使用 UBSan；桌面模型另用 ASan/UBSan
+  检查 1,500 组边缘、角落、正负位移与小于首选最小尺寸的窗口，均保持工作区边界。
+- 1280×800 的生产 Apps 测试继续通过原生/客户端窗口固定、精确几何恢复、
+  Ctrl-P/右键取消、锁屏取消待处理点击，以及重启后启动正确应用和实际保存记录。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/pointer_release_boot_test.py
+make COMPAT=none -j4 diagnostics esp
+make COMPAT=none test-host
+NV_COMPAT=none python3 tests/pointer_release_boot_test.py
+python3 tests/launcher_boot_test.py --resolutions 1280x800
+```
+
+原始失败、生产串口、完整回归和摘要见[指针释放验证](verification/0.15.0/pointer-release/README.md)。
+
 ## 未发布：Apps 拖放固定与窗口交互
 
 基于本地/GitHub 一致的完整 `0bb5a2e`；Arch GCC 16.2.1、QEMU 11.1.1 TCG、

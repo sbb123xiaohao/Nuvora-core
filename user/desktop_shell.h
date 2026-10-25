@@ -79,6 +79,22 @@ static inline void desktop_fit(struct desktop_window *w,u32 width,u32 height) {
     w->x=MAX(0,MIN(w->x,(i32)(width-w->w)));
     w->y=MAX(0,MIN(w->y,(i32)(height-w->h)));
 }
+static inline void desktop_resize(struct desktop_window *w,u32 edges,u32 sw,u32 workh,
+                                  i32 minw,i32 minh,i32 dx,i32 dy) {
+    w->tiled=DESKTOP_FLOATING;
+    /* A tiled frame can be smaller than an app's preferred minimum. Available
+     * workspace takes priority; resizing must not grow it past the screen. */
+    if (edges&2) w->w=(u32)MIN((i32)sw-w->x,MAX(minw,(i32)w->w+dx));
+    if (edges&8) w->h=(u32)MIN((i32)workh-w->y,MAX(minh,(i32)w->h+dy));
+    if (edges&1) {
+        i32 right=w->x+(i32)w->w;
+        w->x=MAX(0,MIN(right-minw,w->x+dx));w->w=(u32)(right-w->x);
+    }
+    if (edges&4) {
+        i32 bottom=w->y+(i32)w->h;
+        w->y=MAX(0,MIN(bottom-minh,w->y+dy));w->h=(u32)(bottom-w->y);
+    }
+}
 struct desktop_switcher {
     bool open;
     u8 ids[DESKTOP_WINDOW_COUNT];

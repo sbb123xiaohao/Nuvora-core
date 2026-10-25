@@ -1,0 +1,10 @@
+{
+  "resolution": "640x480",
+  "passed": [],
+  "failures": [
+    "final release moves window: ((140, 48, 485, 376), (155, 48, 485, 376))",
+    "final release resizes window: ((140, 48, 485, 376), (140, 48, 445, 376))",
+    "release position replaces stale snap preview: ('old edge preview was committed', (0, 0, 320, 424), (485, 376))",
+    "undersized tiled window stays within workspace: right window border escaped the framebuffer"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "resolution": "640x480",
+  "passed": [
+    "final release moves window",
+    "final release resizes window",
+    "release position replaces stale snap preview",
+    "undersized tiled window stays within workspace"
+  ],
+  "failures": []
+}

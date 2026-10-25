@@ -1363,7 +1363,9 @@ int user_main(const char *args) {
                 if (r<0) { note_error("Pin preference",r);r=0; }
                 dirty=true;
             }
-            if ((event.buttons&NV_POINTER_LEFT) && (pointer_buttons&NV_POINTER_LEFT) && drag_kind) {
+            /* Button-up can carry the final movement in the same HID packet.
+             * Apply it before committing a snap, pin or volume preference. */
+            if ((pointer_buttons&NV_POINTER_LEFT) && drag_kind) {
                 if (drag_kind==DESKTOP_HIT_VOLUME_SLIDER || drag_kind==DESKTOP_HIT_SETTINGS_VOLUME) {
                     u32 level;
                     if (drag_kind==DESKTOP_HIT_SETTINGS_VOLUME) {
@@ -1393,8 +1395,7 @@ int user_main(const char *args) {
                         w->y=MAX(0,MIN((i32)sh-DESKTOP_BAR_HEIGHT-(i32)w->h,w->y));
                         u32 next=pin_target?DESKTOP_FLOATING:desktop_snap_target(sw,x,y);
                         if (next!=snap_preview) { snap_preview=next; dirty=true; }
-                    } else if (drag_kind==DESKTOP_HIT_RESIZE) {
-                        w->tiled=DESKTOP_FLOATING;
+                    } else if (drag_kind==DESKTOP_HIT_RESIZE && (x!=oldx || y!=oldy)) {
                         i32 dx=(i32)x-(i32)oldx,dy=(i32)y-(i32)oldy;
                         i32 minw=300,minh=160;
                         if (drag_window==DESKTOP_MEDIA || !strcmp(w->title,"Music") || !strcmp(w->title,"Media"))
@@ -1406,16 +1407,7 @@ int user_main(const char *args) {
                             minw=MAX(minw,(i32)((480+s-1)/s)+2);
                             minh=MAX(minh,(i32)((325+s-1)/s)+29);
                         }
-                        if (drag_edges&2) w->w=(u32)MAX(minw,MIN((i32)sw-w->x,(i32)w->w+dx));
-                        if (drag_edges&8) w->h=(u32)MAX(minh,MIN((i32)sh-DESKTOP_BAR_HEIGHT-w->y,(i32)w->h+dy));
-                        if (drag_edges&1) {
-                            i32 right=w->x+(i32)w->w;
-                            w->x=MAX(0,MIN(right-minw,w->x+dx)); w->w=(u32)(right-w->x);
-                        }
-                        if (drag_edges&4) {
-                            i32 bottom=w->y+(i32)w->h;
-                            w->y=MAX(0,MIN(bottom-minh,w->y+dy)); w->h=(u32)(bottom-w->y);
-                        }
+                        desktop_resize(w,drag_edges,sw,sh-DESKTOP_BAR_HEIGHT,minw,minh,dx,dy);
                         if (drag_window==DESKTOP_EDITOR) editor_ensure_visible();
                         if (drag_window==DESKTOP_FILES) scroll_to_selection();
                     }
