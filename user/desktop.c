@@ -440,16 +440,15 @@ static int client_poll(bool *dirty) {
         u32 id=DESKTOP_WINDOW_COUNT;
         for (u32 i=0;i<DESKTOP_WINDOW_COUNT;++i) if (windows[i].client==e.id) { id=i; break; }
         if (id==DESKTOP_WINDOW_COUNT) {
-            u32 preferred=desktop_client_app(e.title);
+            u32 app=desktop_child_app(e.pid,child_pids,child_apps);
+            u32 preferred=desktop_client_slot(app);
             if (preferred<DESKTOP_WINDOW_COUNT && !windows[preferred].client) id=preferred;
             else for (u32 i=DESKTOP_CLIENT_FIRST;i<DESKTOP_WINDOW_COUNT;++i) if (!windows[i].client) { id=i; break; }
             if (id==DESKTOP_WINDOW_COUNT) continue;
             struct desktop_window *w=&windows[id];
-            *w=(struct desktop_window){.client=e.id,.pid=e.pid,.open=true,
+            *w=(struct desktop_window){.client=e.id,.pid=e.pid,.app=app,.open=true,
                 .w=MIN(sw-16,(e.requested_width+s-1)/s+2),
                 .h=MIN(sh-DESKTOP_BAR_HEIGHT-16,(e.requested_height+s-1)/s+29)};
-            for (u32 child=0;child<NV_TASK_MAX;++child)
-                if (child_pids[child]==e.pid) w->app=child_apps[child];
             w->x=MIN((i32)(sw-w->w), (i32)(sw-w->w)/2+(i32)(id%4)*12);
             w->y=MIN((i32)(sh-DESKTOP_BAR_HEIGHT-w->h),(i32)(sh-DESKTOP_BAR_HEIGHT-w->h)/2+(i32)(id%4)*12);
             strlcpy(w->title,e.title,sizeof(w->title));

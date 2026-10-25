@@ -1,0 +1,5 @@
+{
+  "build/x86_64/apps/desktop.elf": "47f1d243a6243d27c410030f2dd2a9e19f89bd56fc23e4826421e45831c81ba7",
+  "build/x86_64/nuvora-uefi.elf": "2afdfd9b37a3772444d2caeb7b42e8423c16c024393d7a2a1665d5b0e1d44940",
+  "build/x86_64/esp.img": "35e0458efca6476decc85343c067bd76878f8b33bae81a9f6f66926ebb785726"
+}

@@ -1,5 +1,36 @@
 # 测试与复现
 
+## 未发布：窗口标题与系统应用身份
+
+以完整 `aa30086` 为基线，2026-10-25。Arch GCC 16.2.1、QEMU 11.1.1 TCG、
+OVMF；生产 UEFI/q35/256 MiB/NVMe/USB，未进行实体硬件测试。
+
+- 独立原生测试程序在原终端关闭后创建标题为 Terminal 的窗口。旧桌面把它
+  放进专用槽，点击 Apps 的 Terminal 后仍进入它；实际输入的 weave/anchor
+  命令被该测试程序记录，真实终端没有启动。基线 ESP/desktop ELF/内核摘要与
+  上一提交一致，完整失败与输入记录保留。
+- 默认和 `COMPAT=none` 的真实生产客体在同样流程中创建真正 Terminal，
+  同名客户端记录保持 READY，真实 shell 执行命令并保存文件。验证同时检查
+  帧缓冲和暂停客体后读取的提交根，不仅依赖窗口标题或画面。
+- 两种构建各 55 组宿主回归通过，桌面模型另通过 ASan/UBSan；覆盖 Terminal/
+  Music 登记身份、普通客户端、Folio 普通槽、缺失 PID、空 PID 与回收后的关联。
+- Apps 固定、锁屏取消待处理输入和重启恢复，以及原有 Terminal/Media/Folio、
+  MRU/总览/平铺、保存等生产桌面交互继续通过。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+python3 tests/window_identity_boot_test.py
+make COMPAT=none -j4 diagnostics esp
+make COMPAT=none test-host
+NV_COMPAT=none python3 tests/window_identity_boot_test.py
+python3 tests/launcher_boot_test.py --resolutions 1280x800
+python3 tests/desktop_boot_test.py
+```
+
+该修复限定启动目标的身份选择；普通应用仍可设置同名标题。测试和准确边界见
+[窗口身份验证](verification/0.15.0/window-identity/README.md)。
+
 ## 未发布：鼠标松手位置与缩放边界
 
 以完整 `24b0685` 为基线，2026-10-25。Arch GCC 16.2.1、QEMU 11.1.1 TCG、

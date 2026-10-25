@@ -24,10 +24,14 @@ struct desktop_window {
     char title[64];
 };
 struct desktop_rect { u32 x, y, w, h; };
-static inline u32 desktop_client_app(const char *title) {
-    if (!title) return DESKTOP_WINDOW_COUNT;
-    if (!strcmp(title,"Terminal")) return DESKTOP_TERMINAL;
-    if (!strcmp(title,"Media") || !strcmp(title,"Music")) return DESKTOP_MEDIA;
+static inline u32 desktop_child_app(u32 pid,const u32 *pids,const u8 *apps) {
+    if (pid) for (u32 i=0;i<NV_TASK_MAX;++i) if (pids[i]==pid) return apps[i];
+    return 0;
+}
+/* Launcher identities come from a registered launch, never client text. */
+static inline u32 desktop_client_slot(u32 app) {
+    if (app==DESKTOP_TERMINAL+1) return DESKTOP_TERMINAL;
+    if (app==DESKTOP_MEDIA+1) return DESKTOP_MEDIA;
     return DESKTOP_WINDOW_COUNT;
 }
 struct desktop_app { const char *name, *description, *keywords; };

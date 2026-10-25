@@ -1,0 +1,15 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-window-title-c4k32rch/data.img
+Registered Terminal background pixels: 616696
+Unregistered titled client received: b'READY\n'
+PASS title isolation: real Terminal executed and persisted the command; unrelated client received no keys
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-window-title-wk8jo5ie/data.img
+Registered Terminal background pixels: 616696
+Unregistered titled client received: b'READY\n'
+PASS title isolation: real Terminal executed and persisted the command; unrelated client received no keys
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-apps-pin-f7ypcows/data.img
+PASS 1280x800 release-only launch; leave/return cancels click
+PASS 1280x800 native window pin restores geometry; durable private mask
+PASS 1280x800 client identity and maximized window restored after pin
+PASS 1280x800 lock cancels pending click
+PASS 1280x800 reboot restores pin order and launches the correct app
+PASS launcher pointer, pin persistence and production desktop checks

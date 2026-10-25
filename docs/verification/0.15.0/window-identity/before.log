@@ -1,0 +1,14 @@
+Created 128 MiB GPT disk with 1 Nuvora partition(s): /tmp/nuvora-window-title-xyrprv7n/data.img
+Registered Terminal background pixels: 128898
+Unregistered titled client received: b'READY\nweave identity-ok.txt genuine-shell\nanchor\n'
+Traceback (most recent call last):
+  File "/workspace/Nuvora-core/tests/window_identity_boot_test.py", line 80, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "/workspace/Nuvora-core/tests/window_identity_boot_test.py", line 77, in main
+    args=parser.parse_args();run(args.output.resolve())
+                             ~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Nuvora-core/tests/window_identity_boot_test.py", line 68, in run
+    assert real_pixels>200000,'Same-titled client occupied the Terminal launcher slot'
+           ^^^^^^^^^^^^^^^^^^
+AssertionError: Same-titled client occupied the Terminal launcher slot

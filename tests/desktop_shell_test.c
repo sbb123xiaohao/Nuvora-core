@@ -36,11 +36,17 @@ static iptr launcher_test_syscall(u32 op,uptr a,uptr b,uptr c) {
 #include "../user/desktop.c"
 
 static void search(void) {
-    assert(desktop_client_app("Music")==DESKTOP_MEDIA);
-    assert(desktop_client_app("Media")==DESKTOP_MEDIA);
-    assert(desktop_client_app("Terminal")==DESKTOP_TERMINAL);
-    assert(desktop_client_app("Folio")==DESKTOP_WINDOW_COUNT);
-    assert(desktop_client_app(NULL)==DESKTOP_WINDOW_COUNT);
+    assert(desktop_client_slot(3)==DESKTOP_TERMINAL);
+    assert(desktop_client_slot(4)==DESKTOP_MEDIA);
+    assert(desktop_client_slot(5)==DESKTOP_WINDOW_COUNT); /* Folio has no builtin slot. */
+    assert(desktop_client_slot(0)==DESKTOP_WINDOW_COUNT);
+    assert(desktop_client_slot(255)==DESKTOP_WINDOW_COUNT);
+    u32 pids[NV_TASK_MAX]={0};u8 apps[NV_TASK_MAX]={0};
+    pids[0]=17;apps[0]=3;pids[NV_TASK_MAX-1]=91;apps[NV_TASK_MAX-1]=4;
+    assert(desktop_child_app(17,pids,apps)==3 && desktop_child_app(91,pids,apps)==4);
+    assert(desktop_child_app(0,pids,apps)==0 && desktop_child_app(18,pids,apps)==0);
+    pids[0]=0;apps[0]=0;
+    assert(!desktop_child_app(17,pids,apps)); /* Reaped children lose their association. */
     struct desktop_launcher l={0}; desktop_search(&l);
     assert(l.count==7 && l.selected==0);
     strlcpy(l.query,"  MP3 VIDEO  ",sizeof(l.query)); desktop_search(&l);
