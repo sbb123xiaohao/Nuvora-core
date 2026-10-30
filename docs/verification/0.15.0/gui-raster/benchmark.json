@@ -1,0 +1,218 @@
+{
+  "baseline": "aba81d4e4e1020e2e60d8ea1963baadb9ef30880",
+  "compiler": "gcc (GCC) 16.2.1 20260810",
+  "flags": [
+    "-std=c11",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-ffreestanding",
+    "-fno-builtin",
+    "-fno-pie",
+    "-fno-pic",
+    "-fno-stack-protector",
+    "-fno-asynchronous-unwind-tables",
+    "-fno-unwind-tables",
+    "-m64",
+    "-mcmodel=large",
+    "-mno-red-zone",
+    "-mgeneral-regs-only",
+    "-mno-sse",
+    "-mno-sse2",
+    "-mno-mmx",
+    "-msoft-float",
+    "-no-pie",
+    "-Iinclude"
+  ],
+  "note": "Host scalar raster microbenchmark, not guest FPS; 7 samples/run, 3 alternating run pairs.",
+  "source_sha256": "c8e2dfd5fa186c9d42992205f7a7f51a373c20fd92d72616fdcca4886f022576",
+  "runs": [
+    {
+      "pair": 0,
+      "version": "before",
+      "scenes": [
+        {
+          "scene": "opaque-card",
+          "ns_per_draw": "1183468",
+          "checksum": "c02db274b42e30b8"
+        },
+        {
+          "scene": "translucent-card",
+          "ns_per_draw": "3003047",
+          "checksum": "9a0d1331046cfb10"
+        },
+        {
+          "scene": "cursor-clip",
+          "ns_per_draw": "132",
+          "checksum": "24f68063404c96e0"
+        },
+        {
+          "scene": "square-card",
+          "ns_per_draw": "445927",
+          "checksum": "f74d09ed8f447920"
+        }
+      ]
+    },
+    {
+      "pair": 0,
+      "version": "after",
+      "scenes": [
+        {
+          "scene": "opaque-card",
+          "ns_per_draw": "208419",
+          "checksum": "c02db274b42e30b8"
+        },
+        {
+          "scene": "translucent-card",
+          "ns_per_draw": "1851508",
+          "checksum": "9a0d1331046cfb10"
+        },
+        {
+          "scene": "cursor-clip",
+          "ns_per_draw": "65",
+          "checksum": "24f68063404c96e0"
+        },
+        {
+          "scene": "square-card",
+          "ns_per_draw": "204244",
+          "checksum": "f74d09ed8f447920"
+        }
+      ]
+    },
+    {
+      "pair": 1,
+      "version": "after",
+      "scenes": [
+        {
+          "scene": "opaque-card",
+          "ns_per_draw": "206578",
+          "checksum": "c02db274b42e30b8"
+        },
+        {
+          "scene": "translucent-card",
+          "ns_per_draw": "1834485",
+          "checksum": "9a0d1331046cfb10"
+        },
+        {
+          "scene": "cursor-clip",
+          "ns_per_draw": "36",
+          "checksum": "24f68063404c96e0"
+        },
+        {
+          "scene": "square-card",
+          "ns_per_draw": "202704",
+          "checksum": "f74d09ed8f447920"
+        }
+      ]
+    },
+    {
+      "pair": 1,
+      "version": "before",
+      "scenes": [
+        {
+          "scene": "opaque-card",
+          "ns_per_draw": "1074560",
+          "checksum": "c02db274b42e30b8"
+        },
+        {
+          "scene": "translucent-card",
+          "ns_per_draw": "2900406",
+          "checksum": "9a0d1331046cfb10"
+        },
+        {
+          "scene": "cursor-clip",
+          "ns_per_draw": "222",
+          "checksum": "24f68063404c96e0"
+        },
+        {
+          "scene": "square-card",
+          "ns_per_draw": "429437",
+          "checksum": "f74d09ed8f447920"
+        }
+      ]
+    },
+    {
+      "pair": 2,
+      "version": "before",
+      "scenes": [
+        {
+          "scene": "opaque-card",
+          "ns_per_draw": "1064160",
+          "checksum": "c02db274b42e30b8"
+        },
+        {
+          "scene": "translucent-card",
+          "ns_per_draw": "2790166",
+          "checksum": "9a0d1331046cfb10"
+        },
+        {
+          "scene": "cursor-clip",
+          "ns_per_draw": "127",
+          "checksum": "24f68063404c96e0"
+        },
+        {
+          "scene": "square-card",
+          "ns_per_draw": "495713",
+          "checksum": "f74d09ed8f447920"
+        }
+      ]
+    },
+    {
+      "pair": 2,
+      "version": "after",
+      "scenes": [
+        {
+          "scene": "opaque-card",
+          "ns_per_draw": "231894",
+          "checksum": "c02db274b42e30b8"
+        },
+        {
+          "scene": "translucent-card",
+          "ns_per_draw": "2177130",
+          "checksum": "9a0d1331046cfb10"
+        },
+        {
+          "scene": "cursor-clip",
+          "ns_per_draw": "42",
+          "checksum": "24f68063404c96e0"
+        },
+        {
+          "scene": "square-card",
+          "ns_per_draw": "221878",
+          "checksum": "f74d09ed8f447920"
+        }
+      ]
+    }
+  ],
+  "medians": [
+    {
+      "scene": "opaque-card",
+      "before_ns": 1074560,
+      "after_ns": 208419,
+      "speedup": 5.156,
+      "checksum": "c02db274b42e30b8"
+    },
+    {
+      "scene": "translucent-card",
+      "before_ns": 2900406,
+      "after_ns": 1851508,
+      "speedup": 1.567,
+      "checksum": "9a0d1331046cfb10"
+    },
+    {
+      "scene": "cursor-clip",
+      "before_ns": 132,
+      "after_ns": 42,
+      "speedup": 3.143,
+      "checksum": "24f68063404c96e0"
+    },
+    {
+      "scene": "square-card",
+      "before_ns": 445927,
+      "after_ns": 204244,
+      "speedup": 2.183,
+      "checksum": "f74d09ed8f447920"
+    }
+  ]
+}

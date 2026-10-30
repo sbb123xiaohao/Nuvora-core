@@ -1,0 +1,82 @@
+{
+  "baseline": "aba81d4e4e1020e2e60d8ea1963baadb9ef30880",
+  "exact_pixel_match": true,
+  "frames": {
+    "before": {
+      "NV_EDITOR_PREVIEW.ppm": {
+        "sha256": "6479d2d06f85ee21af6ba3bc20576ea6c1f7a5a002e6f997bf29a3820d39c926",
+        "bytes": 3072016
+      },
+      "NV_START_PREVIEW.ppm": {
+        "sha256": "696cc6842c786fea812c8aa3082b1f6ea12ece414b2a10f085f9dbda9ad19824",
+        "bytes": 3072016
+      },
+      "NV_DELETE_PREVIEW.ppm": {
+        "sha256": "5867f9de2c8c5be024ebc83271efd942a03d65ce6480a5047c966086274919f4",
+        "bytes": 3072016
+      },
+      "NV_SETTINGS_PREVIEW.ppm": {
+        "sha256": "10ab1e81ca8cac23d0f094aee20501e3476ed071139eaf12444697859f6933ae",
+        "bytes": 3072016
+      },
+      "NV_FILES_PREVIEW.ppm": {
+        "sha256": "9edf38b38007f772da75047312c8aaf31934377580198e04b23a25133a5e4a28",
+        "bytes": 3072016
+      },
+      "NV_TERMINAL_PREVIEW.ppm": {
+        "sha256": "b05a2b2839980548184feb00173e49d0c69683ea0a9880c3a6bce174206e5bb4",
+        "bytes": 3072016
+      },
+      "NV_WINDOWS_PREVIEW.ppm": {
+        "sha256": "a7731157e73e6c7954dd1ce8b6213e482155260eeb6e836ada64c9af4c771968",
+        "bytes": 3072016
+      },
+      "NV_HOME_START_PREVIEW.ppm": {
+        "sha256": "11b91502b92b9d4bc8a628345fc5efe0d9b62a5986b6f543af85d366b7eeabc6",
+        "bytes": 3072016
+      },
+      "NV_VOLUME_PREVIEW.ppm": {
+        "sha256": "9edf38b38007f772da75047312c8aaf31934377580198e04b23a25133a5e4a28",
+        "bytes": 3072016
+      }
+    },
+    "after": {
+      "NV_EDITOR_PREVIEW.ppm": {
+        "sha256": "6479d2d06f85ee21af6ba3bc20576ea6c1f7a5a002e6f997bf29a3820d39c926",
+        "bytes": 3072016
+      },
+      "NV_START_PREVIEW.ppm": {
+        "sha256": "696cc6842c786fea812c8aa3082b1f6ea12ece414b2a10f085f9dbda9ad19824",
+        "bytes": 3072016
+      },
+      "NV_DELETE_PREVIEW.ppm": {
+        "sha256": "5867f9de2c8c5be024ebc83271efd942a03d65ce6480a5047c966086274919f4",
+        "bytes": 3072016
+      },
+      "NV_SETTINGS_PREVIEW.ppm": {
+        "sha256": "10ab1e81ca8cac23d0f094aee20501e3476ed071139eaf12444697859f6933ae",
+        "bytes": 3072016
+      },
+      "NV_FILES_PREVIEW.ppm": {
+        "sha256": "9edf38b38007f772da75047312c8aaf31934377580198e04b23a25133a5e4a28",
+        "bytes": 3072016
+      },
+      "NV_TERMINAL_PREVIEW.ppm": {
+        "sha256": "b05a2b2839980548184feb00173e49d0c69683ea0a9880c3a6bce174206e5bb4",
+        "bytes": 3072016
+      },
+      "NV_WINDOWS_PREVIEW.ppm": {
+        "sha256": "a7731157e73e6c7954dd1ce8b6213e482155260eeb6e836ada64c9af4c771968",
+        "bytes": 3072016
+      },
+      "NV_HOME_START_PREVIEW.ppm": {
+        "sha256": "11b91502b92b9d4bc8a628345fc5efe0d9b62a5986b6f543af85d366b7eeabc6",
+        "bytes": 3072016
+      },
+      "NV_VOLUME_PREVIEW.ppm": {
+        "sha256": "9edf38b38007f772da75047312c8aaf31934377580198e04b23a25133a5e4a28",
+        "bytes": 3072016
+      }
+    }
+  }
+}

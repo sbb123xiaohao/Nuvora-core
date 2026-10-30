@@ -193,12 +193,70 @@ static void rounded_shadows(u32 format,u32 scale) {
     release_pixels(&actual);release_pixels(&reference);
     release_pixels(&tiled);release_pixels(&damage);
 }
+/* Independent scalar oracle: visit every canvas pixel, derive circle coverage
+ * directly, then blend each channel. Never call the optimized span/coverage or
+ * blend helpers to form the expected image. Vary untouched high bytes too. */
+static u32 oracle_round(u32 background,u32 format,u32 rgb,u32 opacity,
+    u32 px,u32 py,u32 w,u32 h,u32 radius) {
+    radius=MIN(radius,MIN(w,h)/2);
+    u32 coverage=255;
+    if (radius) {
+        i64 dx=px<radius?(i64)2*px+1-2*radius:
+            px>=w-radius?(i64)2*(px-(w-radius))+1:0;
+        i64 dy=py<radius?(i64)2*py+1-2*radius:
+            py>=h-radius?(i64)2*(py-(h-radius))+1:0;
+        if (dx && dy) {
+            i64 n=(i64)4*radius*radius-dx*dx-dy*dy+2*radius;
+            coverage=n<=0?0:(u32)(MIN(n,(i64)4*radius)*255/(4*radius));
+        }
+    }
+    u32 alpha=coverage*opacity/255;
+    if (!alpha) return background;
+    u32 color=pixel_word(format,rgb),out=0;
+    for (u32 shift=0;shift<24;shift+=8)
+        out|=((((color>>shift)&255)*alpha+((background>>shift)&255)*(255-alpha)+127)/255)<<shift;
+    return out;
+}
+static u32 raster_random(u32 *state) { *state=*state*1664525u+1013904223u;return *state; }
+static void rounded_spans(void) {
+    const u32 radii[]={0,1,2,7,14,56,10000};
+    const u32 opacities[]={0,1,6,127,220,254,255};
+    u32 state=0x18d3529a;
+    for (u32 sample=0;sample<8192;++sample) {
+        u32 format=sample&1?NV_DISPLAY_RGBX8:NV_DISPLAY_BGRX8;
+        u32 width=1+raster_random(&state)%73,y0=raster_random(&state)%37;
+        u32 rows=1+raster_random(&state)%31;
+        i32 x=(i32)(raster_random(&state)%131)-40;
+        i32 y=(i32)(raster_random(&state)%131)-40;
+        u32 w=raster_random(&state)%101,h=raster_random(&state)%101;
+        u32 radius=radii[sample%ARRAY_LEN(radii)],opacity=opacities[(sample/7)%ARRAY_LEN(opacities)];
+        struct desktop_clip clip={raster_random(&state)%100,raster_random(&state)%100,
+            raster_random(&state)%100,raster_random(&state)%100};
+        if (!(sample%4)) clip=(struct desktop_clip){0,0,width,y0+rows};
+        struct guarded_pixels actual=allocate_pixels(width*rows,0);
+        struct guarded_pixels expected=allocate_pixels(width*rows,0);
+        for (u32 i=0;i<width*rows;++i) actual.pixels[i]=expected.pixels[i]=raster_random(&state);
+        struct nv_canvas c={actual.pixels,width,y0,rows,format};
+        u32 rgb=raster_random(&state)&0xffffff;
+        desktop_round_alpha(&c,clip,x,y,w,h,radius,rgb,opacity);
+        for (u32 row=0;row<rows;++row) for (u32 col=0;col<width;++col) {
+            u32 py=y0+row,at=row*width+col;
+            if (col<clip.left || col>=clip.right || py<clip.top || py>=clip.bottom ||
+                (i64)col<x || (i64)py<y || (i64)col>=(i64)x+w || (i64)py>=(i64)y+h) continue;
+            expected.pixels[at]=oracle_round(expected.pixels[at],format,rgb,opacity,
+                (u32)((i64)col-x),(u32)((i64)py-y),w,h,radius);
+        }
+        assert(!memcmp(actual.pixels,expected.pixels,(usize)width*rows*sizeof(u32)));
+        release_pixels(&actual);release_pixels(&expected);
+    }
+}
 int main(void) {
+    rounded_spans();
     exact_colors();off_edge();
     for (u32 format=NV_DISPLAY_BGRX8;format<=NV_DISPLAY_RGBX8;++format)
         for (u32 scale=1;scale<=4;++scale) {
             tiled_and_clipped(format,scale);rounded_shadows(format,scale);
         }
-    puts("PASS native controls: line icons, rounded shadows vs complete layers, RGBX/BGRX, scales 1-4, arbitrary tiles/clips and guarded bounds");
+    puts("PASS native controls: 8192 independent rounded-raster oracle cases, line icons, rounded shadows vs complete layers, RGBX/BGRX, scales 1-4, arbitrary tiles/clips and guarded bounds");
     return 0;
 }

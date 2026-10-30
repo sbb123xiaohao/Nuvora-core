@@ -1,0 +1,43 @@
+{
+  "capture": "production UEFI / q35 / 256 MiB / NVMe / USB keyboard",
+  "kernel_sha256": "114f898fe335e8d1b44e3a9edb54e29ea78cb2b28cbd17ca89e06d12a7aa76d1",
+  "esp_sha256": "cbfc46113985a0f4f2331d34a849ecb0241144a1cbb6373445ddeb4e9ad5fb48",
+  "images": [
+    {
+      "file": "640x480/maximized.png",
+      "width": 640,
+      "height": 480,
+      "sha256": "513c6836a80cb2c8ba56b6af85557cb5e078198c0b568f68701edf8f44b147c6"
+    },
+    {
+      "file": "640x480/half-screen.png",
+      "width": 640,
+      "height": 480,
+      "sha256": "b51eda610460b1f67f0f7a881de3d2b650c1def55b2e3f77b366eea6db7a1464"
+    },
+    {
+      "file": "640x480/floating.png",
+      "width": 640,
+      "height": 480,
+      "sha256": "5fde4fd3a305e5155bdfa68f56de2ed89a555dd6435a298fd2a135729b9fb4cc"
+    },
+    {
+      "file": "1920x1080/maximized.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "dc01486930bf536f51c87b917c065db57b7c57c4b741bdb792ac469d5dec16e7"
+    },
+    {
+      "file": "1920x1080/half-screen.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "8b0df878ff8ad3b84e8430c5c49f7b39062fac5e78af5f2ffb34a68b15ad2e32"
+    },
+    {
+      "file": "1920x1080/floating.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "a5e073b4090975662c35aeac25637eb1e4f754fece0e8bba3f7981c96cb3fcd1"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+PASS native controls: 8192 independent rounded-raster oracle cases, line icons, rounded shadows vs complete layers, RGBX/BGRX, scales 1-4, arbitrary tiles/clips and guarded bounds
+PASS display: tiled compositor, windows, controls, menu and editor dialog

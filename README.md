@@ -8,6 +8,12 @@ Nuvora Core 是自研实验操作系统。x86-64 版本提供 UEFI/BIOS 启动�
 
 Files 提供文件卡片、搜索、排序和详情；Music 提供真实播放列表与共享音量；设置包含外观、声音、网络、安全和系统五页。浮动窗口统一裁剪四角，透明角落可点击后方窗口，最大化和平铺使用直角。内核继续执行账户隔离、自动锁屏和管理员权限；行为与准确边界见[桌面与安全](docs/DESKTOP-SECURITY.md)。
 
+共享圆角绘制已按扫描行优化，保留原有抗锯齿像素，减少大卡片内部的重复计算。
+微基准及边界见[验证记录](docs/verification/0.15.0/gui-raster/README.md)；本轮生产系统实际截图：
+[多窗口桌面](docs/verification/0.15.0/gui-raster/desktop.png)、
+[640×480 原生终端](docs/verification/0.15.0/gui-raster/native-640x480.png)、
+[1920×1080 原生终端](docs/verification/0.15.0/gui-raster/native-1920x1080.png)。
+
 Terminal 现在随窗口宽高调整字符行列，最大化、半屏和还原会重排已有输出，
 保持字号和输入位置。最大化使用整个工作区，底部应用栏保留；旧原生应用的
 80×25 字符接口保持兼容。以下是 1920×1080 正式系统的实际截图：

@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-30",
+  "baseline": "aba81d4e4e1020e2e60d8ea1963baadb9ef30880",
+  "toolchain": "Arch GCC 16.2.1 20260810; QEMU 11.1.1 TCG; OVMF",
+  "production_guest": "UEFI/q35/256MiB/NVMe/USB; default 1280x800, COMPAT=none 640x480 and 1920x1080",
+  "physical_hardware_tested": false,
+  "validation": {
+    "default_host_groups": 55,
+    "native_host_groups": 55,
+    "independent_pixel_cases": 8192,
+    "full_compositor_scene_exact_matches": 9,
+    "sanitizers": [
+      "shared controls: ASan/UBSan",
+      "full compositor: ASan/UBSan"
+    ],
+    "production_boots": 3
+  },
+  "source_sha256": {
+    "user/gui_text.h": "4c28c319e236bf968c41b59f39733335f382ddda58d91d18ea1f38248bf00675",
+    "tests/ui_controls_test.c": "8617e865f9b4277cedb686a242c95757eb6f5ad03a595cc60790461a0f1c7042",
+    "tests/gui_bench.c": "c8e2dfd5fa186c9d42992205f7a7f51a373c20fd92d72616fdcca4886f022576",
+    "tests/display_test.c": "575d8c73f2fc7db74b29da3452065100848c332d432b9a06f19aeb4c0c16ae17",
+    "tests/desktop_boot_test.py": "59dbe00c69ede8ad087ae989f633189889240002b794207342aed6e5705a3da5",
+    "tests/resolution_desktop_test.py": "a599d573367c1c5b0363684f801e7d9b83a0fff6ef1368841c5d4b6f33eda8c3"
+  },
+  "artifacts": {
+    "x86_64": {
+      "build/x86_64/esp.img": "2a02b99d23269c6e80d201fc4dc6591ee5d8c272e7db6cf9885f1e52f8f26c08",
+      "build/x86_64/nuvora-uefi.elf": "3bc771ddfe977472175be9b2566be10b8660ca4c8ee858da3f6f76fa6885db96",
+      "build/x86_64/BOOTX64.EFI": "8ed04f3974dc90434fd1db7f3069dcebea644198859975f22063e625fbc0e3ca",
+      "build/x86_64/apps/desktop.elf": "7697c808a6d79e004430eda4dd444057331f2e04130df2d4342dffa51288fe98",
+      "build/x86_64/apps/media.elf": "9a20b6e246417665bea2a4ec932ac6a06ef91c0e51ace8820717c4b0ff6c0000",
+      "build/x86_64/apps/folio.elf": "ce017590aaeefba3657de379712167be7e56a005ae1bab1d95ddaf061deed5a7"
+    },
+    "x86_64-native": {
+      "build/x86_64-native/esp.img": "cbfc46113985a0f4f2331d34a849ecb0241144a1cbb6373445ddeb4e9ad5fb48",
+      "build/x86_64-native/nuvora-uefi.elf": "114f898fe335e8d1b44e3a9edb54e29ea78cb2b28cbd17ca89e06d12a7aa76d1",
+      "build/x86_64-native/BOOTX64.EFI": "8ed04f3974dc90434fd1db7f3069dcebea644198859975f22063e625fbc0e3ca",
+      "build/x86_64-native/apps/desktop.elf": "cfc6215f2b9f765606b332c2d1d1eb891044714a26eaa997ebad5c724afb36c7",
+      "build/x86_64-native/apps/media.elf": "4adf4cb86d2c883a2d3c5465eebe2cc94847eacc8ffbeff66f86bbb85d814104",
+      "build/x86_64-native/apps/folio.elf": "7b6341ff40435d3a098c50ba9adc4e7e90929578084880e94b7266460c7741c5"
+    }
+  },
+  "six_second_mpeg_sha256": "ac253e1dcf1461e16c35bb2dc330c4af3f2ea8e0576749ef6542c4cb0077a6d3",
+  "desktop_screenshot_source": {
+    "path": "build/x86_64/raster-existing/16-files-during-playback.ppm",
+    "sha256": "0059b311cc48564c74f4eece4dd3c076b373134675c1e59ac71df584cf897aae",
+    "conversion": "Unmodified RGB pixels, lossless PNG via tests/capture_screenshots.py write_png"
+  },
+  "evidence_sha256": {
+    "README.md": "2c58aee7e92ce6bffe117b145eabca23bc0718ac385fbc5adfa24a72c2c2eeaf",
+    "benchmark.json": "ca4a1b89b5fbedb058e52a3396a48286680f2ccd34b4252b6547539fdcc794d4",
+    "build-default.log": "c92a4279893f5e6856f70714a03b5d07d3083360e7e60efe2dc80a310ff3daf7",
+    "build-native.log": "ab474d6ebca465e031f3bf90cd60def6b05e10a395442f2024f2a913ef6d8c0e",
+    "desktop-guest.log": "421801654fb53225a5de3a25cd06fff12ec19f1bb2f2c5687a99462f5c735619",
+    "desktop-serial.log": "e73e81cfb2e08ee3f678fcfe7f99eaaced3f343228f1405931baaeddeaee8005",
+    "desktop.png": "a3fc1cbd680f7411204c04023c6244ffcd567767097a18a3cee0929b69acf307",
+    "frame-comparison.json": "88674c6c3fa0e202938b81d936b7e754170dfd198ddb92508f66fb0b5dd68e1b",
+    "host-default.log": "4fc6c88c1f1f22505dedc33b01e1b4e8a072646c45dc26f3824ecfe7103d893c",
+    "host-native.log": "c00715e6196a05ee3e2f116654364a1a5ad0289ba7fc0078d516366ca18eebbe",
+    "native-1920x1080-serial.log": "8644362daede8fd9d9b91a3ebbb2a0d33090e6259b6df7f7402aea39e32fd6d5",
+    "native-1920x1080.png": "dc01486930bf536f51c87b917c065db57b7c57c4b741bdb792ac469d5dec16e7",
+    "native-640x480-serial.log": "8644362daede8fd9d9b91a3ebbb2a0d33090e6259b6df7f7402aea39e32fd6d5",
+    "native-640x480.png": "513c6836a80cb2c8ba56b6af85557cb5e078198c0b568f68701edf8f44b147c6",
+    "oracle-before.log": "4bde12139e4f4296dc9a4139f3b0b16bc190033a0befbe85107f96dc74650c19",
+    "resolution-guest.log": "50c9b619c59d055cb84215da9dc2414324b8251e607d89e2c32930ae88e29dc8",
+    "resolution-manifest.json": "a0fb766020b47abc203c506df5ede37c7938cc1e3e75f34998456a256cb006d2",
+    "sanitizers.log": "48303099e623508975ef920daf02a119f2ccd4ce30705059343e9b9392d8f922",
+    "toolchain.log": "c19c1acccb42a25a78e74cf18f0212d5a014212e507847d09d334ad52128e147"
+  }
+}

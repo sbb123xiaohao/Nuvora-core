@@ -26,6 +26,13 @@ static inline u32 desktop_round_coverage(u32 px,u32 py,u32 w,u32 h,u32 radius) {
     i64 coverage=(i64)radius*radius*4-cx*cx-cy*cy+2*radius;
     return coverage<=0?0:(u32)(MIN(coverage,(i64)4*radius)*255/(4*radius));
 }
+static inline void desktop_round_edge(u32 *out,i32 left,i32 right,i32 x,u32 py,
+    u32 w,u32 h,u32 radius,u32 color,u32 opacity) {
+    for (i32 px=left;px<right;++px) {
+        u32 alpha=desktop_round_coverage((u32)((i64)px-x),py,w,h,radius)*opacity/255;
+        if (alpha) out[px]=alpha==255?color:desktop_blend(color,out[px],alpha);
+    }
+}
 static inline void desktop_round_alpha(struct nv_canvas *c,struct desktop_clip clip,
     i32 x,i32 y,u32 w,u32 h,u32 radius,u32 rgb,u32 opacity) {
     if (!w || !h || !opacity) return;
@@ -33,14 +40,21 @@ static inline void desktop_round_alpha(struct nv_canvas *c,struct desktop_clip c
     i32 left=MAX(MAX(x,0),(i32)clip.left),right=MIN(MIN((i64)x+w,(i64)c->width),(i64)clip.right);
     i32 top=MAX(MAX(y,(i32)c->y0),(i32)clip.top);
     i32 bottom=MIN(MIN((i64)y+h,(i64)c->y0+c->rows),(i64)clip.bottom);
+    if (left>=right || top>=bottom) return;
     u32 color=nv_display_rgb(c->format,rgb);
     for (i32 py=top;py<bottom;++py) {
         u32 *out=c->pixels+(usize)(py-(i32)c->y0)*c->width;
-        for (i32 px=left;px<right;++px) {
-            u32 alpha=desktop_round_coverage((u32)(px-x),(u32)(py-y),w,h,radius)*opacity/255;
-            if (!alpha) continue;
-            out[px]=alpha==255?color:desktop_blend(color,out[px],alpha);
-        }
+        u32 row=(u32)((i64)py-y);
+        bool corner=row<radius || row>=h-radius;
+        i32 core_left=corner?MAX(left,MIN((i64)x+radius,(i64)right)):left;
+        i32 core_right=corner?MAX(left,MIN((i64)x+w-radius,(i64)right)):right;
+        /* Only the corner bands need coverage math. The interior is one span,
+         * including clipped tiles wholly inside a card and radius-zero frames. */
+        desktop_round_edge(out,left,core_left,x,row,w,h,radius,color,opacity);
+        if (opacity==255) for (i32 px=core_left;px<core_right;++px) out[px]=color;
+        else for (i32 px=core_left;px<core_right;++px)
+            out[px]=desktop_blend(color,out[px],opacity);
+        desktop_round_edge(out,core_right,right,x,row,w,h,radius,color,opacity);
     }
 }
 static inline void desktop_round(struct nv_canvas *c,struct desktop_clip clip,

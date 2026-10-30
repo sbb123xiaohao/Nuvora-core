@@ -1,5 +1,31 @@
 # 测试与复现
 
+## 未发布：圆角绘制的连续扫描行
+
+基于完整 `aba81d4`，2026-10-30。Arch GCC 16.2.1、QEMU 11.1.1 TCG、
+OVMF；生产 UEFI/q35/256 MiB/NVMe/USB，没有进行实体硬件测试。
+
+- 修改前后的同一新增像素参考测试均通过 8,192 组输入；预期值独立计算覆盖率
+  和各颜色通道，不调用被优化的覆盖率、混色或扫描行函数。守卫检查缓冲区边界。
+- 从基线提交提取完整头文件，用同一 `display_test.c` 生成旧新合成器画面，
+  文件管理、设置、Apps、终端、编辑及音量等 9 个场景的像素与文件摘要完全相同。
+- 默认及 `COMPAT=none` 构建各通过 55 组宿主回归；共享控件与完整合成器另通过
+  ASan/UBSan。生产桌面继续验证 Terminal/Media/Folio、切换/总览/平铺、保存与
+  播放；原生配置在 640×480、1920×1080 验证最大化、半屏和实际输入/持久化。
+- 微基准使用原生应用的标量优化选项，旧新二进制交替运行三对，每次取七次
+  样本中位数；四项最终像素校验和一致。没有把宿主微基准等同于客体帧率。
+
+```sh
+make -j4 diagnostics esp
+make test-host
+make COMPAT=none -j4 diagnostics esp
+make COMPAT=none test-host
+python3 tests/desktop_boot_test.py --clip /path/to/prepared-six-second-clip.mpg
+NV_COMPAT=none python3 tests/resolution_desktop_test.py --resolutions 640x480 1920x1080
+```
+
+原始数据、编译选项及复现方法见[圆角绘制验证](verification/0.15.0/gui-raster/README.md)。
+
 ## 未发布：窗口标题与系统应用身份
 
 以完整 `aa30086` 为基线，2026-10-25。Arch GCC 16.2.1、QEMU 11.1.1 TCG、
